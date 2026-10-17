@@ -13,3 +13,26 @@ models:
               arguments: {values: [support, success]}
       - name: amount
         data_tests: [not_null]
+
+  - name: stg_erp__vendor_bills
+    description: "Grain: one row per vendor invoice (one per vendor per service month)."
+    columns:
+      - name: bill_id
+        data_tests: [unique, not_null]
+      - name: vendor_id
+        data_tests:
+          - relationships:
+              arguments: {to: ref('vendor_contracts'), field: vendor_id}
+
+  - name: stg_erp__vendor_bill_lines
+    description: "Grain: one row per invoice line."
+    columns:
+      - name: bill_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('stg_erp__vendor_bills'), field: bill_id}
+      - name: line_type
+        data_tests:
+          - accepted_values:
+              arguments: {values: [gpu_usage, commit_shortfall, cloud_services]}

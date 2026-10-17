@@ -57,3 +57,19 @@ anomalies:
     gpu_seconds_multiplier: "1.8"   # low-concurrency real-time sessions
     description: Enterprise customer moves most volume to streaming with low GPU utilization; gross margin falls below the floor.
     expected_detection: fct_customer_margin_monthly.is_below_floor = true for EN-002 from 2026-02
+  - anomaly_id: A-M3-01
+    module: M3
+    kind: untagged_gpu_cluster
+    entity_id: gpu-cluster-a100-scratch
+    start: 2026-05-11
+    days: 9
+    service: Compute Engine
+    sku: A100 80GB GPU running in Americas
+    daily_cost: "460.80"            # 8 × A100 × 24 h × $2.40
+    description: A GPU cluster left running without labels for 9 days (untagged spike).
+    expected_detection: fct_untagged_spend_daily.is_spike = true on each of the 9 days
+
+# --- Vendor billing (raw_erp). Rates and contracts are read from warehouse/seeds. ---
+vendor_billing:
+  metering_noise_pct: "0.004"       # vendor-metered vs. our job logs, per month (±)
+  bill_day: 5                       # invoice dated the 5th of the following month

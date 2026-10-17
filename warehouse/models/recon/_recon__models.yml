@@ -1,0 +1,13 @@
+version: 2
+
+models:
+  - name: recon_vendor_invoices
+    description: "Grain: vendor × service month. Vendor invoice vs. modeled cost, 1% tolerance (design §8 M3)."
+    data_tests:
+      - dbt_utils_free_unique_combination:
+          arguments: {columns: [vendor_id, period]}
+    columns:
+      - name: status
+        data_tests:
+          - accepted_values:
+              arguments: {values: [pass]}

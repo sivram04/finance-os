@@ -7,3 +7,5 @@ sources:
     loaded_at_field: _loaded_at
     tables:
       - name: opex_pools_monthly
+      - name: vendor_bills
+      - name: vendor_bill_lines

@@ -19,3 +19,9 @@ cd warehouse && ../.venv/Scripts/dbt build --profiles-dir .
   seed-driven cost allocation; `fct_unit_economics_monthly`, `fct_customer_margin_monthly`.
   Switch allocation drivers with `dbt build --vars '{allocation_scenario: hours}'`.
   Revenue is rated usage and payment fees are modeled until Stripe is connected.
+- Step 3 (M3 tech spend): GPU vendor contract with reserved H100 hours, monthly vendor invoices,
+  `fct_tech_spend_daily` (label attribution), tagging coverage, untagged-spike detection, GPU capacity vs. commit,
+  vendor renewal flags, 3-month spend forecast, and `recon.recon_vendor_invoices` (invoice vs. modeled, 1%).
+  Uses synthetic cloud lines; the real GCP billing export joins on the BigQuery target.
+
+After changing a seed's columns, run `dbt seed --full-refresh` once.

@@ -40,3 +40,18 @@ def test_streaming_shift_anomaly_changes_mix_from_start_date():
     assert {u["product_id"] for u in after} == {"batch_pro", "stream"}
     stream_share = sum(u["audio_hours"] for u in after if u["product_id"] == "stream") / sum(u["audio_hours"] for u in after)
     assert abs(stream_share - Decimal("0.80")) < Decimal("0.01")
+
+
+def test_vendor_bill_totals_equal_sum_of_lines():
+    t = generate()
+    by_bill = {}
+    for line in t["vendor_bill_lines"]:
+        by_bill[line["bill_id"]] = by_bill.get(line["bill_id"], Decimal(0)) + line["amount"]
+    assert all(b["total_amount"] == by_bill[b["bill_id"]] for b in t["vendor_bills"])
+
+
+def test_untagged_cluster_anomaly_adds_unlabeled_lines_for_each_day():
+    t = generate()
+    a = next(x for x in t["anomaly_manifest"] if x["kind"] == "untagged_gpu_cluster")
+    days = {c["usage_date"] for c in t["cloud_costs_daily"] if c["label_team"] is None and "GPU" in c["sku"]}
+    assert len(days) == 9 and min(days) == a["start_date"]

@@ -3,7 +3,8 @@
 GPU jobs: each usage row is served by 1–3 jobs; GPU seconds = audio hours × the model's
 seconds-per-hour × noise (× the anomaly multiplier where one applies). Each model also
 burns shared idle/warm-pool seconds per day, logged as jobs with no customer.
-Cloud overhead: fixed $/day + $ per audio hour served that day, per configured line.
+Cloud overhead: fixed $/day + $ per audio hour served that day, per configured line,
+plus any untagged_gpu_cluster anomaly lines.
 """
 from collections import defaultdict
 from datetime import timedelta
@@ -77,4 +78,17 @@ def build_cloud_costs(cfg, usage):
                 "cost": cost.quantize(COST_DP),
             })
         day += timedelta(days=1)
+
+    for a in cfg.get("anomalies", []):
+        if a["kind"] != "untagged_gpu_cluster":
+            continue
+        for i in range(a["days"]):
+            rows.append({
+                "usage_date": a["start"] + timedelta(days=i),
+                "service": a["service"],
+                "sku": a["sku"],
+                "label_team": None,
+                "label_env": None,
+                "cost": Decimal(a["daily_cost"]).quantize(COST_DP),
+            })
     return rows

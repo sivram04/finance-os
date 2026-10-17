@@ -30,6 +30,10 @@ SCHEMAS = {
                                          "label_team": "VARCHAR", "label_env": "VARCHAR",
                                          "cost": "DECIMAL(18,6)"},
     ("raw_erp", "opex_pools_monthly"): {"month": "DATE", "pool": "VARCHAR", "amount": "DECIMAL(18,2)"},
+    ("raw_erp", "vendor_bills"): {"bill_id": "VARCHAR", "vendor_id": "VARCHAR", "service_month": "DATE",
+                                  "bill_date": "DATE", "total_amount": "DECIMAL(18,2)"},
+    ("raw_erp", "vendor_bill_lines"): {"bill_id": "VARCHAR", "line_type": "VARCHAR", "gpu_type": "VARCHAR",
+                                       "quantity_hours": "DECIMAL(18,4)", "amount": "DECIMAL(18,2)"},
 }
 
 

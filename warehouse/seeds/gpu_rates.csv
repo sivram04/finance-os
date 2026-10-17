@@ -1,5 +1,5 @@
-gpu_type,effective_from,effective_to,rate_per_gpu_hour
-L4,2025-01-01,,0.80
-A100,2025-01-01,,2.40
-H100,2025-01-01,2025-12-31,3.90
-H100,2026-01-01,,3.40
+gpu_type,vendor_id,effective_from,effective_to,rate_per_gpu_hour
+L4,gcp,2025-01-01,,0.80
+A100,nimbus,2025-01-01,,2.40
+H100,nimbus,2025-01-01,2025-12-31,3.90
+H100,nimbus,2026-01-01,,3.40

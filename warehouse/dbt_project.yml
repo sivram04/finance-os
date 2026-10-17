@@ -16,6 +16,8 @@ seeds:
     +schema: seeds
     gpu_rates:
       +column_types: {effective_from: date, effective_to: date, rate_per_gpu_hour: "decimal(18,4)"}
+    vendor_contracts:
+      +column_types: {start_date: date, end_date: date, committed_gpu_hours_month: "decimal(18,4)", renewal_notice_days: integer}
     margin_floors:
       +column_types: {gross_margin_floor_pct: "decimal(5,4)"}
     payment_fee_schedule:
@@ -32,3 +34,6 @@ models:
     marts:
       +materialized: table
       +schema: marts
+    recon:
+      +materialized: table
+      +schema: recon

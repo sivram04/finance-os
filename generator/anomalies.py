@@ -7,7 +7,7 @@ def build_manifest(cfg):
             "anomaly_id": a["anomaly_id"],
             "module": a["module"],
             "kind": a["kind"],
-            "entity_id": a["customer_id"],
+            "entity_id": a.get("customer_id") or a["entity_id"],
             "start_date": a["start"],
             "description": a["description"],
             "expected_detection": a["expected_detection"],

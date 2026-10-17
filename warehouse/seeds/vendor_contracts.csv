@@ -1,0 +1,3 @@
+vendor_id,vendor_name,contract_id,category,start_date,end_date,committed_gpu_type,committed_gpu_hours_month,renewal_notice_days
+gcp,Google Cloud,GCP-ONDEMAND,cloud,2025-01-01,,,,
+nimbus,Nimbus GPU Cloud,NIM-2025-01,gpu,2025-01-01,2026-12-31,H100,12000,90

@@ -1,0 +1,52 @@
+version: 2
+
+models:
+  - name: fct_tech_spend_daily
+    description: >
+      Grain: day × vendor × category × service × sku × model × product × customer × team × env.
+      GPU and cloud spend with label attribution; untagged spend is its own team/env value (FR-3.1).
+    columns:
+      - name: cost
+        data_tests: [not_null]
+      - name: team
+        data_tests: [not_null]
+      - name: vendor_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('vendor_contracts'), field: vendor_id}
+
+  - name: fct_tagging_coverage_monthly
+    description: "Grain: month. Tagged ÷ total spend (FR-3.2)."
+    columns:
+      - name: month
+        data_tests: [unique, not_null]
+      - name: tagging_coverage_pct
+        data_tests: [not_null]
+
+  - name: fct_untagged_spend_daily
+    description: "Grain: day. Untagged spend vs. trailing 28-day median; is_spike feeds alerts (M13)."
+    columns:
+      - name: spend_date
+        data_tests: [unique, not_null]
+
+  - name: fct_gpu_capacity_monthly
+    description: "Grain: vendor × GPU type × month. Used vs. committed GPU hours and unused-commit cost (FR-3.4)."
+    data_tests:
+      - dbt_utils_free_unique_combination:
+          arguments: {columns: [vendor_id, month, gpu_type]}
+
+  - name: fct_vendor_contracts
+    description: "Grain: one row per vendor contract. Spend run-rate, end date and renewal flag (FR-3.5)."
+    columns:
+      - name: contract_id
+        data_tests: [unique, not_null]
+
+  - name: fct_spend_forecast
+    description: "Grain: forecast month × vendor × line type × GPU type. 3-month forecast from T3M trend (FR-3.3)."
+    data_tests:
+      - dbt_utils_free_unique_combination:
+          arguments: {columns: [forecast_month, vendor_id, line_type, gpu_type]}
+    columns:
+      - name: forecast_amount
+        data_tests: [not_null]
