@@ -1,0 +1,21 @@
+name: finance_os
+version: "0.1.0"
+config-version: 2
+profile: finance_os
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+test-paths: ["tests"]
+snapshot-paths: ["snapshots"]
+
+models:
+  finance_os:
+    staging:
+      +materialized: view
+      +schema: staging
+    intermediate:
+      +materialized: view
+      +schema: intermediate
+    marts:
+      +materialized: table
+      +schema: marts

@@ -1,0 +1,8 @@
+finance_os:
+  target: local
+  outputs:
+    local:
+      type: duckdb
+      path: "{{ env_var('FINANCE_OS_DUCKDB', '../data/finance_os.duckdb') }}"
+      threads: 4
+    # cloud (BigQuery) target is added when the GCP project is set up (§6.4).

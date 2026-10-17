@@ -1,0 +1,70 @@
+version: 2
+
+models:
+  - name: stg_synthetic__products
+    description: "Grain: one row per product (model × workload)."
+    columns:
+      - name: product_id
+        data_tests: [unique, not_null]
+      - name: workload
+        data_tests:
+          - accepted_values:
+              arguments: {values: [batch, streaming]}
+      - name: list_price_per_hour
+        data_tests: [not_null]
+
+  - name: stg_synthetic__volume_tiers
+    description: "Grain: one row per monthly volume tier."
+    columns:
+      - name: tier
+        data_tests: [unique, not_null]
+      - name: min_hours_month
+        data_tests: [unique, not_null]
+
+  - name: stg_synthetic__customers
+    description: "Grain: one row per usage customer."
+    columns:
+      - name: customer_id
+        data_tests: [unique, not_null]
+      - name: segment
+        data_tests:
+          - accepted_values:
+              arguments: {values: [self_serve, mid_market, enterprise]}
+
+  - name: stg_synthetic__customer_product_mix
+    description: "Grain: one row per customer × product. Shares sum to 1 per customer."
+    data_tests:
+      - dbt_utils_free_unique_combination:
+          arguments: {columns: [customer_id, product_id]}
+    columns:
+      - name: customer_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('stg_synthetic__customers'), field: customer_id}
+      - name: product_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('stg_synthetic__products'), field: product_id}
+
+  - name: stg_synthetic__usage_daily
+    description: "Grain: one row per usage date × customer × product."
+    data_tests:
+      - dbt_utils_free_unique_combination:
+          arguments: {columns: [usage_date, customer_id, product_id]}
+    columns:
+      - name: usage_id
+        data_tests: [unique, not_null]
+      - name: customer_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('stg_synthetic__customers'), field: customer_id}
+      - name: product_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('stg_synthetic__products'), field: product_id}
+      - name: audio_hours
+        data_tests: [not_null]

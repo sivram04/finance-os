@@ -1,0 +1,13 @@
+version: 2
+
+sources:
+  - name: synthetic
+    schema: raw_synth
+    description: Echo Labs synthetic data from generator/ (seeded, deterministic).
+    loaded_at_field: _loaded_at
+    tables:
+      - name: products
+      - name: volume_tiers
+      - name: customers
+      - name: customer_product_mix
+      - name: usage_daily

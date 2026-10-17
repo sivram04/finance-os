@@ -1,0 +1,22 @@
+# Echo Labs synthetic company. Design doc §3.
+seed: 20250101
+window:
+  start: 2025-01-01
+  end: 2026-09-30
+
+products:
+  - {product_id: batch_base,  model: echo-base,   workload: batch,     list_price_per_hour: "0.15"}
+  - {product_id: batch_pro,   model: echo-pro,    workload: batch,     list_price_per_hour: "0.37"}
+  - {product_id: stream,      model: echo-stream, workload: streaming, list_price_per_hour: "0.47"}
+
+# Monthly volume tiers, applied to a customer's total hours in a month.
+volume_tiers:
+  - {min_hours_month: 0,      discount_pct: "0.00"}
+  - {min_hours_month: 10000,  discount_pct: "0.10"}
+  - {min_hours_month: 100000, discount_pct: "0.20"}
+
+# Starting monthly audio hours per customer (range), and monthly growth (range).
+segments:
+  self_serve:  {count: 25, start_hours: [20, 400],       growth: ["-0.02", "0.06"]}
+  mid_market:  {count: 11, start_hours: [1500, 9000],    growth: ["0.00", "0.05"]}
+  enterprise:  {count: 4,  start_hours: [30000, 110000], growth: ["0.01", "0.04"]}
