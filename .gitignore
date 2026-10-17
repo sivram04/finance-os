@@ -9,3 +9,4 @@ warehouse/dbt_packages/
 *.duckdb.wal
 .env
 warehouse/.user.yml
+reports/

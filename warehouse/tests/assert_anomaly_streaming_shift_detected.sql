@@ -1,6 +1,7 @@
 -- FR-1.4: every streaming_shift anomaly in the manifest must be caught.
--- Fails if the customer is not below floor from the anomaly's start month,
--- or was already below floor before it (then the shift is not what caused it).
+-- Fails if the customer is not below floor from the anomaly's start month, or was already below floor
+-- in the 3 months just before it (then the shift is not what caused it). Earlier months can be below
+-- floor for other reasons (e.g. unused GPU commit in 2025) and are left to warn_unexpected_below_floor.
 select
     a.anomaly_id,
     m.customer_id,
@@ -13,5 +14,7 @@ join {{ ref('fct_customer_margin_monthly') }} m on m.customer_id = a.entity_id
 where a.kind = 'streaming_shift'
   and (
         (m.month >= date_trunc('month', a.start_date) and not m.is_below_floor)
-     or (m.month <  date_trunc('month', a.start_date) and m.is_below_floor)
+     or (m.month >= date_trunc('month', a.start_date) - interval 3 month
+         and m.month < date_trunc('month', a.start_date)
+         and m.is_below_floor)
   )

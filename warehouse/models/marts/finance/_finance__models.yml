@@ -18,8 +18,8 @@ models:
   - name: fct_unit_economics_monthly
     description: >
       Grain: customer × product × month. Revenue is rated usage (list × volume tier) until Stripe lands.
-      COGS = direct GPU + shared GPU + prod cloud overhead, allocated per seeds/allocation_rules.csv.
-      Payment fees are modeled (ASSUMED); support and success pools are placeholders until payroll exists.
+      COGS = direct GPU + shared GPU + unused GPU commit + prod cloud overhead, allocated per seeds/allocation_rules.csv.
+      Payment fees are modeled (ASSUMED); support and success pools are fully loaded payroll of those functions.
     data_tests:
       - dbt_utils_free_unique_combination:
           arguments: {columns: [month, customer_id, product_id]}
@@ -44,4 +44,50 @@ models:
           arguments: {columns: [month, customer_id]}
     columns:
       - name: is_below_floor
+        data_tests: [not_null]
+
+  - name: dim_department
+    description: "Grain: one row per department / cost center."
+    columns:
+      - name: department_id
+        data_tests: [unique, not_null]
+
+  - name: dim_gl_account
+    description: "Grain: one row per GL account."
+    columns:
+      - name: account_id
+        data_tests: [unique, not_null]
+
+  - name: fct_gl_monthly
+    description: "Grain: account × department × month. amount = debit − credit; natural_amount is positive for normal balances."
+    data_tests:
+      - dbt_utils_free_unique_combination:
+          arguments: {columns: [month, account_id, department_id]}
+
+  - name: fct_cash_monthly
+    description: "Grain: month. Opening/closing cash, operating in/out, financing, gross and net burn (FR-4.1)."
+    columns:
+      - name: month
+        data_tests: [unique, not_null]
+      - name: closing_cash
+        data_tests: [not_null]
+
+  - name: fct_headcount_monthly
+    description: "Grain: department × month. Month-end headcount, hires, leavers."
+    data_tests:
+      - dbt_utils_free_unique_combination:
+          arguments: {columns: [month, department_id]}
+
+  - name: fct_kpi_monthly
+    description: "Grain: metric × month. Every KPI comes from the metric catalog (FR-4.5)."
+    data_tests:
+      - dbt_utils_free_unique_combination:
+          arguments: {columns: [month, metric_name]}
+    columns:
+      - name: metric_name
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('metric_catalog'), field: metric_name}
+      - name: value
         data_tests: [not_null]

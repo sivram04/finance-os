@@ -1,0 +1,31 @@
+version: 2
+
+models:
+  - name: stg_payroll__employees
+    description: "Grain: one row per employee (current and former)."
+    columns:
+      - name: employee_id
+        data_tests: [unique, not_null]
+      - name: department_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('departments'), field: department_id}
+      - name: function
+        data_tests:
+          - accepted_values:
+              arguments: {values: [engineering, infrastructure, sales, success, professional_services, support, g_and_a]}
+
+  - name: stg_payroll__pay_lines
+    description: "Grain: one row per pay run × employee. total_cost = gross + employer tax + benefits."
+    data_tests:
+      - dbt_utils_free_unique_combination:
+          arguments: {columns: [pay_run_id, employee_id]}
+    columns:
+      - name: employee_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('stg_payroll__employees'), field: employee_id}
+      - name: pay_month
+        data_tests: [not_null]

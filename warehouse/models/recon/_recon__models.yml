@@ -6,6 +6,21 @@ models:
     data_tests:
       - dbt_utils_free_unique_combination:
           arguments: {columns: [vendor_id, period]}
+
+  - name: recon_vendor_bills_gl
+    description: "Grain: vendor invoice. Invoice total vs. AP credit posted in the GL."
+
+  - name: recon_gl_revenue
+    description: "Grain: month. GL usage revenue vs. rated usage (stand-in for Stripe ↔ GL)."
+
+  - name: recon_payroll_gl
+    description: "Grain: month. Payroll register vs. GL payroll accounts (FR-12.5)."
+
+  - name: recon_status
+    description: "Grain: check × period × entity. Every reconciliation in one table (FR-12.6)."
+    data_tests:
+      - dbt_utils_free_unique_combination:
+          arguments: {columns: [check_name, period, entity_id]}
     columns:
       - name: status
         data_tests:

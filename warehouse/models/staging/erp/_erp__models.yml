@@ -1,18 +1,6 @@
 version: 2
 
 models:
-  - name: stg_erp__opex_pools_monthly
-    description: "Grain: one row per month × pool (support, success). Placeholder until payroll exists."
-    data_tests:
-      - dbt_utils_free_unique_combination:
-          arguments: {columns: [month, pool]}
-    columns:
-      - name: pool
-        data_tests:
-          - accepted_values:
-              arguments: {values: [support, success]}
-      - name: amount
-        data_tests: [not_null]
 
   - name: stg_erp__vendor_bills
     description: "Grain: one row per vendor invoice (one per vendor per service month)."
@@ -36,3 +24,34 @@ models:
         data_tests:
           - accepted_values:
               arguments: {values: [gpu_usage, commit_shortfall, cloud_services]}
+
+  - name: stg_erp__journal_entries
+    description: "Grain: one row per journal entry."
+    columns:
+      - name: entry_id
+        data_tests: [unique, not_null]
+      - name: entry_type
+        data_tests:
+          - accepted_values:
+              arguments: {values: [revenue, collection, payment_fee, vendor_bill, vendor_payment, payroll, opex, funding]}
+
+  - name: stg_erp__journal_lines
+    description: "Grain: one row per journal line. amount = debit − credit."
+    data_tests:
+      - dbt_utils_free_unique_combination:
+          arguments: {columns: [entry_id, line_no]}
+    columns:
+      - name: entry_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('stg_erp__journal_entries'), field: entry_id}
+      - name: account_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('gl_accounts'), field: account_id}
+      - name: department_id
+        data_tests:
+          - relationships:
+              arguments: {to: ref('departments'), field: department_id}

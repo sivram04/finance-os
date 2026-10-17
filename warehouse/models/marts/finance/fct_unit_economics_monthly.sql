@@ -1,5 +1,5 @@
 -- FR-2.1–2.3: revenue, cost to serve, gross and contribution margin per customer × product × month.
--- COGS = direct GPU + allocated shared GPU + allocated prod cloud overhead.
+-- COGS = direct GPU + allocated shared GPU + allocated unused GPU commit + allocated prod cloud overhead.
 -- Contribution = gross margin − payment fees − allocated support − allocated success.
 with direct_gpu as (
     select job_month as month, customer_id, product_id, sum(gpu_seconds) as gpu_seconds, sum(gpu_cost) as direct_gpu_cost
@@ -14,6 +14,7 @@ alloc as (
         customer_id,
         product_id,
         sum(case when pool = 'shared_gpu' then allocated_amount else 0 end) as shared_gpu_cost,
+        sum(case when pool = 'gpu_commit_shortfall' then allocated_amount else 0 end) as gpu_commit_shortfall_cost,
         sum(case when pool = 'cloud_overhead' then allocated_amount else 0 end) as cloud_overhead_cost,
         sum(case when pool = 'support' then allocated_amount else 0 end) as support_cost,
         sum(case when pool = 'success' then allocated_amount else 0 end) as success_cost
@@ -36,6 +37,7 @@ joined as (
         r.revenue,
         coalesce(g.direct_gpu_cost, 0) as direct_gpu_cost,
         coalesce(a.shared_gpu_cost, 0) as shared_gpu_cost,
+        coalesce(a.gpu_commit_shortfall_cost, 0) as gpu_commit_shortfall_cost,
         coalesce(a.cloud_overhead_cost, 0) as cloud_overhead_cost,
         coalesce(f.payment_fees, 0) as payment_fees,
         coalesce(a.support_cost, 0) as support_cost,
@@ -52,7 +54,7 @@ joined as (
 calc as (
     select
         *,
-        direct_gpu_cost + shared_gpu_cost + cloud_overhead_cost as cogs
+        direct_gpu_cost + shared_gpu_cost + gpu_commit_shortfall_cost + cloud_overhead_cost as cogs
     from joined
 )
 
@@ -70,6 +72,7 @@ select
     revenue,
     cast(round(direct_gpu_cost, 2) as decimal(18, 2)) as direct_gpu_cost,
     cast(round(shared_gpu_cost, 2) as decimal(18, 2)) as shared_gpu_cost,
+    cast(round(gpu_commit_shortfall_cost, 2) as decimal(18, 2)) as gpu_commit_shortfall_cost,
     cast(round(cloud_overhead_cost, 2) as decimal(18, 2)) as cloud_overhead_cost,
     cast(round(cogs, 2) as decimal(18, 2)) as cogs,
     cast(round(revenue - cogs, 2) as decimal(18, 2)) as gross_margin,

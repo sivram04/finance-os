@@ -8,7 +8,7 @@ Finance and project-accounting platform for the fictional company Echo Labs. Des
 python -m venv .venv
 .venv/Scripts/pip install -r requirements.txt
 .venv/Scripts/python -m generator                 # CSVs → data/synthetic/
-.venv/Scripts/python -m ingestion.synthetic_loader  # → data/finance_os.duckdb, schema raw_synth
+.venv/Scripts/python -m ingestion.synthetic_loader  # → data/finance_os.duckdb, raw_* schemas
 cd warehouse && ../.venv/Scripts/dbt build --profiles-dir .
 .venv/Scripts/python -m pytest tests
 ```
@@ -23,5 +23,21 @@ cd warehouse && ../.venv/Scripts/dbt build --profiles-dir .
   `fct_tech_spend_daily` (label attribution), tagging coverage, untagged-spike detection, GPU capacity vs. commit,
   vendor renewal flags, 3-month spend forecast, and `recon.recon_vendor_invoices` (invoice vs. modeled, 1%).
   Uses synthetic cloud lines; the real GCP billing export joins on the BigQuery target.
+- Step 4 (M4 burn, runway, KPIs): employees and payroll, a double-entry GL (revenue, collections, fees,
+  vendor bills and payments, payroll, opex, funding), `fct_gl_monthly`, `fct_cash_monthly`, `fct_headcount_monthly`,
+  `fct_kpi_monthly`; recon checks GL ↔ rated revenue, payroll ↔ GL, vendor bills ↔ AP, all in `recon.recon_status`.
+  Unit economics now include unused reserved GPU hours, and support/success cost comes from payroll.
+
+## Metrics and board pack
+KPIs are defined in `warehouse/metrics/kpis.yml`. After editing it:
+```bash
+.venv/Scripts/python scripts/build_metric_catalog.py
+```
+That writes `warehouse/seeds/metric_catalog.csv` and [docs/METRIC_CATALOG.md](docs/METRIC_CATALOG.md); dbt fails any KPI not in the catalog.
+
+One-page board summary for the latest month (written to `reports/`):
+```bash
+.venv/Scripts/python scripts/board_pack.py
+```
 
 After changing a seed's columns, run `dbt seed --full-refresh` once.

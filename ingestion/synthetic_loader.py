@@ -1,4 +1,4 @@
-"""Load generator CSVs into DuckDB raw schemas (raw_synth, raw_infra, raw_erp) with explicit types (money as DECIMAL, NFR-1).
+"""Load generator CSVs into DuckDB raw schemas (raw_synth, raw_infra, raw_erp, raw_payroll) with explicit types (money as DECIMAL, NFR-1).
 
     python -m ingestion.synthetic_loader [--src data/synthetic] [--db data/finance_os.duckdb]
 
@@ -29,7 +29,19 @@ SCHEMAS = {
     ("raw_infra", "cloud_costs_daily"): {"usage_date": "DATE", "service": "VARCHAR", "sku": "VARCHAR",
                                          "label_team": "VARCHAR", "label_env": "VARCHAR",
                                          "cost": "DECIMAL(18,6)"},
-    ("raw_erp", "opex_pools_monthly"): {"month": "DATE", "pool": "VARCHAR", "amount": "DECIMAL(18,2)"},
+    ("raw_erp", "journal_entries"): {"entry_id": "VARCHAR", "entry_date": "DATE", "entry_type": "VARCHAR",
+                                     "memo": "VARCHAR", "source_ref": "VARCHAR"},
+    ("raw_erp", "journal_lines"): {"entry_id": "VARCHAR", "line_no": "INTEGER", "account_id": "VARCHAR",
+                                   "department_id": "VARCHAR", "customer_id": "VARCHAR", "vendor_id": "VARCHAR",
+                                   "debit": "DECIMAL(18,2)", "credit": "DECIMAL(18,2)"},
+    ("raw_payroll", "employees"): {"employee_id": "VARCHAR", "employee_name": "VARCHAR", "department_id": "VARCHAR",
+                                   "function": "VARCHAR", "title": "VARCHAR", "hire_date": "DATE",
+                                   "termination_date": "DATE", "annual_salary": "DECIMAL(18,2)"},
+    ("raw_payroll", "pay_runs"): {"pay_run_id": "VARCHAR", "period_start": "DATE", "period_end": "DATE",
+                                  "pay_date": "DATE"},
+    ("raw_payroll", "pay_lines"): {"pay_run_id": "VARCHAR", "employee_id": "VARCHAR", "department_id": "VARCHAR",
+                                   "gross_pay": "DECIMAL(18,2)", "employer_tax": "DECIMAL(18,2)",
+                                   "benefits": "DECIMAL(18,2)"},
     ("raw_erp", "vendor_bills"): {"bill_id": "VARCHAR", "vendor_id": "VARCHAR", "service_month": "DATE",
                                   "bill_date": "DATE", "total_amount": "DECIMAL(18,2)"},
     ("raw_erp", "vendor_bill_lines"): {"bill_id": "VARCHAR", "line_type": "VARCHAR", "gpu_type": "VARCHAR",
@@ -40,6 +52,7 @@ SCHEMAS = {
 def load(src: Path, db: Path):
     db.parent.mkdir(parents=True, exist_ok=True)
     con = duckdb.connect(str(db))
+    con.execute("DROP TABLE IF EXISTS raw_erp.opex_pools_monthly")  # replaced by payroll (step 4)
     for (schema, table), cols in SCHEMAS.items():
         con.execute(f"CREATE SCHEMA IF NOT EXISTS {schema}")
         path = (src / f"{table}.csv").as_posix()

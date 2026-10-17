@@ -1,10 +1,12 @@
 scenario,pool,driver,scope,note
 base,shared_gpu,gpu_seconds,product,Idle and warm-pool GPU by direct GPU-seconds within the same model
+base,gpu_commit_shortfall,gpu_seconds,product,Unused reserved GPU hours by direct GPU-seconds within the product
 base,cloud_overhead,requests,all,Prod infra storage/network/logging by API requests
 base,support,revenue,all,Support team cost by revenue share
 base,success,revenue,all,Customer success cost by revenue share
 base,untagged_cloud,none,all,Not allocated; reported as its own line
 hours,shared_gpu,gpu_seconds,product,Same as base
+hours,gpu_commit_shortfall,gpu_seconds,product,Same as base
 hours,cloud_overhead,audio_hours,all,Overhead by audio hours instead of requests
 hours,support,audio_hours,all,Support by audio hours
 hours,success,revenue,all,Same as base

@@ -14,8 +14,10 @@ import yaml
 from generator.anomalies import build_manifest
 from generator.entities.catalog import build_products, build_volume_tiers
 from generator.entities.customers import build_customers
+from generator.entities.employees import build_employees
 from generator.events.infra import build_cloud_costs, build_gpu_jobs
-from generator.events.opex import build_opex_pools
+from generator.events.ledger import build_ledger
+from generator.events.payroll import build_payroll
 from generator.events.usage import build_usage
 from generator.events.vendor_bills import build_vendor_bills
 
@@ -30,6 +32,9 @@ def generate(seed=None):
     gpu_jobs = build_gpu_jobs(cfg, usage, rng)
     cloud_costs = build_cloud_costs(cfg, usage)
     bills, bill_lines = build_vendor_bills(cfg, gpu_jobs, cloud_costs, rng)
+    employees = build_employees(cfg, rng)
+    pay_runs, pay_lines = build_payroll(cfg, employees)
+    entries, lines = build_ledger(cfg, customers, usage, cloud_costs, bills, bill_lines, pay_lines, employees, rng)
     return {
         "products": build_products(cfg),
         "volume_tiers": build_volume_tiers(cfg),
@@ -40,7 +45,11 @@ def generate(seed=None):
         "cloud_costs_daily": cloud_costs,
         "vendor_bills": bills,
         "vendor_bill_lines": bill_lines,
-        "opex_pools_monthly": build_opex_pools(cfg),
+        "employees": employees,
+        "pay_runs": pay_runs,
+        "pay_lines": pay_lines,
+        "journal_entries": entries,
+        "journal_lines": lines,
         "anomaly_manifest": build_manifest(cfg),
     }
 

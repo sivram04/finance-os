@@ -1,0 +1,11 @@
+version: 2
+
+sources:
+  - name: payroll
+    schema: raw_payroll
+    description: Synthetic payroll provider export.
+    loaded_at_field: _loaded_at
+    tables:
+      - name: employees
+      - name: pay_runs
+      - name: pay_lines

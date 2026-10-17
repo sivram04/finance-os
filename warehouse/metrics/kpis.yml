@@ -1,0 +1,146 @@
+# Metric catalog (design §7.5, FR-4.5, NFR-10). Source of truth for every KPI in fct_kpi_monthly.
+# After editing, run: python scripts/build_metric_catalog.py
+# status: MEASURED (from source data) or ASSUMED (depends on a modeled input).
+metrics:
+  - name: revenue
+    label: Revenue
+    unit: usd
+    purpose: Top-line growth tracking and the base for every margin.
+    formula: Sum of GL usage revenue (account 4000) recognized in the month.
+    grain: month
+    source_model: fct_gl_monthly
+    owner: Controller
+    status: MEASURED
+    tolerance: Must equal rated usage revenue exactly (recon_gl_revenue).
+
+  - name: cogs
+    label: Cost of revenue
+    unit: usd
+    purpose: Gross margin and cost-to-serve trend.
+    formula: Sum of GL COGS accounts (5000 GPU, 5010 cloud hosting, 5100 payment processing).
+    grain: month
+    source_model: fct_gl_monthly
+    owner: Controller
+    status: MEASURED
+    tolerance: Vendor invoices reconcile to modeled cost within 1% (recon_vendor_invoices).
+
+  - name: opex
+    label: Operating expenses
+    unit: usd
+    purpose: Spending pace by department; input to BvA (M5).
+    formula: Sum of GL operating expense accounts (6000–6500).
+    grain: month
+    source_model: fct_gl_monthly
+    owner: Controller
+    status: MEASURED
+    tolerance: Payroll accounts equal the payroll register exactly (recon_payroll_gl).
+
+  - name: gross_margin_pct
+    label: Gross margin %
+    unit: ratio
+    purpose: Pricing and product mix decisions.
+    formula: (Revenue − COGS) ÷ Revenue, from the GL.
+    grain: month
+    source_model: fct_gl_monthly
+    owner: VP Finance
+    status: MEASURED
+    tolerance: GL-based; differs from fct_unit_economics_monthly, which allocates modeled cost and excludes payment fees.
+
+  - name: gross_burn
+    label: Gross burn
+    unit: usd
+    purpose: Spending pace in cash terms.
+    formula: Operating cash out (GL cash account 1000, excluding financing).
+    grain: month
+    source_model: fct_cash_monthly
+    owner: VP Finance
+    status: MEASURED
+    tolerance: Closing cash must never be negative.
+
+  - name: net_burn
+    label: Net burn
+    unit: usd
+    purpose: How fast the company consumes cash; drives runway.
+    formula: Operating cash out − operating cash in. Positive = burning.
+    grain: month
+    source_model: fct_cash_monthly
+    owner: VP Finance
+    status: MEASURED
+    tolerance: None beyond GL balance.
+
+  - name: closing_cash
+    label: Cash balance
+    unit: usd
+    purpose: Liquidity and fundraising timing.
+    formula: Cumulative net change in GL cash (account 1000) to month end.
+    grain: month
+    source_model: fct_cash_monthly
+    owner: VP Finance
+    status: MEASURED
+    tolerance: Will reconcile to Stripe payouts and bank statements in M12.
+
+  - name: runway_months
+    label: Runway
+    unit: months
+    purpose: Fundraising timing.
+    formula: Closing cash ÷ average net burn over the trailing 3 months. Blank when not burning or under 3 months of history.
+    grain: month
+    source_model: fct_cash_monthly
+    owner: VP Finance
+    status: MEASURED
+    tolerance: Assumes the trailing burn rate continues; not a forecast.
+
+  - name: arr
+    label: ARR
+    unit: usd
+    purpose: Growth tracking on an annualized basis.
+    formula: Usage run-rate (trailing-3-month revenue × 4) + committed annualized (none until contracts land in M6/M9).
+    grain: month
+    source_model: fct_gl_monthly
+    owner: VP Finance
+    status: MEASURED
+    tolerance: Usage-based ARR moves with seasonality; read with NRR.
+
+  - name: headcount
+    label: Headcount
+    unit: count
+    purpose: Hiring plan tracking and per-employee ratios.
+    formula: Employees hired on or before month end and not yet terminated.
+    grain: month
+    source_model: fct_headcount_monthly
+    owner: VP Finance
+    status: MEASURED
+    tolerance: Employees with pay in the month must reconcile to headcount ± hires and leavers.
+
+  - name: arr_per_employee
+    label: ARR per employee
+    unit: usd
+    purpose: Efficiency benchmark (FR-4.3 revenue per employee, on an annualized basis).
+    formula: ARR ÷ month-end headcount.
+    grain: month
+    source_model: fct_kpi_monthly
+    owner: VP Finance
+    status: MEASURED
+    tolerance: None.
+
+  - name: nrr
+    label: Net revenue retention
+    unit: ratio
+    purpose: Expansion health of the existing customer base.
+    formula: Trailing-3-month revenue now from customers who had revenue in the same window 12 months earlier ÷ their revenue then.
+    grain: month
+    source_model: fct_gl_monthly
+    owner: VP Finance
+    status: MEASURED
+    tolerance: Starts once 12 months plus a 3-month window of history exist.
+
+  - name: grr
+    label: Gross revenue retention
+    unit: ratio
+    purpose: Churn and contraction, with expansion removed.
+    formula: Same cohort as NRR, but each customer's current revenue is capped at its prior revenue.
+    grain: month
+    source_model: fct_gl_monthly
+    owner: VP Finance
+    status: MEASURED
+    tolerance: Always ≤ NRR and ≤ 1.

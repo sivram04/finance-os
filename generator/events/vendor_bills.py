@@ -4,19 +4,13 @@ GPU usage is billed per GPU type at the seed rate on vendor-metered hours (job s
 A contract with committed GPU hours bills any shortfall below the commit at the committed type's rate.
 GCP also bills the cloud service lines. M3 reconciles these invoices to the modeled cost within 1%.
 """
-import csv
 from collections import defaultdict
 from datetime import date
 from decimal import Decimal
-from pathlib import Path
 
-SEEDS = Path(__file__).resolve().parents[2] / "warehouse" / "seeds"
+from generator.seeds import read_seed
+
 CENTS = Decimal("0.01")
-
-
-def _read_seed(name):
-    with open(SEEDS / f"{name}.csv", newline="", encoding="utf-8") as f:
-        return list(csv.DictReader(f))
 
 
 def _rate(rates, gpu_type, day):
@@ -33,8 +27,8 @@ def _next_month(m):
 
 
 def build_vendor_bills(cfg, gpu_jobs, cloud_costs, rng):
-    rates = _read_seed("gpu_rates")
-    contracts = {c["vendor_id"]: c for c in _read_seed("vendor_contracts")}
+    rates = read_seed("gpu_rates")
+    contracts = {c["vendor_id"]: c for c in read_seed("vendor_contracts")}
     noise = Decimal(cfg["vendor_billing"]["metering_noise_pct"])
 
     # (vendor, month, gpu_type) -> [seconds, rate]; rate is constant within a month in the seed

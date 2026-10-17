@@ -6,6 +6,7 @@ sources:
     description: Synthetic ERP-like finance data.
     loaded_at_field: _loaded_at
     tables:
-      - name: opex_pools_monthly
+      - name: journal_entries
+      - name: journal_lines
       - name: vendor_bills
       - name: vendor_bill_lines
