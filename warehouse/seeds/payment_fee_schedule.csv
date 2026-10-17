@@ -1,0 +1,4 @@
+segment,payment_method,fee_pct,fee_fixed,fee_cap
+self_serve,card,0.0290,0.30,
+mid_market,card,0.0290,0.30,
+enterprise,ach,0.0080,0.00,5.00

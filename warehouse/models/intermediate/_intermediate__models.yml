@@ -1,0 +1,45 @@
+version: 2
+
+models:
+  - name: int_usage_rated_monthly
+    description: "Grain: customer × product × month. Usage rated at list price less the all-units volume tier."
+    data_tests:
+      - dbt_utils_free_unique_combination:
+          arguments: {columns: [month, customer_id, product_id]}
+    columns:
+      - name: tier
+        data_tests: [not_null]
+      - name: revenue
+        data_tests: [not_null]
+
+  - name: int_gpu_cost_jobs
+    description: "Grain: one row per GPU job, costed at the effective-dated GPU rate."
+    columns:
+      - name: job_id
+        data_tests: [unique, not_null]
+      - name: rate_per_gpu_hour
+        data_tests: [not_null]
+
+  - name: int_cost_pools_monthly
+    description: "Grain: pool × month (× product for product-scoped pools)."
+    data_tests:
+      - dbt_utils_free_unique_combination:
+          arguments: {columns: [month, pool, product_id]}
+
+  - name: int_allocation_drivers_monthly
+    description: "Grain: customer × product × month × driver."
+    data_tests:
+      - dbt_utils_free_unique_combination:
+          arguments: {columns: [month, customer_id, product_id, driver]}
+
+  - name: int_cost_allocations_monthly
+    description: "Grain: pool × month × customer × product. Pool cost allocated by the scenario's driver."
+    data_tests:
+      - dbt_utils_free_unique_combination:
+          arguments: {columns: [month, pool, customer_id, product_id]}
+
+  - name: int_payment_fees_monthly
+    description: "Grain: customer × product × month. Modeled (ASSUMED) payment fees."
+    data_tests:
+      - dbt_utils_free_unique_combination:
+          arguments: {columns: [month, customer_id, product_id]}

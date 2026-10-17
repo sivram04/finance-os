@@ -8,6 +8,19 @@ seed-paths: ["seeds"]
 test-paths: ["tests"]
 snapshot-paths: ["snapshots"]
 
+vars:
+  allocation_scenario: base   # row set in seeds/allocation_rules.csv (FR-2.4)
+
+seeds:
+  finance_os:
+    +schema: seeds
+    gpu_rates:
+      +column_types: {effective_from: date, effective_to: date, rate_per_gpu_hour: "decimal(18,4)"}
+    margin_floors:
+      +column_types: {gross_margin_floor_pct: "decimal(5,4)"}
+    payment_fee_schedule:
+      +column_types: {fee_pct: "decimal(6,4)", fee_fixed: "decimal(18,2)", fee_cap: "decimal(18,2)"}
+
 models:
   finance_os:
     staging:

@@ -1,0 +1,9 @@
+version: 2
+
+sources:
+  - name: erp
+    schema: raw_erp
+    description: Synthetic ERP-like finance data.
+    loaded_at_field: _loaded_at
+    tables:
+      - name: opex_pools_monthly

@@ -1,0 +1,10 @@
+version: 2
+
+sources:
+  - name: infra
+    schema: raw_infra
+    description: Synthetic GPU job logs and cloud overhead lines. Real GCP export joins in M3.
+    loaded_at_field: _loaded_at
+    tables:
+      - name: gpu_jobs
+      - name: cloud_costs_daily

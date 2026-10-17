@@ -1,0 +1,47 @@
+version: 2
+
+models:
+  - name: dim_customer
+    description: "Grain: one row per usage customer."
+    columns:
+      - name: customer_id
+        data_tests: [unique, not_null]
+
+  - name: dim_product
+    description: "Grain: one row per product, with its gross-margin floor (FR-2.5, feeds M9)."
+    columns:
+      - name: product_id
+        data_tests: [unique, not_null]
+      - name: gross_margin_floor_pct
+        data_tests: [not_null]
+
+  - name: fct_unit_economics_monthly
+    description: >
+      Grain: customer × product × month. Revenue is rated usage (list × volume tier) until Stripe lands.
+      COGS = direct GPU + shared GPU + prod cloud overhead, allocated per seeds/allocation_rules.csv.
+      Payment fees are modeled (ASSUMED); support and success pools are placeholders until payroll exists.
+    data_tests:
+      - dbt_utils_free_unique_combination:
+          arguments: {columns: [month, customer_id, product_id]}
+    columns:
+      - name: customer_id
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_customer'), field: customer_id}
+      - name: product_id
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_product'), field: product_id}
+      - name: revenue
+        data_tests: [not_null]
+      - name: cogs
+        data_tests: [not_null]
+
+  - name: fct_customer_margin_monthly
+    description: "Grain: customer × month. Blended margin vs. the revenue-weighted floor of the customer's mix (FR-2.6)."
+    data_tests:
+      - dbt_utils_free_unique_combination:
+          arguments: {columns: [month, customer_id]}
+    columns:
+      - name: is_below_floor
+        data_tests: [not_null]

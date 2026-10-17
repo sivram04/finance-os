@@ -4,5 +4,6 @@ select
     date_trunc('month', usage_date)::date as usage_month,
     customer_id,
     product_id,
-    cast(audio_hours as decimal(18, 4)) as audio_hours
+    cast(audio_hours as decimal(18, 4)) as audio_hours,
+    requests
 from {{ source('synthetic', 'usage_daily') }}

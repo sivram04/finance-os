@@ -1,0 +1,15 @@
+version: 2
+
+models:
+  - name: stg_erp__opex_pools_monthly
+    description: "Grain: one row per month × pool (support, success). Placeholder until payroll exists."
+    data_tests:
+      - dbt_utils_free_unique_combination:
+          arguments: {columns: [month, pool]}
+    columns:
+      - name: pool
+        data_tests:
+          - accepted_values:
+              arguments: {values: [support, success]}
+      - name: amount
+        data_tests: [not_null]

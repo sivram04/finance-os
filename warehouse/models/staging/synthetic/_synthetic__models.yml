@@ -68,3 +68,11 @@ models:
               arguments: {to: ref('stg_synthetic__products'), field: product_id}
       - name: audio_hours
         data_tests: [not_null]
+      - name: requests
+        data_tests: [not_null]
+
+  - name: stg_synthetic__anomaly_manifest
+    description: "Grain: one row per injected anomaly (FR-1.4)."
+    columns:
+      - name: anomaly_id
+        data_tests: [unique, not_null]
