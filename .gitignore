@@ -8,3 +8,4 @@ warehouse/dbt_packages/
 *.duckdb
 *.duckdb.wal
 .env
+warehouse/.user.yml
