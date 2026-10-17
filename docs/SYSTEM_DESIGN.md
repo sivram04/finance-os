@@ -145,7 +145,7 @@ flowchart LR
     DBT[dbt models + tests]
     ORC[Dagster orchestration]
     APP[Apps: deal desk, billing, collections<br/>Streamlit]
-    AG[Finance agent<br/>Gemini, read-only tools]
+    AG[Finance agent<br/>Grok (xAI), read-only tools]
     AL[Alert service]
   end
   subgraph Consumers
@@ -331,7 +331,7 @@ Priority: **M** = must, **S** = should, **C** = could.
 | NFR-2 Reproducibility | The generator is deterministic for a given seed; a full rebuild produces identical marts. |
 | NFR-3 Idempotency | Loaders and models can rerun safely; incremental models use merge keys. |
 | NFR-4 Lineage | Every mart column traces to its source via dbt docs; the lineage graph is published. |
-| NFR-5 Cost | Runs inside the GCP free tier (≤1 TB queries, ≤10 GB storage/month) plus Gemini costs under $10/month. A budget alert is set on the project. |
+| NFR-5 Cost | Runs inside the GCP free tier (≤1 TB queries, ≤10 GB storage/month) plus Grok API costs under $10/month. A GCP budget alert and an xAI spend limit are set. |
 | NFR-6 Performance | Full daily pipeline < 15 minutes; Power BI pages load < 5 s on imported data. |
 | NFR-7 Security | Secrets in env/Secret Manager, never in git; service account with least privilege; agent tools read-only. |
 | NFR-8 Privacy | No real PII. GCP export holds only the owner's own cost data. |
@@ -347,7 +347,7 @@ Priority: **M** = must, **S** = should, **C** = could.
 | AIR-2 | Every AI output that leaves the system (emails, commentary) requires human approval. |
 | AIR-3 | Prompts, tool schemas and model versions are versioned in git. |
 | AIR-4 | An eval harness runs on every change to prompts or tools; regressions block merge. |
-| AIR-5 | Cost per agent question is recorded from token counts and reconciled monthly to the GCP Vertex AI billing line. |
+| AIR-5 | Cost per agent question is recorded from token counts and reconciled monthly to the xAI usage/billing export. |
 | AIR-6 | Failure modes are documented: timeouts, tool errors, refusals, inconsistent answers. |
 
 ---
@@ -412,7 +412,7 @@ flowchart TB
 | Billing system | Stripe test mode | Real API, usage meters, invoices, payments | — |
 | Apps | Streamlit | Fast internal tools in Python | Next.js |
 | BI | Power BI Desktop | Owner's choice; common in finance teams; covers "Excel and business systems" | Looker Studio |
-| LLM | Vertex AI Gemini (flash) | Already used in Lakshyaa; billed in the same GCP project, so cost reconciles | Claude, OpenAI |
+| LLM | xAI Grok API (OpenAI-compatible endpoint) | Owner's choice; tool calling and structured output; cost reconciles to xAI usage export | Gemini (Vertex AI), Claude |
 | PDFs | WeasyPrint or ReportLab | Invoice and quote documents | — |
 | Alerts | Telegram Bot API | Already used in JobRadar | Slack |
 | CI | GitHub Actions | dbt build on DuckDB + pytest + agent eval (mocked) | — |
@@ -708,14 +708,14 @@ A dbt test fails the build on any FAIL that has no explanation. Power BI's "Trus
 ### 9.2 Agent architecture
 ```mermaid
 flowchart LR
-  Q[User question] --> P[Planner<br/>Gemini]
+  Q[User question] --> P[Planner<br/>Grok]
   P -->|selects| T1[get_metric<br/>name, period, filters]
   P --> T2[get_breakdown<br/>metric by dimension]
   P --> T3[get_recon_status<br/>check, period]
   P --> T4[get_transactions<br/>driver rows for a variance]
   P --> T5[get_definition<br/>metric catalog]
   T1 & T2 & T3 & T4 & T5 --> MA[(Metric API<br/>read-only, marts only)]
-  T1 & T2 & T3 & T4 & T5 --> W[Writer<br/>Gemini]
+  T1 & T2 & T3 & T4 & T5 --> W[Writer<br/>Grok]
   W --> V[Validator<br/>code: every number in the answer<br/>must appear in tool results]
   V -->|pass| A[Answer + citations]
   V -->|fail| R[Retry once, else refuse]
@@ -787,7 +787,7 @@ Alerts are de-duplicated by (rule, entity, period) and stored in `audit.alert_lo
 - **Access:** service account with BigQuery Data Viewer on the billing dataset, Data Editor on Finance OS datasets only.
 - **Agent:** tools are read-only and limited to marts; no raw SQL; no write tools.
 - **Privacy:** synthetic names via Faker with a fixed seed; no real people. The repo can be public; the GCP export is not committed, only screenshots of aggregates.
-- **Cost guardrails:** GCP budget alert at $10; dbt models partitioned by date and clustered by customer; Gemini calls capped per day.
+- **Cost guardrails:** GCP budget alert at $10; dbt models partitioned by date and clustered by customer; Grok calls capped per day.
 
 ---
 
@@ -861,7 +861,7 @@ Each phase ends with an exit check. Nothing moves forward until it passes.
 ### Phase 8 — AI layer (3 days)
 - Metric API and typed tools; planner, writer and validator.
 - Collections email drafter and BvA commentary drafter with approval queue.
-- Eval set (≥30 questions × 3 runs); cost per question reconciled to the Vertex AI billing line.
+- Eval set (≥30 questions × 3 runs); cost per question reconciled to the xAI usage export.
 - Stretch: contract term extraction with human confirmation.
 - **Exit:** eval results recorded honestly (including failures); validator blocks any made-up number in testing.
 
@@ -897,7 +897,7 @@ Each phase ends with an exit check. Nothing moves forward until it passes.
 ## 16. Open questions for the owner
 1. Is the GitHub repo public? (Recommended: yes, since it holds no secrets or real PII.)
 2. Dagster or Airflow? Dagster is recommended; Airflow is named in the posting, so a short note on equivalence goes in the README.
-3. Which Gemini model and daily cost cap for the agent?
+3. Which Grok model and daily cost cap for the agent?
 4. Include sales comp in the MVP, or leave it as a later phase?
 5. Should the federal contract go deeper (indirect rates, provisional billing)? Currently it's kept simple.
 
