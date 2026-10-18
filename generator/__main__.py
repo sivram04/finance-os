@@ -20,6 +20,7 @@ from generator.events.budget import build_budgets
 from generator.events.infra import build_cloud_costs, build_gpu_jobs
 from generator.events.ledger import build_ledger
 from generator.events.payroll import build_payroll
+from generator.events.projects import build_projects
 from generator.events.usage import build_usage
 from generator.events.vendor_bills import build_vendor_bills
 
@@ -37,7 +38,9 @@ def generate(seed=None):
     bills, bill_lines = build_vendor_bills(cfg, gpu_jobs, cloud_costs, rng)
     employees = build_employees(cfg, rng)
     pay_runs, pay_lines = build_payroll(cfg, employees)
-    entries, lines = build_ledger(cfg, customers, usage, lifecycle, cloud_costs, bills, bill_lines, pay_lines, employees, rng)
+    projects = build_projects(cfg, employees, rng)
+    entries, lines = build_ledger(cfg, customers, usage, lifecycle, cloud_costs, bills, bill_lines, pay_lines, employees,
+                                  projects, rng)
     return {
         "products": build_products(cfg),
         "volume_tiers": build_volume_tiers(cfg),
@@ -55,6 +58,7 @@ def generate(seed=None):
         "journal_entries": entries,
         "journal_lines": lines,
         "budgets": build_budgets(cfg, entries, lines),
+        **projects,
         "anomaly_manifest": build_manifest(cfg),
     }
 

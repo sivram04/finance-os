@@ -1,0 +1,5 @@
+rule_id,threshold_pct,description
+FUND-75,0.7500,Limitation of Funds notice: billed + unbilled at 75% of funded
+FUND-90,0.9000,Funding nearly exhausted: stop-work risk
+CAP-85,0.8500,T&M cap 85% consumed: notify the customer and PM
+EAC-110,1.1000,EAC more than 10% over budget

@@ -7,6 +7,8 @@ Built the way a finance team builds a plan, never from the budgeted year's actua
 - Payroll: the headcount plan (linear from start to end count, extended past the window at the same
   pace) × salary midpoint, plus employer tax and benefits.
 - Opex: the monthly opex lines scaled by planned headcount; R&D cloud as a flat monthly amount.
+- Projects: contract value spread evenly over each project's planned months as services revenue;
+  subcontractor and ODC budgets spread the same way (project labor is already in payroll).
 Departments match how the GL posts: revenue and payment fees carry no department ('NONE').
 """
 from collections import defaultdict
@@ -22,6 +24,14 @@ def _cents(x):
 
 def _months(year):
     return [date(year, m, 1) for m in range(1, 13)]
+
+
+def _months_between(start, end):
+    out, y, m = [], start.year, start.month
+    while date(y, m, 1) <= end:
+        out.append(date(y, m, 1))
+        y, m = y + (m == 12), m % 12 + 1
+    return out
 
 
 def _month_index(cfg, month):
@@ -86,6 +96,15 @@ def build_budgets(cfg, journal_entries, journal_lines):
             for o in cfg["opex_monthly"]:
                 add(fy, month, o["department"], o["account"], Decimal(o["amount"]) * scale)
             add(fy, month, "ENG", "6100", Decimal(b["rd_cloud_monthly"][key]))
+
+            for p in cfg.get("projects", []):
+                planned = [m for m in _months_between(p["start"], p["end"])]
+                if month not in planned:
+                    continue
+                add(fy, month, "NONE", "4100", Decimal(p["contract"]["value"]) / len(planned))
+                for cost_type, account in (("subcontractor", "5200"), ("odc", "5210")):
+                    if cost_type in p["budget"]:
+                        add(fy, month, "PS", account, Decimal(p["budget"][cost_type]) / len(planned))
 
     # Several opex lines can share a department × account (e.g. SaaS in ENG and GA are different depts,
     # but guard anyway): collapse to one row per key.

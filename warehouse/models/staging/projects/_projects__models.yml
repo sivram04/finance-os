@@ -1,0 +1,110 @@
+version: 2
+
+models:
+  - name: stg_projects__contracts
+    description: "Grain: one row per customer contract."
+    columns:
+      - name: contract_id
+        data_tests: [unique, not_null]
+      - name: contract_type
+        data_tests:
+          - accepted_values:
+              arguments: {values: [fixed_fee, tm, tm_cap, federal_tm]}
+
+  - name: stg_projects__clins
+    description: "Grain: contract × CLIN (federal contracts only)."
+    data_tests:
+      - dbt_utils_free_unique_combination:
+          arguments: {columns: [contract_id, clin_id]}
+
+  - name: stg_projects__contract_rates
+    description: "Grain: contract × labor category. Bill rate per hour."
+    data_tests:
+      - dbt_utils_free_unique_combination:
+          arguments: {columns: [contract_id, labor_category]}
+
+  - name: stg_projects__projects
+    description: "Grain: one row per project."
+    columns:
+      - name: project_id
+        data_tests: [unique, not_null]
+      - name: contract_id
+        data_tests:
+          - relationships:
+              arguments: {to: ref('stg_projects__contracts'), field: contract_id}
+
+  - name: stg_projects__project_budgets
+    description: "Grain: project × cost type."
+    data_tests:
+      - dbt_utils_free_unique_combination:
+          arguments: {columns: [project_id, cost_type]}
+    columns:
+      - name: cost_type
+        data_tests:
+          - accepted_values:
+              arguments: {values: [labor, subcontractor, odc]}
+
+  - name: stg_projects__timesheets
+    description: "Grain: one row per timesheet entry (employee × project × week)."
+    columns:
+      - name: timesheet_id
+        data_tests: [unique, not_null]
+      - name: employee_id
+        data_tests:
+          - relationships:
+              arguments: {to: ref('stg_payroll__employees'), field: employee_id}
+      - name: project_id
+        data_tests:
+          - relationships:
+              arguments: {to: ref('stg_projects__projects'), field: project_id}
+
+  - name: stg_projects__odc_expenses
+    columns:
+      - name: expense_id
+        data_tests: [unique, not_null]
+
+  - name: stg_projects__purchase_orders
+    columns:
+      - name: po_id
+        data_tests: [unique, not_null]
+
+  - name: stg_projects__subcontractor_bills
+    description: "Grain: one row per subcontractor bill. po_id is null when a bill was posted without a PO."
+    columns:
+      - name: bill_id
+        data_tests: [unique, not_null]
+      - name: po_id
+        data_tests:
+          - relationships:
+              arguments: {to: ref('stg_projects__purchase_orders'), field: po_id}
+
+  - name: stg_projects__milestones
+    columns:
+      - name: milestone_id
+        data_tests: [unique, not_null]
+
+  - name: stg_projects__project_invoices
+    columns:
+      - name: invoice_id
+        data_tests: [unique, not_null]
+
+  - name: stg_projects__project_invoice_lines
+    data_tests:
+      - dbt_utils_free_unique_combination:
+          arguments: {columns: [invoice_id, line_no]}
+    columns:
+      - name: line_type
+        data_tests:
+          - accepted_values:
+              arguments: {values: [labor, odc, milestone]}
+
+  - name: stg_projects__pm_estimates
+    description: "Grain: project × month. Project manager's estimate to complete (ETC)."
+    data_tests:
+      - dbt_utils_free_unique_combination:
+          arguments: {columns: [project_id, as_of_month]}
+
+  - name: stg_projects__subcontractors
+    columns:
+      - name: vendor_id
+        data_tests: [unique, not_null]

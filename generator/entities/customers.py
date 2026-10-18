@@ -19,7 +19,7 @@ def build_customers(cfg, rng):
     customers, mixes = [], []
     # Customers named in scripted events or anomalies must exist well before their first event.
     story_dates = {}
-    for e in cfg.get("scripted_events", []) + cfg.get("anomalies", []):
+    for e in cfg.get("scripted_events", []) + cfg.get("anomalies", []) + cfg.get("projects", []):
         cid = e.get("customer_id") or e.get("entity_id")
         when = e.get("date") or e.get("start")
         story_dates[cid] = min(story_dates.get(cid, when), when)

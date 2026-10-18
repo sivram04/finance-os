@@ -6,18 +6,18 @@ metrics:
     label: Revenue
     unit: usd
     purpose: Top-line growth tracking and the base for every margin.
-    formula: Sum of GL usage revenue (account 4000) recognized in the month.
+    formula: Sum of GL revenue recognized in the month (usage 4000 + project services 4100).
     grain: month
     source_model: fct_gl_monthly
     owner: Controller
     status: MEASURED
-    tolerance: Must equal rated usage revenue exactly (recon_gl_revenue).
+    tolerance: Usage must equal rated usage (recon_gl_revenue); services must equal project invoices (recon_project_billing_gl).
 
   - name: cogs
     label: Cost of revenue
     unit: usd
     purpose: Gross margin and cost-to-serve trend.
-    formula: Sum of GL COGS accounts (5000 GPU, 5010 cloud hosting, 5100 payment processing).
+    formula: Sum of GL COGS accounts (5000 GPU, 5010 cloud hosting, 5100 payment processing, 5200/5210 project subcontractors and direct costs).
     grain: month
     source_model: fct_gl_monthly
     owner: Controller
@@ -94,7 +94,7 @@ metrics:
     label: ARR
     unit: usd
     purpose: Growth tracking on an annualized basis.
-    formula: Usage run-rate (trailing-3-month revenue × 4) + committed annualized (none until contracts land in M6/M9).
+    formula: Usage run-rate (trailing-3-month usage revenue, account 4000, × 4) + committed annualized (none yet). Project services are excluded.
     grain: month
     source_model: fct_gl_monthly
     owner: VP Finance

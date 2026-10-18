@@ -10,6 +10,9 @@ Postings:
 - payroll        month end, per department: Dr salaries, taxes, benefits / Cr cash
 - opex           15th: Dr expense / Cr cash, scaled with headcount
 - one_off        on the date: Dr expense / Cr cash (e.g. unbudgeted legal fees)
+- project_invoice     invoice date: Dr AR / Cr services revenue; project_collection after terms
+- subcontractor_bill  bill date: Dr project subcontractor COGS / Cr AP; subcontractor_payment +N days
+- project_odc         expense date: Dr project ODC COGS / Cr cash
 - funding        Dr cash / Cr equity
 """
 import calendar
@@ -63,7 +66,8 @@ def rate_usage(cfg, customers, usage):
     return invoices
 
 
-def build_ledger(cfg, customers, usage, lifecycle, cloud_costs, bills, bill_lines, pay_lines, employees, rng):
+def build_ledger(cfg, customers, usage, lifecycle, cloud_costs, bills, bill_lines, pay_lines, employees,
+                 projects, rng):
     end = cfg["window"]["end"]
     gl = Ledger()
     segment = {c["customer_id"]: c["segment"] for c in customers}
@@ -152,6 +156,32 @@ def build_ledger(cfg, customers, usage, lifecycle, cloud_costs, bills, bill_line
             dims = {"department_id": o["department"]}
             gl.post(d, "opex", o["memo"], [(o["account"], amt, 0, dims), ("1000", 0, amt, dims)])
         y, m = y + (m == 12), m % 12 + 1
+
+    # Projects: services invoices, subcontractor bills, ODCs.
+    collection_days = {p["project_id"]: p.get("collection_days") for p in cfg["projects"]}
+    terms = {c["contract_id"]: c["payment_terms_days"] for c in projects["contracts"]}
+    for inv in projects["project_invoices"]:
+        dims = {"customer_id": inv["customer_id"]}
+        gl.post(inv["invoice_date"], "project_invoice", f"Services invoice {inv['project_id']}",
+                [("1200", inv["amount"], 0, dims), ("4100", 0, inv["amount"], dims)], inv["invoice_id"])
+        days = collection_days[inv["project_id"]]
+        paid = inv["invoice_date"] + timedelta(days=rng.randint(*days) if days else terms[inv["contract_id"]] + rng.randint(-3, 10))
+        if paid <= end:
+            gl.post(paid, "project_collection", f"Payment {inv['invoice_id']}",
+                    [("1000", inv["amount"], 0, dims), ("1200", 0, inv["amount"], dims)], inv["invoice_id"])
+    for b in projects["subcontractor_bills"]:
+        dims = {"vendor_id": b["vendor_id"], "department_id": "PS"}
+        gl.post(b["bill_date"], "subcontractor_bill", f"{b['vendor_id']} {b['project_id']}",
+                [("5200", b["amount"], 0, dims), ("2000", 0, b["amount"], {"vendor_id": b["vendor_id"]})], b["bill_id"])
+        pay = b["bill_date"] + timedelta(days=cfg["vendor_payment_days"])
+        if pay <= end:
+            gl.post(pay, "subcontractor_payment", f"Pay {b['bill_id']}",
+                    [("2000", b["amount"], 0, {"vendor_id": b["vendor_id"]}), ("1000", 0, b["amount"], {"vendor_id": b["vendor_id"]})],
+                    b["bill_id"])
+    for o in projects["odc_expenses"]:
+        dims = {"department_id": "PS"}
+        gl.post(o["expense_date"], "project_odc", f"ODC {o['project_id']}",
+                [("5210", o["amount"], 0, dims), ("1000", 0, o["amount"], dims)], o["expense_id"])
 
     for o in cfg.get("one_off_expenses", []):
         amt = Decimal(o["amount"])

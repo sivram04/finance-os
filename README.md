@@ -35,6 +35,12 @@ cd warehouse && ../.venv/Scripts/dbt build --profiles-dir .
   run-rate, optimistic), `fct_bva_monthly` (variance, YTD, full-year forecast), `fct_bva_alerts` routed to the
   department owner (threshold in `seeds/variance_thresholds.csv`), and `fct_bva_drivers` (top journal lines behind
   each alert, for the variance explainer). Anomaly A-M5-01: unbudgeted legal fees in G&A, Mar–May 2026.
+- Step 6 (M6 project accounting): six implementation projects (fixed fee, T&M, T&M with cap, federal T&M with
+  CLINs) with contracts, budgets by cost type, POs, weekly timesheets, subcontractor bills, ODCs, milestones,
+  project invoices and PM estimates; services revenue and project costs in the GL. Marts: `fct_project_costs_monthly`,
+  `fct_project_financials` (EAC, % complete, earned, unbilled, deferred, cap usage), `fct_contract_funding`
+  (75%/90% funding alerts), `fct_project_exceptions`. Recon: project invoices ↔ GL, project labor ≤ payroll.
+  ARR now counts usage revenue only. Anomalies A-M6-01..04 and A-M6-05 (unbilled milestone, for M7).
 
 ## Metrics and board pack
 KPIs are defined in `warehouse/metrics/kpis.yml`. After editing it:

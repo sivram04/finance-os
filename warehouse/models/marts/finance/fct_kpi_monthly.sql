@@ -62,10 +62,18 @@ retention as (
     group by now_.month
 ),
 
+usage_rev as (
+    -- ARR is recurring usage only; project services revenue (4100) is excluded
+    select month, sum(natural_amount) as revenue
+    from {{ ref('fct_gl_monthly') }}
+    where account_id = '4000'
+    group by month
+),
+
 arr as (
     select month, sum(revenue) over (order by month rows between 2 preceding and current row) * 4 as arr,
            count(*) over (order by month rows between 2 preceding and current row) as months_in_window
-    from pnl
+    from usage_rev
 ),
 
 base as (

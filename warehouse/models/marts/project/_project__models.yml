@@ -1,0 +1,43 @@
+version: 2
+
+models:
+  - name: dim_project
+    description: "Grain: one row per project, with its contract terms."
+    columns:
+      - name: project_id
+        data_tests: [unique, not_null]
+
+  - name: fct_project_costs_monthly
+    description: "Grain: project × cost type × month. Budget, actual (month and to date), open PO commitments."
+    data_tests:
+      - dbt_utils_free_unique_combination:
+          arguments: {columns: [project_id, cost_type, month]}
+
+  - name: fct_project_financials
+    description: >
+      Grain: project × month. Budget, actuals, commitments, ETC, EAC, variance at completion, % complete,
+      earned, billed, unbilled (WIP), deferred, T&M cap usage and alert flags (FR-6.5–6.7).
+    data_tests:
+      - dbt_utils_free_unique_combination:
+          arguments: {columns: [project_id, month]}
+    columns:
+      - name: project_id
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_project'), field: project_id}
+      - name: eac
+        data_tests: [not_null]
+
+  - name: fct_contract_funding
+    description: "Grain: contract × CLIN (or TOTAL) × month. Funded vs. billed + unbilled, 75%/90% alerts (FR-6.8)."
+    data_tests:
+      - dbt_utils_free_unique_combination:
+          arguments: {columns: [contract_id, clin_id, month]}
+
+  - name: fct_project_exceptions
+    description: "Grain: one row per exception (bill without PO, PO overbilled, unbilled milestone, missing bill rate)."
+    columns:
+      - name: exception_type
+        data_tests:
+          - accepted_values:
+              arguments: {values: [bill_without_po, po_overbilled, unbilled_milestone, timesheet_without_rate]}

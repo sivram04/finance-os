@@ -4,9 +4,12 @@ account_id,account_name,account_type,statement,rollup
 2000,Accounts payable,liability,balance_sheet,Accounts payable
 3000,Equity - preferred stock,equity,balance_sheet,Equity
 4000,Usage revenue,revenue,income_statement,Revenue
+4100,Services revenue,revenue,income_statement,Revenue
 5000,COGS - GPU compute,cogs,income_statement,COGS
 5010,COGS - cloud hosting,cogs,income_statement,COGS
 5100,COGS - payment processing,cogs,income_statement,COGS
+5200,COGS - project subcontractors,cogs,income_statement,COGS
+5210,COGS - project direct costs,cogs,income_statement,COGS
 6000,Salaries and wages,opex,income_statement,Payroll
 6010,Payroll taxes,opex,income_statement,Payroll
 6020,Benefits,opex,income_statement,Payroll

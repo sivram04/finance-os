@@ -16,6 +16,12 @@ models:
   - name: recon_payroll_gl
     description: "Grain: month. Payroll register vs. GL payroll accounts (FR-12.5)."
 
+  - name: recon_project_billing_gl
+    description: "Grain: month. Project invoices vs. GL services revenue (4100)."
+
+  - name: recon_project_labor
+    description: "Grain: employee × month. Timesheet labor cost must not exceed payroll cost."
+
   - name: recon_status
     description: "Grain: check × period × entity. Every reconciliation in one table (FR-12.6)."
     data_tests:

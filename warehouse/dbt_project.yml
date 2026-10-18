@@ -22,6 +22,10 @@ seeds:
       +column_types: {account_id: varchar}
     variance_thresholds:
       +column_types: {min_variance_pct: "decimal(6,4)", min_variance_abs: "decimal(18,2)"}
+    labor_cost_policy:
+      +column_types: {employer_tax_pct: "decimal(6,4)", benefits_per_month: "decimal(18,2)", standard_hours_year: integer}
+    project_alert_rules:
+      +column_types: {threshold_pct: "decimal(6,4)"}
     margin_floors:
       +column_types: {gross_margin_floor_pct: "decimal(5,4)"}
     payment_fee_schedule:

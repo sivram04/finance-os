@@ -132,6 +132,41 @@ anomalies:
     start: 2026-03-01
     description: Outside counsel for a customer contract dispute, unbudgeted, Mar–May 2026 in G&A professional fees.
     expected_detection: fct_bva_alerts has a GA / 6400 overspend alert in each of 2026-03, 2026-04, 2026-05
+  - anomaly_id: A-M6-01
+    module: M6
+    kind: project_over_budget
+    entity_id: P-103
+    start: 2026-01-01
+    description: Fixed-fee project overruns; EAC reaches 118% of budget.
+    expected_detection: fct_project_financials.eac_pct_of_budget >= 1.15 for P-103 by the last month
+  - anomaly_id: A-M6-02
+    module: M6
+    kind: tm_cap_threshold
+    entity_id: P-102
+    start: 2026-01-01
+    description: T&M with cap; billed reaches 88% of the cap.
+    expected_detection: fct_project_financials.is_cap_alert = true for P-102 by the last month
+  - anomaly_id: A-M6-03
+    module: M6
+    kind: funding_threshold
+    entity_id: C-105
+    start: 2026-01-01
+    description: Federal T&M contract; billed + unbilled passes 75% of funded (Limitation of Funds notice).
+    expected_detection: fct_contract_funding.is_funding_alert_75 = true for C-105 by the last month
+  - anomaly_id: A-M6-04
+    module: M6
+    kind: bill_without_po
+    entity_id: P-103
+    start: 2026-02-18
+    description: Subcontractor bill posted with no purchase order.
+    expected_detection: fct_project_exceptions has a bill_without_po row for P-103
+  - anomaly_id: A-M6-05
+    module: M7
+    kind: unbilled_milestone
+    entity_id: P-106
+    start: 2026-07-15
+    description: Milestone accepted but never invoiced; shows as unbilled WIP.
+    expected_detection: fct_project_financials.unbilled > 0 for P-106 at the last month
   - anomaly_id: A-M4-02
     module: M4
     kind: usage_spike
@@ -158,6 +193,103 @@ one_off_expenses:
   - {date: 2026-03-20, account: "6400", department: GA, amount: "45000.00", memo: Outside counsel - customer contract dispute}
   - {date: 2026-04-18, account: "6400", department: GA, amount: "32000.00", memo: Outside counsel - customer contract dispute}
   - {date: 2026-05-22, account: "6400", department: GA, amount: "26000.00", memo: Outside counsel - settlement review}
+
+# --- Projects (raw_projects, M6). Implementation work for enterprise and federal customers. ---
+# Labor category by employee title; bill rates are per contract.
+labor_category_by_title:
+  Software Engineer: Senior ML Engineer
+  Solutions Engineer: ML Engineer
+  Infrastructure Engineer: Data Engineer
+labor_cost_policy: {standard_hours_year: 2080}   # loaded cost rate = (salary × (1 + tax) + benefits × 12) / hours
+subcontractors:
+  - {vendor_id: annotate_co, vendor_name: Annotate Co (data labeling)}
+  - {vendor_id: fedsec, vendor_name: FedSec Partners (compliance)}
+projects:
+  - project_id: P-101
+    name: Enterprise A - custom vocabulary model
+    customer_id: EN-001
+    contract: {contract_id: C-101, type: fixed_fee, value: "180000.00", payment_terms_days: 30}
+    start: 2025-02-01
+    end: 2025-11-30
+    budget: {labor: "95000.00", subcontractor: "20000.00", odc: "5000.00"}
+    milestones:
+      - {name: Discovery and data audit, amount: "36000.00", accept: 2025-03-28}
+      - {name: Model v1,                amount: "54000.00", accept: 2025-06-27}
+      - {name: Integration,             amount: "54000.00", accept: 2025-09-26}
+      - {name: Production go-live,      amount: "36000.00", accept: 2025-11-21}
+    pos: [{vendor_id: annotate_co, amount: "20000.00", date: 2025-02-15, description: Transcript labeling}]
+    cost_overrun: "1.02"
+    team: {ML Engineer: 2, Senior ML Engineer: 1}
+  - project_id: P-102
+    name: Enterprise B - streaming diarization
+    customer_id: EN-002
+    contract: {contract_id: C-102, type: tm_cap, value: "120000.00", cap: "120000.00", payment_terms_days: 30}
+    start: 2025-06-01
+    end: 2026-10-31
+    budget: {labor: "80000.00", odc: "4000.00"}
+    rates: {Senior ML Engineer: "215.00", ML Engineer: "170.00", Data Engineer: "160.00"}
+    billed_target: "105600.00"          # 88% of cap by the end of data
+    team: {ML Engineer: 1, Senior ML Engineer: 1}
+  - project_id: P-103
+    name: Enterprise C - medical terminology model
+    customer_id: EN-004
+    contract: {contract_id: C-103, type: fixed_fee, value: "95000.00", payment_terms_days: 30}
+    start: 2025-09-01
+    end: 2026-06-30
+    budget: {labor: "55000.00", subcontractor: "10000.00", odc: "3000.00"}
+    milestones:
+      - {name: Data pipeline,  amount: "28500.00", accept: 2025-12-12}
+      - {name: Model v1,       amount: "38000.00", accept: 2026-04-24}
+      - {name: Final delivery, amount: "28500.00", accept: null}
+    pos: [{vendor_id: annotate_co, amount: "10000.00", date: 2025-09-10, description: Medical transcript labeling}]
+    cost_overrun: "1.18"                # EAC ends at 118% of budget
+    end_actual: 2026-10-31              # slips past plan
+    team: {ML Engineer: 1, Senior ML Engineer: 2}
+  - project_id: P-104
+    name: Mid-market D - call analytics integration
+    customer_id: MM-001
+    contract: {contract_id: C-104, type: tm, value: "60000.00", payment_terms_days: 30}
+    start: 2025-04-01
+    end: 2025-12-31
+    budget: {labor: "38000.00", odc: "1500.00"}
+    rates: {Senior ML Engineer: "200.00", ML Engineer: "160.00", Data Engineer: "150.00"}
+    billed_target: "58000.00"
+    collection_days: [72, 95]           # slow payer (M8)
+    team: {ML Engineer: 1, Data Engineer: 1}
+  - project_id: P-105
+    name: Federal agency - secure on-prem transcription
+    customer_id: FED-001
+    contract:
+      contract_id: C-105
+      type: federal_tm
+      value: "450000.00"
+      ceiling: "450000.00"
+      funded: "300000.00"
+      payment_terms_days: 30
+      clins:
+        - {clin_id: "0001", description: Labor, ceiling: "400000.00", funded: "270000.00"}
+        - {clin_id: "0002", description: Other direct costs, ceiling: "50000.00", funded: "30000.00"}
+    start: 2025-07-01
+    end: 2026-12-31
+    budget: {labor: "260000.00", subcontractor: "40000.00", odc: "20000.00"}
+    rates: {Senior ML Engineer: "210.00", ML Engineer: "165.00", Data Engineer: "150.00"}
+    billed_target: "232000.00"          # labor + ODC billed and unbilled ≈ 77% of funded by the end of data
+    pos: [{vendor_id: fedsec, amount: "40000.00", date: 2025-07-15, description: FedRAMP compliance support}]
+    team: {ML Engineer: 2, Senior ML Engineer: 1, Data Engineer: 1}
+  - project_id: P-106
+    name: Enterprise A - multilingual expansion
+    customer_id: EN-001
+    contract: {contract_id: C-106, type: fixed_fee, value: "70000.00", payment_terms_days: 30}
+    start: 2026-04-01
+    end: 2026-11-30
+    budget: {labor: "42000.00", odc: "2000.00"}
+    milestones:
+      - {name: Language pack 1, amount: "35000.00", accept: 2026-07-15, bill: false}   # accepted, never billed
+      - {name: Language pack 2, amount: "35000.00", accept: null}
+    team: {ML Engineer: 1, Senior ML Engineer: 1}
+# A subcontractor bill posted with no purchase order.
+bills_without_po:
+  - {project_id: P-103, vendor_id: annotate_co, date: 2026-02-18, amount: "8500.00", description: Rush relabeling (no PO)}
 
 # --- Vendor billing (raw_erp). Rates and contracts are read from warehouse/seeds. ---
 vendor_billing:

@@ -101,3 +101,14 @@ def test_budgets_cover_both_fiscal_years_and_include_revenue():
     months = {b["month"] for b in budgets}
     assert len(months) == 24
     assert all(any(b["month"] == m and b["account_id"] == "4000" for b in budgets) for m in months)
+
+
+def test_project_invoices_equal_their_lines_and_unbilled_milestone_has_no_invoice():
+    t = generate()
+    by_inv = {}
+    for l in t["project_invoice_lines"]:
+        by_inv[l["invoice_id"]] = by_inv.get(l["invoice_id"], Decimal(0)) + l["amount"]
+    assert all(i["amount"] == by_inv[i["invoice_id"]] for i in t["project_invoices"])
+    billed_milestones = {l["milestone_id"] for l in t["project_invoice_lines"] if l["milestone_id"]}
+    unbilled = [m for m in t["milestones"] if m["accepted_date"] and m["milestone_id"] not in billed_milestones]
+    assert [m["project_id"] for m in unbilled] == ["P-106"]

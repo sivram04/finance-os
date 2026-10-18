@@ -5,17 +5,17 @@ Generated from `warehouse/metrics/kpis.yml` by `scripts/build_metric_catalog.py`
 ## Revenue (`revenue`)
 
 - **Decision it supports:** Top-line growth tracking and the base for every margin.
-- **Formula:** Sum of GL usage revenue (account 4000) recognized in the month.
+- **Formula:** Sum of GL revenue recognized in the month (usage 4000 + project services 4100).
 - **Unit / grain:** usd / month
 - **Source model:** `fct_gl_monthly`
 - **Owner:** Controller
 - **Status:** MEASURED
-- **Tolerance / caveats:** Must equal rated usage revenue exactly (recon_gl_revenue).
+- **Tolerance / caveats:** Usage must equal rated usage (recon_gl_revenue); services must equal project invoices (recon_project_billing_gl).
 
 ## Cost of revenue (`cogs`)
 
 - **Decision it supports:** Gross margin and cost-to-serve trend.
-- **Formula:** Sum of GL COGS accounts (5000 GPU, 5010 cloud hosting, 5100 payment processing).
+- **Formula:** Sum of GL COGS accounts (5000 GPU, 5010 cloud hosting, 5100 payment processing, 5200/5210 project subcontractors and direct costs).
 - **Unit / grain:** usd / month
 - **Source model:** `fct_gl_monthly`
 - **Owner:** Controller
@@ -85,7 +85,7 @@ Generated from `warehouse/metrics/kpis.yml` by `scripts/build_metric_catalog.py`
 ## ARR (`arr`)
 
 - **Decision it supports:** Growth tracking on an annualized basis.
-- **Formula:** Usage run-rate (trailing-3-month revenue × 4) + committed annualized (none until contracts land in M6/M9).
+- **Formula:** Usage run-rate (trailing-3-month usage revenue, account 4000, × 4) + committed annualized (none yet). Project services are excluded.
 - **Unit / grain:** usd / month
 - **Source model:** `fct_gl_monthly`
 - **Owner:** VP Finance

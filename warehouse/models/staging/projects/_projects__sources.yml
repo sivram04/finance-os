@@ -1,0 +1,22 @@
+version: 2
+
+sources:
+  - name: projects
+    schema: raw_projects
+    description: Synthetic project accounting data (contracts, timesheets, POs, project billing).
+    loaded_at_field: _loaded_at
+    tables:
+      - name: contracts
+      - name: clins
+      - name: contract_rates
+      - name: projects
+      - name: project_budgets
+      - name: timesheets
+      - name: odc_expenses
+      - name: purchase_orders
+      - name: subcontractor_bills
+      - name: milestones
+      - name: project_invoices
+      - name: project_invoice_lines
+      - name: pm_estimates
+      - name: subcontractors
