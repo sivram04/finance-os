@@ -144,3 +144,58 @@ metrics:
     owner: VP Finance
     status: MEASURED
     tolerance: Always ≤ NRR and ≤ 1.
+
+  - name: active_customers
+    label: Active customers
+    unit: count
+    purpose: Size of the paying base; denominator for churn.
+    formula: Customers with usage revenue in the month.
+    grain: month
+    source_model: fct_mrr_bridge_monthly
+    owner: VP Finance
+    status: MEASURED
+    tolerance: Equals opening + new + reactivated − churned (assert_mrr_bridge_balances).
+
+  - name: new_customers
+    label: New customers
+    unit: count
+    purpose: Acquisition pace.
+    formula: Customers with revenue this month and none in any earlier month.
+    grain: month
+    source_model: fct_mrr_bridge_monthly
+    owner: VP Finance
+    status: MEASURED
+    tolerance: None.
+
+  - name: churned_customers
+    label: Churned customers
+    unit: count
+    purpose: Retention problems by count; read with the churn reasons.
+    formula: Customers with revenue last month and none this month. Mid-month churn shows the month after.
+    grain: month
+    source_model: fct_mrr_bridge_monthly
+    owner: VP Finance
+    status: MEASURED
+    tolerance: Measured from revenue; a customer that pauses for a month counts as churned, then reactivated.
+
+  - name: logo_churn_rate
+    label: Logo churn rate
+    unit: ratio
+    purpose: Share of paying customers lost each month; drives retention priorities.
+    formula: Churned customers ÷ customers with revenue last month.
+    grain: month
+    source_model: fct_mrr_bridge_monthly
+    owner: VP Finance
+    status: MEASURED
+    tolerance: Dominated by self-serve; read alongside gross MRR churn.
+
+  - name: gross_mrr_churn_rate
+    label: Gross MRR churn rate
+    unit: ratio
+    purpose: Revenue lost from existing customers each month, before expansion.
+    formula: −(contraction MRR + churned MRR) ÷ opening MRR.
+    grain: month
+    source_model: fct_mrr_bridge_monthly
+    owner: VP Finance
+    status: MEASURED
+    tolerance: Usage noise makes every month show some contraction; trend matters more than level.

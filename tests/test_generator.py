@@ -22,9 +22,12 @@ def test_money_and_hours_are_decimal():
     assert all(isinstance(u["audio_hours"], Decimal) for u in t["usage_daily"])
 
 
-def test_segment_counts_match_design():
+def test_segment_counts_match_config():
+    import yaml
+    from generator.__main__ import CONFIG
+    cfg = yaml.safe_load(CONFIG.read_text(encoding="utf-8"))
     segs = [c["segment"] for c in generate()["customers"]]
-    assert (segs.count("self_serve"), segs.count("mid_market"), segs.count("enterprise")) == (25, 11, 4)
+    assert all(segs.count(s) == spec["count"] for s, spec in cfg["segments"].items())
 
 
 def test_shared_gpu_jobs_have_no_customer_and_direct_jobs_do():
@@ -74,3 +77,20 @@ def test_headcount_ends_at_plan():
     active = [e for e in generate()["employees"]
               if e["hire_date"] <= end and (e["termination_date"] is None or e["termination_date"] > end)]
     assert len(active) == sum(p["end"] for p in cfg["headcount_plan"])
+
+
+def test_no_usage_while_churned():
+    from generator.entities.lifecycle import CustomerState
+    t = generate()
+    events = {}
+    for e in t["lifecycle_events"]:
+        events.setdefault(e["customer_id"], []).append(e)
+    states = {cid: CustomerState(ev) for cid, ev in events.items()}
+    assert not [u for u in t["usage_daily"] if u["customer_id"] in states and not states[u["customer_id"]].active(u["usage_date"])]
+
+
+def test_story_customers_sign_up_before_their_events():
+    t = generate()
+    signup = {c["customer_id"]: c["signup_date"] for c in t["customers"]}
+    scripted = [e for e in t["lifecycle_events"] if e["source"] == "scripted"]
+    assert scripted and all(signup[e["customer_id"]] < e["event_date"] for e in scripted)

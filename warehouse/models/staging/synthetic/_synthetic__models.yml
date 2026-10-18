@@ -76,3 +76,19 @@ models:
     columns:
       - name: anomaly_id
         data_tests: [unique, not_null]
+
+  - name: stg_synthetic__lifecycle_events
+    description: >
+      Grain: one row per customer lifecycle event (churn, reactivation, expansion, contraction, spike).
+      Ground truth for tests only: marts measure movements from revenue, never from this table.
+    columns:
+      - name: event_id
+        data_tests: [unique, not_null]
+      - name: customer_id
+        data_tests:
+          - relationships:
+              arguments: {to: ref('stg_synthetic__customers'), field: customer_id}
+      - name: event_type
+        data_tests:
+          - accepted_values:
+              arguments: {values: [churn, reactivation, expansion, contraction, spike]}

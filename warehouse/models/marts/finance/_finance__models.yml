@@ -91,3 +91,22 @@ models:
               arguments: {to: ref('metric_catalog'), field: metric_name}
       - name: value
         data_tests: [not_null]
+
+  - name: fct_customer_revenue_monthly
+    description: >
+      Grain: customer × month. GL revenue with the month's movement (new, expansion, contraction, churn,
+      reactivation, flat, inactive), measured from revenue only, and a one-off usage spike flag.
+    data_tests:
+      - dbt_utils_free_unique_combination:
+          arguments: {columns: [month, customer_id]}
+    columns:
+      - name: movement
+        data_tests:
+          - accepted_values:
+              arguments: {values: [new, expansion, contraction, churn, reactivation, flat, inactive]}
+
+  - name: fct_mrr_bridge_monthly
+    description: "Grain: month. Opening MRR + movements = closing MRR, with customer counts."
+    columns:
+      - name: month
+        data_tests: [unique, not_null]

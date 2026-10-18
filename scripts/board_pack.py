@@ -19,6 +19,7 @@ FORMATS = {
 }
 SECTIONS = [
     ("Growth", ["revenue", "arr", "nrr", "grr"]),
+    ("Customers", ["active_customers", "new_customers", "churned_customers", "logo_churn_rate", "gross_mrr_churn_rate"]),
     ("Margin", ["gross_margin_pct", "cogs"]),
     ("Cash", ["closing_cash", "net_burn", "gross_burn", "runway_months"]),
     ("Team and efficiency", ["headcount", "opex", "arr_per_employee"]),

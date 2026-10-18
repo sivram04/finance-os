@@ -2,7 +2,8 @@
 
 Postings:
 - revenue        month end: Dr AR / Cr usage revenue, per customer (usage rated like the billing system)
-- collection     invoice + segment days: Dr cash / Cr AR (left open if after the window)
+- collection     invoice + segment days: Dr cash / Cr AR (left open if after the window, or if the
+                 customer churned on a failed payment: the last two invoices are never collected)
 - payment_fee    on collection: Dr payment processing / Cr cash (fee schedule seed)
 - vendor_bill    service month end: Dr GPU / cloud COGS or R&D cloud / Cr AP
 - vendor_payment bill date + N days: Dr AP / Cr cash
@@ -61,11 +62,17 @@ def rate_usage(cfg, customers, usage):
     return invoices
 
 
-def build_ledger(cfg, customers, usage, cloud_costs, bills, bill_lines, pay_lines, employees, rng):
+def build_ledger(cfg, customers, usage, lifecycle, cloud_costs, bills, bill_lines, pay_lines, employees, rng):
     end = cfg["window"]["end"]
     gl = Ledger()
     segment = {c["customer_id"]: c["segment"] for c in customers}
     fees = {f["segment"]: f for f in read_seed("payment_fee_schedule")}
+    uncollectible = set()
+    for e in lifecycle:
+        if e["event_type"] == "churn" and e["reason"] == "payment_failed":
+            churn_month = e["event_date"].replace(day=1)
+            prior_month = (churn_month - timedelta(days=1)).replace(day=1)
+            uncollectible |= {(e["customer_id"], churn_month), (e["customer_id"], prior_month)}
 
     for f in cfg["funding"]:
         amt = Decimal(f["amount"])
@@ -82,7 +89,7 @@ def build_ledger(cfg, customers, usage, cloud_costs, bills, bill_lines, pay_line
                 [("1200", amount, 0, dims), ("4000", 0, amount, dims)], ref)
         lo, hi = cfg["collections_days"][segment[cid]]
         paid = inv_date + timedelta(days=rng.randint(lo, hi))
-        if paid > end:
+        if paid > end or (cid, month) in uncollectible:
             continue
         gl.post(paid, "collection", f"Payment {ref}", [("1000", amount, 0, dims), ("1200", 0, amount, dims)], ref)
         f = fees[segment[cid]]

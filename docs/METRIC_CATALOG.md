@@ -131,3 +131,53 @@ Generated from `warehouse/metrics/kpis.yml` by `scripts/build_metric_catalog.py`
 - **Owner:** VP Finance
 - **Status:** MEASURED
 - **Tolerance / caveats:** Always ≤ NRR and ≤ 1.
+
+## Active customers (`active_customers`)
+
+- **Decision it supports:** Size of the paying base; denominator for churn.
+- **Formula:** Customers with usage revenue in the month.
+- **Unit / grain:** count / month
+- **Source model:** `fct_mrr_bridge_monthly`
+- **Owner:** VP Finance
+- **Status:** MEASURED
+- **Tolerance / caveats:** Equals opening + new + reactivated − churned (assert_mrr_bridge_balances).
+
+## New customers (`new_customers`)
+
+- **Decision it supports:** Acquisition pace.
+- **Formula:** Customers with revenue this month and none in any earlier month.
+- **Unit / grain:** count / month
+- **Source model:** `fct_mrr_bridge_monthly`
+- **Owner:** VP Finance
+- **Status:** MEASURED
+- **Tolerance / caveats:** None.
+
+## Churned customers (`churned_customers`)
+
+- **Decision it supports:** Retention problems by count; read with the churn reasons.
+- **Formula:** Customers with revenue last month and none this month. Mid-month churn shows the month after.
+- **Unit / grain:** count / month
+- **Source model:** `fct_mrr_bridge_monthly`
+- **Owner:** VP Finance
+- **Status:** MEASURED
+- **Tolerance / caveats:** Measured from revenue; a customer that pauses for a month counts as churned, then reactivated.
+
+## Logo churn rate (`logo_churn_rate`)
+
+- **Decision it supports:** Share of paying customers lost each month; drives retention priorities.
+- **Formula:** Churned customers ÷ customers with revenue last month.
+- **Unit / grain:** ratio / month
+- **Source model:** `fct_mrr_bridge_monthly`
+- **Owner:** VP Finance
+- **Status:** MEASURED
+- **Tolerance / caveats:** Dominated by self-serve; read alongside gross MRR churn.
+
+## Gross MRR churn rate (`gross_mrr_churn_rate`)
+
+- **Decision it supports:** Revenue lost from existing customers each month, before expansion.
+- **Formula:** −(contraction MRR + churned MRR) ÷ opening MRR.
+- **Unit / grain:** ratio / month
+- **Source model:** `fct_mrr_bridge_monthly`
+- **Owner:** VP Finance
+- **Status:** MEASURED
+- **Tolerance / caveats:** Usage noise makes every month show some contraction; trend matters more than level.

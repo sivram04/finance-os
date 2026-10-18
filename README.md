@@ -27,6 +27,10 @@ cd warehouse && ../.venv/Scripts/dbt build --profiles-dir .
   vendor bills and payments, payroll, opex, funding), `fct_gl_monthly`, `fct_cash_monthly`, `fct_headcount_monthly`,
   `fct_kpi_monthly`; recon checks GL ↔ rated revenue, payroll ↔ GL, vendor bills ↔ AP, all in `recon.recon_status`.
   Unit economics now include unused reserved GPU hours, and support/success cost comes from payroll.
+- Customer lifecycle: self-serve and mid-market churn (voluntary and failed-payment, with win-backs),
+  expansion and contraction, a competitor price cut hitting mid-market, an enterprise account lost to a
+  competitor (A-M4-01) and a one-off backfill spike that inflates ARR (A-M4-02). Measured from revenue in
+  `fct_customer_revenue_monthly` and `fct_mrr_bridge_monthly`; churn KPIs added to the catalog.
 
 ## Metrics and board pack
 KPIs are defined in `warehouse/metrics/kpis.yml`. After editing it:
