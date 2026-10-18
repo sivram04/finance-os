@@ -16,55 +16,55 @@ seeds:
   finance_os:
     +schema: seeds
     gpu_rates:
-      +column_types: {effective_from: date, effective_to: date, rate_per_gpu_hour: "decimal(18,4)"}
+      +column_types: {effective_from: date, effective_to: date, rate_per_gpu_hour: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,4)' }}"}
     vendor_contracts:
-      +column_types: {start_date: date, end_date: date, committed_gpu_hours_month: "decimal(18,4)", renewal_notice_days: integer}
+      +column_types: {start_date: date, end_date: date, committed_gpu_hours_month: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,4)' }}", renewal_notice_days: integer}
     gl_accounts:
-      +column_types: {account_id: varchar}
+      +column_types: {account_id: "{{ 'string' if target.type == 'bigquery' else 'varchar' }}"}
     variance_thresholds:
-      +column_types: {min_variance_pct: "decimal(6,4)", min_variance_abs: "decimal(18,2)"}
+      +column_types: {min_variance_pct: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(6,4)' }}", min_variance_abs: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,2)' }}"}
     labor_cost_policy:
-      +column_types: {employer_tax_pct: "decimal(6,4)", benefits_per_month: "decimal(18,2)", standard_hours_year: integer}
+      +column_types: {employer_tax_pct: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(6,4)' }}", benefits_per_month: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,2)' }}", standard_hours_year: integer}
     project_alert_rules:
-      +column_types: {threshold_pct: "decimal(6,4)"}
+      +column_types: {threshold_pct: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(6,4)' }}"}
     billing_rules:
       +column_types: {threshold_days: integer}
     ar_policy:
-      +column_types: {payment_terms_days: integer, collection_weight: "decimal(6,2)"}
+      +column_types: {payment_terms_days: integer, collection_weight: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(6,2)' }}"}
     collection_tiers:
       +column_types: {tier: integer, min_days_overdue: integer, max_days_overdue: integer}
     margin_floors:
-      +column_types: {gross_margin_floor_pct: "decimal(5,4)"}
+      +column_types: {gross_margin_floor_pct: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(5,4)' }}"}
     planning_scenarios:
-      +column_types: {value: "decimal(9,4)"}
+      +column_types: {value: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}"}
     planning_targets:
-      +column_types: {value: "decimal(18,4)"}
+      +column_types: {value: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,4)' }}"}
     hiring_plan:
-      +column_types: {annual_salary: "decimal(18,2)", planned_start: date}
+      +column_types: {annual_salary: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,2)' }}", planned_start: date}
     shared_cost_allocation:
-      +column_types: {account_id: varchar}
+      +column_types: {account_id: "{{ 'string' if target.type == 'bigquery' else 'varchar' }}"}
     treasury_accounts:
-      +column_types: {target_share: "decimal(9,4)", annual_yield: "decimal(9,4)"}
+      +column_types: {target_share: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}", annual_yield: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}"}
     treasury_policy:
-      +column_types: {threshold: "decimal(18,2)"}
+      +column_types: {threshold: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,2)' }}"}
     vendor_payment_terms:
-      +column_types: {payment_terms_days: integer, early_pay_discount_pct: "decimal(9,4)", discount_days: integer}
+      +column_types: {payment_terms_days: integer, early_pay_discount_pct: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}", discount_days: integer}
     prepaid_contracts:
-      +column_types: {account_id: varchar, start_month: date, months: integer, amount: "decimal(18,2)"}
+      +column_types: {account_id: "{{ 'string' if target.type == 'bigquery' else 'varchar' }}", start_month: date, months: integer, amount: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,2)' }}"}
     price_scenarios:
-      +column_types: {price_change_pct: "decimal(9,4)", volume_elasticity: "decimal(9,4)"}
+      +column_types: {price_change_pct: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}", volume_elasticity: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}"}
     discount_policy:
-      +column_types: {max_discount_pct: "decimal(9,4)"}
+      +column_types: {max_discount_pct: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}"}
     cap_table:
-      +column_types: {shares: bigint, price_per_share: "decimal(18,4)", invested: "decimal(18,2)", issue_date: date}
+      +column_types: {shares: "{{ 'int64' if target.type == 'bigquery' else 'bigint' }}", price_per_share: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,4)' }}", invested: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,2)' }}", issue_date: date}
     fundraise_scenarios:
-      +column_types: {pre_money: "decimal(18,2)", raise_amount: "decimal(18,2)", option_pool_target_pct: "decimal(9,4)", close_month: date}
+      +column_types: {pre_money: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,2)' }}", raise_amount: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,2)' }}", option_pool_target_pct: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}", close_month: date}
     customer_billing_profile:
-      +column_types: {tax_rate: "decimal(9,4)"}
+      +column_types: {tax_rate: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}"}
     fx_rates:
-      +column_types: {month: date, usd_per_unit: "decimal(18,6)"}
+      +column_types: {month: date, usd_per_unit: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,6)' }}"}
     payment_fee_schedule:
-      +column_types: {fee_pct: "decimal(6,4)", fee_fixed: "decimal(18,2)", fee_cap: "decimal(18,2)"}
+      +column_types: {fee_pct: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(6,4)' }}", fee_fixed: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,2)' }}", fee_cap: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,2)' }}"}
 
 models:
   finance_os:

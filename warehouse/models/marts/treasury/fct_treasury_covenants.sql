@@ -38,8 +38,8 @@ select
     m.is_forecast,
     m.rule_id,
     p.description,
-    cast(round(m.value, 2) as decimal(18, 2)) as value,
-    cast(p.threshold as decimal(18, 2)) as threshold,
+    {{ dec("round(m.value, 2)", 18, 2) }} as value,
+    {{ dec("p.threshold", 18, 2) }} as threshold,
     case when m.value is null then 'not_burning'
          when m.value >= p.threshold then 'pass'
          else 'breach' end as status

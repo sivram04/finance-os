@@ -1,7 +1,7 @@
 select
     job_id,
     job_date,
-    date_trunc('month', job_date)::date as job_month,
+    {{ month_start("job_date") }} as job_month,
     customer_id,
     product_id,
     model,

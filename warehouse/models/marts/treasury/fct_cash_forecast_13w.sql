@@ -5,8 +5,8 @@ with as_of as (
 ),
 
 weeks as (
-    select cast(h.n as integer) as week, a.d + cast(1 + 7 * (h.n - 1) as integer) as week_start, a.d + cast(7 * h.n as integer) as week_end
-    from as_of a cross join range(1, 14) h(n)
+    select h.n as week, {{ add_days("a.d", "1 + 7 * (h.n - 1)") }} as week_start, {{ add_days("a.d", "7 * h.n") }} as week_end
+    from as_of a cross join {{ int_series('h', 1, 14 - 1) }}
 ),
 
 opening as (
@@ -23,10 +23,10 @@ flows as (
 weekly as (
     select
         w.week, w.week_start, w.week_end,
-        coalesce(sum(f.amount) filter (where f.category in ('ar_collections', 'new_billings', 'services')), 0) as inflows,
-        coalesce(sum(f.amount) filter (where f.category = 'payroll'), 0) as payroll,
-        coalesce(sum(f.amount) filter (where f.category in ('vendor_bills', 'future_vendor')), 0) as vendors,
-        coalesce(sum(f.amount) filter (where f.category = 'other_opex'), 0) as other_opex,
+        coalesce(sum(case when f.category in ('ar_collections', 'new_billings', 'services') then f.amount end), 0) as inflows,
+        coalesce(sum(case when f.category = 'payroll' then f.amount end), 0) as payroll,
+        coalesce(sum(case when f.category in ('vendor_bills', 'future_vendor') then f.amount end), 0) as vendors,
+        coalesce(sum(case when f.category = 'other_opex' then f.amount end), 0) as other_opex,
         coalesce(sum(f.amount), 0) as net_flow
     from weeks w
     left join flows f using (week)
@@ -37,13 +37,13 @@ select
     w.week,
     cast(w.week_start as date) as week_start,
     cast(w.week_end as date) as week_end,
-    cast(o.cash + coalesce(sum(w.net_flow) over (order by w.week rows between unbounded preceding and 1 preceding), 0) as decimal(18, 2)) as opening_cash,
-    cast(w.inflows as decimal(18, 2)) as inflows,
-    cast(w.payroll as decimal(18, 2)) as payroll,
-    cast(w.vendors as decimal(18, 2)) as vendors,
-    cast(w.other_opex as decimal(18, 2)) as other_opex,
-    cast(w.net_flow as decimal(18, 2)) as net_flow,
-    cast(o.cash + sum(w.net_flow) over (order by w.week) as decimal(18, 2)) as closing_cash,
+    {{ dec("o.cash + coalesce(sum(w.net_flow) over (order by w.week rows between unbounded preceding and 1 preceding), 0)", 18, 2) }} as opening_cash,
+    {{ dec("w.inflows", 18, 2) }} as inflows,
+    {{ dec("w.payroll", 18, 2) }} as payroll,
+    {{ dec("w.vendors", 18, 2) }} as vendors,
+    {{ dec("w.other_opex", 18, 2) }} as other_opex,
+    {{ dec("w.net_flow", 18, 2) }} as net_flow,
+    {{ dec("o.cash + sum(w.net_flow) over (order by w.week)", 18, 2) }} as closing_cash,
     o.cash + sum(w.net_flow) over (order by w.week) < p.threshold as is_below_min_cash
 from weekly w
 cross join opening o

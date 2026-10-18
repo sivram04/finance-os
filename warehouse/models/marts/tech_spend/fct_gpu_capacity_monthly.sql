@@ -12,11 +12,11 @@ select
     u.vendor_id,
     u.month,
     u.gpu_type,
-    cast(u.used_hours as decimal(18, 4)) as used_hours,
+    {{ dec("u.used_hours", 18, 4) }} as used_hours,
     s.committed_hours,
-    cast(round(u.used_hours / nullif(s.committed_hours, 0), 4) as decimal(9, 4)) as commit_utilization_pct,
+    {{ dec("round(u.used_hours / nullif(s.committed_hours, 0), 4)", 9, 4) }} as commit_utilization_pct,
     coalesce(s.shortfall_hours, 0) as shortfall_hours,
-    cast(round(u.usage_cost, 2) as decimal(18, 2)) as usage_cost,
+    {{ dec("round(u.usage_cost, 2)", 18, 2) }} as usage_cost,
     coalesce(s.shortfall_cost, 0) as shortfall_cost
 from used u
 left join {{ ref('int_gpu_commit_shortfall_monthly') }} s using (vendor_id, month, gpu_type)

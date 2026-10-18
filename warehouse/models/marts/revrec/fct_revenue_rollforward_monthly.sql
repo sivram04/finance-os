@@ -14,12 +14,12 @@ with m as (
 
 select
     month,
-    cast(coalesce(lag(contract_liability - contract_asset) over (order by month), 0) as decimal(18, 2)) as opening_net_deferred,
-    cast(billings as decimal(18, 2)) as billings,
-    cast(asc606_revenue as decimal(18, 2)) as asc606_revenue,
-    cast(contract_liability - contract_asset as decimal(18, 2)) as closing_net_deferred,
-    cast(contract_asset as decimal(18, 2)) as contract_asset,
-    cast(contract_liability as decimal(18, 2)) as contract_liability,
-    cast(gl_revenue as decimal(18, 2)) as gl_revenue,
-    cast(asc606_revenue - gl_revenue as decimal(18, 2)) as revenue_adjustment
+    {{ dec("coalesce(lag(contract_liability - contract_asset) over (order by month), 0)", 18, 2) }} as opening_net_deferred,
+    {{ dec("billings", 18, 2) }} as billings,
+    {{ dec("asc606_revenue", 18, 2) }} as asc606_revenue,
+    {{ dec("contract_liability - contract_asset", 18, 2) }} as closing_net_deferred,
+    {{ dec("contract_asset", 18, 2) }} as contract_asset,
+    {{ dec("contract_liability", 18, 2) }} as contract_liability,
+    {{ dec("gl_revenue", 18, 2) }} as gl_revenue,
+    {{ dec("asc606_revenue - gl_revenue", 18, 2) }} as revenue_adjustment
 from m

@@ -19,8 +19,8 @@ select
     r.amount as expected,
     g.amount as actual,
     g.amount - r.amount as variance,
-    cast(round((g.amount - r.amount) / nullif(r.amount, 0), 4) as decimal(9, 4)) as variance_pct,
-    cast(0 as decimal(9, 4)) as tolerance_pct,
+    {{ dec("round((g.amount - r.amount) / nullif(r.amount, 0), 4)", 9, 4) }} as variance_pct,
+    {{ dec("0", 9, 4) }} as tolerance_pct,
     case when g.amount is not distinct from r.amount then 'pass' else 'fail' end as status,
     case when g.amount is not distinct from r.amount then 'Exact match'
          else 'GL payroll differs from the register: investigate' end as explanation

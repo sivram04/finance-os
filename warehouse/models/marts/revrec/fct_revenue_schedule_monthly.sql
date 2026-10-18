@@ -9,7 +9,7 @@ with usage as (
         e.entry_month as month,
         'usage' as obligation,
         l.customer_id,
-        cast(null as varchar) as project_id,
+        cast(null as {{ t_string() }}) as project_id,
         -sum(l.amount) as billed,
         -sum(l.amount) as gl_revenue,
         -sum(l.amount) as recognized,
@@ -41,10 +41,10 @@ select
     obligation,
     customer_id,
     project_id,
-    cast(billed as decimal(18, 2)) as billed,
-    cast(gl_revenue as decimal(18, 2)) as gl_revenue,
-    cast(recognized as decimal(18, 2)) as asc606_revenue,
-    cast(recognized - gl_revenue as decimal(18, 2)) as adjustment_needed,
-    cast(contract_asset as decimal(18, 2)) as contract_asset,
-    cast(contract_liability as decimal(18, 2)) as contract_liability
+    {{ dec("billed", 18, 2) }} as billed,
+    {{ dec("gl_revenue", 18, 2) }} as gl_revenue,
+    {{ dec("recognized", 18, 2) }} as asc606_revenue,
+    {{ dec("recognized - gl_revenue", 18, 2) }} as adjustment_needed,
+    {{ dec("contract_asset", 18, 2) }} as contract_asset,
+    {{ dec("contract_liability", 18, 2) }} as contract_liability
 from (select * from usage union all select * from projects)

@@ -6,14 +6,14 @@ with last_month as (
 ),
 
 horizon as (
-    select cast(l.m + to_months(cast(h.n as integer)) as date) as month
+    select {{ add_months("l.m", "h.n") }} as month
     from last_month l
-    cross join range(1, 19) h(n)
+    cross join {{ int_series('h', 1, 19 - 1) }}
 ),
 
 current_staff as (
     select e.department_id, count(*) as heads,
-           sum(e.annual_salary / 12.0 * (1 + p.employer_tax_pct) + p.benefits_per_month) as monthly_cost
+           sum({{ fdiv("e.annual_salary", 12) }} * (1 + p.employer_tax_pct) + p.benefits_per_month) as monthly_cost
     from {{ ref('stg_payroll__employees') }} e
     cross join last_month l
     cross join {{ ref('labor_cost_policy') }} p
@@ -33,7 +33,7 @@ grid as (
 hires as (
     select g.scenario, g.month, g.department_id,
            count(r.role_id) as new_heads,
-           count(r.role_id) filter (where r.start_month = g.month) as hires_in_month,
+           count(case when r.start_month = g.month then r.role_id end) as hires_in_month,
            coalesce(sum(r.monthly_loaded_cost), 0) as new_cost
     from grid g
     left join {{ ref('int_planned_hires') }} r
@@ -49,8 +49,8 @@ select
     h.new_heads as planned_hires_to_date,
     h.hires_in_month,
     g.heads + h.new_heads as headcount,
-    cast(g.monthly_cost as decimal(18, 2)) as current_payroll_cost,
-    cast(h.new_cost as decimal(18, 2)) as new_hire_payroll_cost,
-    cast(g.monthly_cost + h.new_cost as decimal(18, 2)) as payroll_cost
+    {{ dec("g.monthly_cost", 18, 2) }} as current_payroll_cost,
+    {{ dec("h.new_cost", 18, 2) }} as new_hire_payroll_cost,
+    {{ dec("g.monthly_cost + h.new_cost", 18, 2) }} as payroll_cost
 from grid g
 join hires h using (scenario, month, department_id)

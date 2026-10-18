@@ -22,11 +22,11 @@ select
     b.revenue,
     b.cogs,
     b.gross_margin,
-    cast(round(b.gross_margin / nullif(b.revenue, 0), 4) as decimal(9, 4)) as gross_margin_pct,
+    {{ dec("round(b.gross_margin / nullif(b.revenue, 0), 4)", 9, 4) }} as gross_margin_pct,
     b.contribution_margin,
-    cast(round(b.contribution_margin / nullif(b.revenue, 0), 4) as decimal(9, 4)) as contribution_margin_pct,
-    cast(round(b.floor_pct, 4) as decimal(9, 4)) as gross_margin_floor_pct,
+    {{ dec("round(b.contribution_margin / nullif(b.revenue, 0), 4)", 9, 4) }} as contribution_margin_pct,
+    {{ dec("round(b.floor_pct, 4)", 9, 4) }} as gross_margin_floor_pct,
     coalesce(b.gross_margin / nullif(b.revenue, 0) < b.floor_pct, false) as is_below_floor,
-    rank() over (partition by b.month order by b.gross_margin / nullif(b.revenue, 0) asc nulls last) as margin_rank_asc
+    rank() over (partition by b.month order by {{ fdiv('b.gross_margin', 'nullif(b.revenue, 0)') }} asc nulls last, b.customer_id) as margin_rank_asc
 from by_customer b
 join {{ ref('stg_synthetic__customers') }} c using (customer_id)

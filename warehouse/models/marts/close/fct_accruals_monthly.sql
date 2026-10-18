@@ -6,9 +6,9 @@ select
     b.vendor_id,
     b.bill_id,
     b.bill_date,
-    cast(sum(l.credit) as decimal(18, 2)) as accrued_amount,
-    cast(b.total_amount as decimal(18, 2)) as billed_amount,
-    cast(b.total_amount - sum(l.credit) as decimal(18, 2)) as true_up
+    {{ dec("sum(l.credit)", 18, 2) }} as accrued_amount,
+    {{ dec("b.total_amount", 18, 2) }} as billed_amount,
+    {{ dec("b.total_amount - sum(l.credit)", 18, 2) }} as true_up
 from {{ ref('stg_erp__journal_entries') }} e
 join {{ ref('stg_erp__journal_lines') }} l using (entry_id)
 join {{ ref('stg_erp__vendor_bills') }} b on b.bill_id = e.source_ref

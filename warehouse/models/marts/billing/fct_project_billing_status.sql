@@ -23,14 +23,14 @@ inv as (
         count(*) as invoices,
         max(invoice_date) as last_invoice_date,
         sum(amount) as billed_total,
-        sum(amount) filter (where not is_paid) as open_ar
+        sum(case when not is_paid then amount end) as open_ar
     from invoices
     group by project_id
 ),
 
 drafts as (
     select project_id, sum(amount) as ready_to_bill, max(days_unbilled) as oldest_unbilled_days,
-           bool_or(is_unbilled_alert) as has_unbilled_alert
+           {{ bool_or("is_unbilled_alert") }} as has_unbilled_alert
     from {{ ref('fct_billing_run') }}
     group by project_id
 )
@@ -41,9 +41,9 @@ select
     p.project_type,
     coalesce(i.invoices, 0) as invoices,
     i.last_invoice_date,
-    cast(coalesce(i.billed_total, 0) as decimal(18, 2)) as billed_total,
-    cast(coalesce(i.open_ar, 0) as decimal(18, 2)) as open_ar,
-    cast(coalesce(d.ready_to_bill, 0) as decimal(18, 2)) as ready_to_bill,
+    {{ dec("coalesce(i.billed_total, 0)", 18, 2) }} as billed_total,
+    {{ dec("coalesce(i.open_ar, 0)", 18, 2) }} as open_ar,
+    {{ dec("coalesce(d.ready_to_bill, 0)", 18, 2) }} as ready_to_bill,
     d.oldest_unbilled_days,
     coalesce(d.has_unbilled_alert, false) as has_unbilled_alert,
     case

@@ -43,7 +43,7 @@ customer_rev_t3m as (
     cross join (select distinct customer_id from customer_rev) c
     left join customer_rev r
         on r.customer_id = c.customer_id
-        and r.month > m.month - interval 3 month
+        and r.month > {{ add_months("m.month", -3) }}
         and r.month <= m.month
     group by all
 ),
@@ -52,13 +52,13 @@ retention as (
     -- cohort = customers with revenue in the T3M window ending 12 months earlier
     select
         now_.month,
-        sum(now_.rev_t3m) filter (where prior.rev_t3m > 0) as cohort_rev_now,
-        sum(least(coalesce(now_.rev_t3m, 0), prior.rev_t3m)) filter (where prior.rev_t3m > 0) as cohort_rev_retained,
-        sum(prior.rev_t3m) filter (where prior.rev_t3m > 0) as cohort_rev_prior
+        sum(case when prior.rev_t3m > 0 then now_.rev_t3m end) as cohort_rev_now,
+        sum(case when prior.rev_t3m > 0 then least(coalesce(now_.rev_t3m, 0), prior.rev_t3m) end) as cohort_rev_retained,
+        sum(case when prior.rev_t3m > 0 then prior.rev_t3m end) as cohort_rev_prior
     from customer_rev_t3m now_
     join customer_rev_t3m prior
         on prior.customer_id = now_.customer_id
-        and prior.month = now_.month - interval 12 month
+        and prior.month = {{ add_months("now_.month", -12) }}
     group by now_.month
 ),
 
@@ -116,7 +116,7 @@ metrics as (
                       'runway_months', 'arr', 'headcount', 'arr_per_employee', 'nrr', 'grr',
                       'active_customers', 'new_customers', 'churned_customers', 'logo_churn_rate',
                       'gross_mrr_churn_rate', 'dso_days', 'cei', 'ar_over_60'] %}
-        cast(round({{ m }}, 4) as decimal(18, 4)) as {{ m }}{{ "," if not loop.last }}
+        {{ dec("round(" ~ m ~ ", 4)", 18, 4) }} as {{ m }}{{ "," if not loop.last }}
         {%- endfor %}
     from base
 )

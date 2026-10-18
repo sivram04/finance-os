@@ -1,7 +1,7 @@
 -- FR-1.4 for M7: the wrong-rate line is caught by validation, and the accepted-but-unbilled milestone
 -- sits in the billing run with an unbilled alert.
 with a as (
-    select anomaly_id, kind, entity_id, date_trunc('month', start_date) as start_month
+    select anomaly_id, kind, entity_id, {{ month_start("start_date") }} as start_month
     from {{ ref('stg_synthetic__anomaly_manifest') }}
     where kind in ('wrong_bill_rate', 'unbilled_milestone')
 ),

@@ -6,5 +6,5 @@ select m.month, m.customer_id, m.segment, m.gross_margin_pct, m.gross_margin_flo
 from {{ ref('fct_customer_margin_monthly') }} m
 left join {{ ref('stg_synthetic__anomaly_manifest') }} a
     on a.entity_id = m.customer_id
-    and m.month >= date_trunc('month', a.start_date)
+    and m.month >= {{ month_start("a.start_date") }}
 where m.is_below_floor and a.anomaly_id is null

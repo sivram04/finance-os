@@ -2,7 +2,7 @@ version: 2
 
 sources:
   - name: usage
-    schema: raw_usage
+    schema: "{{ var('dataset_prefix', '') }}raw_usage"
     description: Request-level API usage events, one row per request (and per duplicate delivery).
     tables:
       - name: api_requests

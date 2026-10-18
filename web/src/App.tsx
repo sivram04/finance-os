@@ -3,11 +3,12 @@ import { api } from './api'
 import { Assistant } from './components/Assistant'
 import { WorkspaceContext, type Page } from './components/common'
 import { Home } from './pages/Home'
+import { Capital, Cash, Close, Plan, Pricing, TaxFx } from './pages/Finance'
 import { AP, AR, Billing, Budget, Projects, Revenue, Spend, Trust } from './pages/Modules'
 
 const TABS: [Page, string][] = [
-  ['home', 'Home'], ['revenue', 'Revenue'], ['spend', 'Tech spend'], ['budget', 'Budget'], ['projects', 'Projects'],
-  ['billing', 'Billing'], ['ar', 'Receivables'], ['ap', 'AP inbox'], ['trust', 'Trust'],
+  ['home', 'Home'], ['plan', 'Plan'], ['cash', 'Cash'], ['close', 'Close'], ['revenue', 'Revenue'], ['spend', 'Tech spend'], ['budget', 'Budget'], ['projects', 'Projects'],
+  ['billing', 'Billing'], ['ar', 'Receivables'], ['ap', 'AP inbox'], ['pricing', 'Pricing'], ['capital', 'Capital'], ['tax', 'Tax & FX'], ['trust', 'Trust'],
 ]
 
 export default function App() {
@@ -52,6 +53,12 @@ export default function App() {
               {page === 'ar' && <AR />}
               {page === 'ap' && <AP />}
               {page === 'trust' && <Trust />}
+              {page === 'plan' && <Plan />}
+              {page === 'cash' && <Cash />}
+              {page === 'close' && <Close />}
+              {page === 'pricing' && <Pricing />}
+              {page === 'capital' && <Capital />}
+              {page === 'tax' && <TaxFx />}
             </>
           )}
         </main>

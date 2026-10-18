@@ -6,14 +6,14 @@ with direct_gpu as (
     group by all
 )
 
-select month, customer_id, product_id, 'gpu_seconds' as driver, cast(gpu_seconds as decimal(38, 6)) as driver_value
+select month, customer_id, product_id, 'gpu_seconds' as driver, {{ dec("gpu_seconds", 38, 6) }} as driver_value
 from direct_gpu
 union all
-select month, customer_id, product_id, 'requests', cast(requests as decimal(38, 6))
+select month, customer_id, product_id, 'requests', {{ dec("requests", 38, 6) }}
 from {{ ref('int_usage_rated_monthly') }}
 union all
-select month, customer_id, product_id, 'audio_hours', cast(audio_hours as decimal(38, 6))
+select month, customer_id, product_id, 'audio_hours', {{ dec("audio_hours", 38, 6) }}
 from {{ ref('int_usage_rated_monthly') }}
 union all
-select month, customer_id, product_id, 'revenue', cast(revenue as decimal(38, 6))
+select month, customer_id, product_id, 'revenue', {{ dec("revenue", 38, 6) }}
 from {{ ref('int_usage_rated_monthly') }}

@@ -6,5 +6,5 @@ select
     title,
     hire_date,
     termination_date,
-    cast(annual_salary as decimal(18, 2)) as annual_salary
+    {{ dec("annual_salary", 18, 2) }} as annual_salary
 from {{ source('payroll', 'employees') }}

@@ -4,7 +4,7 @@
 with roles as (
     select
         h.*,
-        date_trunc('month', cast(h.planned_start as date))::date as start_month,
+        {{ month_start("cast(h.planned_start as date)") }} as start_month,
         row_number() over (order by h.planned_start, h.role_id) as start_rank,
         count(*) over () as n_roles
     from {{ ref('hiring_plan') }} h
@@ -24,8 +24,8 @@ select
     r.title,
     r.status,
     r.start_month,
-    cast(r.annual_salary as decimal(18, 2)) as annual_salary,
-    cast(r.annual_salary / 12.0 * (1 + l.employer_tax_pct) + l.benefits_per_month as decimal(18, 2)) as monthly_loaded_cost
+    {{ dec("r.annual_salary", 18, 2) }} as annual_salary,
+    {{ dec(fdiv("r.annual_salary", 12) ~ " * (1 + l.employer_tax_pct) + l.benefits_per_month", 18, 2) }} as monthly_loaded_cost
 from roles r
 cross join pct p
 cross join {{ ref('labor_cost_policy') }} l

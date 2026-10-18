@@ -7,10 +7,10 @@ with months as (
 select
     m.month,
     e.department_id,
-    count(*) filter (where e.hire_date <= m.month_end
-                       and (e.termination_date is null or e.termination_date > m.month_end)) as headcount,
-    count(*) filter (where date_trunc('month', e.hire_date) = m.month) as hires,
-    count(*) filter (where date_trunc('month', e.termination_date) = m.month) as leavers
+    count(case when e.hire_date <= m.month_end
+                       and (e.termination_date is null or e.termination_date > m.month_end) then 1 end) as headcount,
+    count(case when {{ month_start("e.hire_date") }} = m.month then 1 end) as hires,
+    count(case when {{ month_start("e.termination_date") }} = m.month then 1 end) as leavers
 from months m
 cross join {{ ref('stg_payroll__employees') }} e
 group by all

@@ -51,9 +51,9 @@ windowed as (
 select
     month,
     customer_id,
-    cast(revenue as decimal(18, 2)) as revenue,
-    cast(prior_revenue as decimal(18, 2)) as prior_revenue,
-    cast(revenue - prior_revenue as decimal(18, 2)) as revenue_change,
+    {{ dec("revenue", 18, 2) }} as revenue,
+    {{ dec("prior_revenue", 18, 2) }} as prior_revenue,
+    {{ dec("revenue - prior_revenue", 18, 2) }} as revenue_change,
     case
         when revenue > 0 and prior_revenue = 0 and revenue_before = 0 then 'new'
         when revenue > 0 and prior_revenue = 0 then 'reactivation'

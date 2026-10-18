@@ -3,7 +3,7 @@ select
     employee_id,
     project_id,
     week_ending,
-    date_trunc('month', week_ending)::date as work_month,
+    {{ month_start("week_ending") }} as work_month,
     labor_category,
     hours,
     approved

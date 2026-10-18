@@ -28,7 +28,7 @@ select 'unbilled_milestone', m.project_id, m.milestone_id, m.accepted_date, m.am
 from {{ ref('stg_projects__milestones') }} m
 cross join last_day_of_data d
 where m.accepted_date is not null
-  and m.accepted_date <= d.as_of - interval 30 day
+  and m.accepted_date <= {{ add_days("d.as_of", -30) }}
   and not exists (
       select 1 from {{ ref('stg_projects__project_invoice_lines') }} l where l.milestone_id = m.milestone_id
   )

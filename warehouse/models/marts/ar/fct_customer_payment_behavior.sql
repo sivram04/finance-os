@@ -7,9 +7,9 @@ select
     invoice_type,
     any_value(segment) as segment,
     count(*) as invoices_paid,
-    cast(round(avg(days_to_pay), 1) as decimal(9, 1)) as avg_days_to_pay,
-    cast(round(avg(days_paid_late), 1) as decimal(9, 1)) as avg_days_late,
-    cast(round(avg(case when days_paid_late > 0 then 1 else 0 end), 4) as decimal(9, 4)) as pct_paid_late,
+    {{ dec("round(" ~ fdiv("sum(days_to_pay)", "count(days_to_pay)") ~ ", 1)", 9, 1) }} as avg_days_to_pay,
+    {{ dec("round(" ~ fdiv("sum(days_paid_late)", "count(days_paid_late)") ~ ", 1)", 9, 1) }} as avg_days_late,
+    {{ dec("round(avg(case when days_paid_late > 0 then 1 else 0 end), 4)", 9, 4) }} as pct_paid_late,
     max(days_paid_late) as max_days_late,
     count(*) >= 3 and avg(days_paid_late) > 30 as is_chronic_late
 from {{ ref('fct_ar_invoices') }}

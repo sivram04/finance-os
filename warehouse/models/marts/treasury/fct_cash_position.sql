@@ -13,12 +13,12 @@ select
     a.account_id,
     a.bank,
     a.account_type,
-    cast(a.target_share as decimal(9, 4)) as target_share,
-    cast(c.total * a.target_share as decimal(18, 2)) as balance,
-    cast(a.annual_yield as decimal(9, 4)) as annual_yield,
-    cast(c.total * a.target_share * a.annual_yield / 12 as decimal(18, 2)) as monthly_interest,
+    {{ dec("a.target_share", 9, 4) }} as target_share,
+    {{ dec("c.total * a.target_share", 18, 2) }} as balance,
+    {{ dec("a.annual_yield", 9, 4) }} as annual_yield,
+    {{ dec("c.total * a.target_share * a.annual_yield / 12", 18, 2) }} as monthly_interest,
     case when a.account_type = 'operating'
-         then cast(round(c.total * a.target_share / nullif(w.avg_weekly_outflow, 0), 1) as decimal(9, 1)) end as weeks_of_outflows,
+         then {{ dec("round(c.total * a.target_share / nullif(w.avg_weekly_outflow, 0), 1)", 9, 1) }} end as weeks_of_outflows,
     case when a.account_type = 'operating'
          then c.total * a.target_share / nullif(w.avg_weekly_outflow, 0) < p.threshold end as is_below_policy
 from {{ ref('treasury_accounts') }} a

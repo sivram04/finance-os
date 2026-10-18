@@ -15,7 +15,7 @@ select
     coalesce(c.segment, case when k.is_federal then 'federal' end, 'enterprise') as segment,
     i.project_id,
     d.invoice_date,
-    d.invoice_date + coalesce(k.payment_terms_days, p.payment_terms_days) as due_date,
+    {{ add_days("d.invoice_date", "coalesce(k.payment_terms_days, p.payment_terms_days)") }} as due_date,
     d.amount
 from ar_debits d
 left join {{ ref('stg_synthetic__customers') }} c using (customer_id)

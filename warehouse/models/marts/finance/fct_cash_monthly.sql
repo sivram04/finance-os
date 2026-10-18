@@ -29,11 +29,11 @@ monthly as (
 
 select
     month,
-    cast(coalesce(sum(net_change) over (order by month rows between unbounded preceding and 1 preceding), 0) as decimal(18, 2)) as opening_cash,
-    cast(operating_cash_in as decimal(18, 2)) as operating_cash_in,
-    cast(operating_cash_out as decimal(18, 2)) as operating_cash_out,
-    cast(financing_cash_in as decimal(18, 2)) as financing_cash_in,
-    cast(sum(net_change) over (order by month rows between unbounded preceding and current row) as decimal(18, 2)) as closing_cash,
-    cast(operating_cash_out as decimal(18, 2)) as gross_burn,
-    cast(operating_cash_out - operating_cash_in as decimal(18, 2)) as net_burn
+    {{ dec("coalesce(sum(net_change) over (order by month rows between unbounded preceding and 1 preceding), 0)", 18, 2) }} as opening_cash,
+    {{ dec("operating_cash_in", 18, 2) }} as operating_cash_in,
+    {{ dec("operating_cash_out", 18, 2) }} as operating_cash_out,
+    {{ dec("financing_cash_in", 18, 2) }} as financing_cash_in,
+    {{ dec("sum(net_change) over (order by month rows between unbounded preceding and current row)", 18, 2) }} as closing_cash,
+    {{ dec("operating_cash_out", 18, 2) }} as gross_burn,
+    {{ dec("operating_cash_out - operating_cash_in", 18, 2) }} as net_burn
 from monthly

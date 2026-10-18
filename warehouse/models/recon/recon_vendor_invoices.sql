@@ -30,7 +30,7 @@ compared as (
         coalesce(b.service_month, m.month) as period,
         b.bill_id,
         b.total_amount as expected,
-        cast(round(m.modeled_amount, 2) as decimal(18, 2)) as actual
+        {{ dec("round(m.modeled_amount, 2)", 18, 2) }} as actual
     from {{ ref('stg_erp__vendor_bills') }} b
     full outer join modeled_total m
         on m.vendor_id = b.vendor_id and m.month = b.service_month
@@ -44,8 +44,8 @@ select
     expected,
     actual,
     actual - expected as variance,
-    cast(round((actual - expected) / nullif(expected, 0), 4) as decimal(9, 4)) as variance_pct,
-    cast(0.01 as decimal(9, 4)) as tolerance_pct,
+    {{ dec("round((actual - expected) / nullif(expected, 0), 4)", 9, 4) }} as variance_pct,
+    {{ dec("0.01", 9, 4) }} as tolerance_pct,
     case
         when expected is null then 'fail'
         when actual is null then 'fail'

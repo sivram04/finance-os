@@ -14,12 +14,12 @@ open_bills as (
 detail as (
     select
         o.bill_ref,
-        coalesce(b.vendor_id, split_part(o.bill_ref, '-', 2)) as vendor_id,
+        coalesce(b.vendor_id, {{ dbt.split_part("o.bill_ref", "'-'", 2) }}) as vendor_id,
         b.bill_date,
         o.due_date,
         o.amount,
         coalesce(t.early_pay_discount_pct, 0) as discount_pct,
-        case when t.discount_days > 0 then b.bill_date + t.discount_days end as discount_date,
+        case when t.discount_days > 0 then {{ add_days("b.bill_date", "t.discount_days") }} end as discount_date,
         coalesce(t.priority, 'normal') as priority
     from open_bills o
     left join {{ ref('stg_erp__vendor_bills') }} b on b.bill_id = o.bill_ref
@@ -39,12 +39,12 @@ select
     vendor_id,
     bill_date,
     due_date,
-    cast(amount as decimal(18, 2)) as amount,
+    {{ dec("amount", 18, 2) }} as amount,
     priority,
     -- weekly run: the Thursday on or before the target date, never before the next Thursday after as-of
-    cast(greatest(target_date - cast((dayofweek(target_date) + 3) % 7 as integer),
-                  as_of_date + cast((11 - dayofweek(as_of_date)) % 7 + 1 as integer)) as date) as payment_run_date,
-    cast(amount * discount_pct as decimal(18, 2)) as discount_captured,
-    cast(amount * (1 - discount_pct) as decimal(18, 2)) as amount_to_pay,
+    greatest({{ add_days("target_date", "-mod(" ~ day_of_week("target_date") ~ " + 3, 7)") }},
+             {{ add_days("as_of_date", "mod(11 - " ~ day_of_week("as_of_date") ~ ", 7) + 1") }}) as payment_run_date,
+    {{ dec("amount * discount_pct", 18, 2) }} as discount_captured,
+    {{ dec("amount * (1 - discount_pct)", 18, 2) }} as amount_to_pay,
     due_date <= as_of_date as is_overdue
 from planned

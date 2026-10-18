@@ -7,14 +7,14 @@ with last_month as (
 ),
 
 horizon as (
-    select k, (base_month + to_months(k))::date as forecast_month
-    from last_month, range(1, 4) t(k)
+    select k, {{ add_months("base_month", "k") }} as forecast_month
+    from last_month cross join (select n as k from {{ int_series('t', 1, 3) }})
 ),
 
 gpu_hist as (
     select vendor_id, gpu_type, job_month as month, sum(gpu_seconds) / 3600.0 as hours
     from {{ ref('int_gpu_cost_jobs') }}, last_month
-    where job_month > base_month - interval 3 month
+    where job_month > {{ add_months("base_month", -3) }}
     group by all
 ),
 
@@ -25,7 +25,7 @@ gpu_trend as (
         max(case when month = (select base_month from last_month) then hours end) as base_hours,
         pow(
             max(case when month = (select base_month from last_month) then hours end)
-            / nullif(max(case when month = (select base_month from last_month) - interval 2 month then hours end), 0),
+            / nullif(max(case when month = {{ add_months("(select base_month from last_month)", -2) }} then hours end), 0),
             0.5
         ) - 1 as monthly_growth
     from gpu_hist
@@ -61,7 +61,7 @@ shortfall as (
 cloud_hist as (
     select usage_month as month, sum(cost) as cost
     from {{ ref('stg_infra__cloud_costs_daily') }}, last_month
-    where usage_month > base_month - interval 3 month
+    where usage_month > {{ add_months("base_month", -3) }}
     group by all
 ),
 
@@ -70,32 +70,32 @@ cloud_trend as (
         max(case when month = (select base_month from last_month) then cost end) as base_cost,
         pow(
             max(case when month = (select base_month from last_month) then cost end)
-            / nullif(max(case when month = (select base_month from last_month) - interval 2 month then cost end), 0),
+            / nullif(max(case when month = {{ add_months("(select base_month from last_month)", -2) }} then cost end), 0),
             0.5
         ) - 1 as monthly_growth
     from cloud_hist
 )
 
 select forecast_month, vendor_id, 'gpu_usage' as line_type, gpu_type,
-       cast(round(monthly_growth, 4) as decimal(9, 4)) as monthly_growth,
-       cast(round(hours, 4) as decimal(18, 4)) as forecast_hours,
-       cast(round(hours * rate_per_gpu_hour, 2) as decimal(18, 2)) as forecast_amount
+       {{ dec("round(monthly_growth, 4)", 9, 4) }} as monthly_growth,
+       {{ dec("round(hours, 4)", 18, 4) }} as forecast_hours,
+       {{ dec("round(hours * rate_per_gpu_hour, 2)", 18, 2) }} as forecast_amount
 from gpu_forecast
 
 union all
 
 select forecast_month, vendor_id, 'commit_shortfall', gpu_type,
-       cast(round(monthly_growth, 4) as decimal(9, 4)),
-       cast(round(hours, 4) as decimal(18, 4)),
-       cast(round(hours * rate_per_gpu_hour, 2) as decimal(18, 2))
+       {{ dec("round(monthly_growth, 4)", 9, 4) }},
+       {{ dec("round(hours, 4)", 18, 4) }},
+       {{ dec("round(hours * rate_per_gpu_hour, 2)", 18, 2) }}
 from shortfall
 where hours > 0
 
 union all
 
 select h.forecast_month, 'gcp', 'cloud_services', null,
-       cast(round(c.monthly_growth, 4) as decimal(9, 4)),
+       {{ dec("round(c.monthly_growth, 4)", 9, 4) }},
        null,
-       cast(round(c.base_cost * pow(1 + c.monthly_growth, h.k), 2) as decimal(18, 2))
+       {{ dec("round(c.base_cost * pow(1 + c.monthly_growth, h.k), 2)", 18, 2) }}
 from cloud_trend c
 cross join horizon h

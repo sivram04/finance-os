@@ -26,13 +26,13 @@ joined as (
 
 select
     month,
-    cast(ar_balance as decimal(18, 2)) as ar_balance,
-    cast(ap_balance as decimal(18, 2)) as ap_balance,
-    cast(ar_balance - ap_balance as decimal(18, 2)) as net_working_capital,
-    cast(revenue as decimal(18, 2)) as revenue,
-    cast(purchases as decimal(18, 2)) as purchases_on_credit,
-    cast(round(ar_balance / nullif(revenue_t3m, 0) * 91, 1) as decimal(9, 1)) as dso_days,
-    cast(round(ap_balance / nullif(purchases_t3m, 0) * 91, 1) as decimal(9, 1)) as dpo_days,
-    cast(0 as decimal(9, 1)) as dio_days,
-    cast(round(ar_balance / nullif(revenue_t3m, 0) * 91 - ap_balance / nullif(purchases_t3m, 0) * 91, 1) as decimal(9, 1)) as cash_conversion_cycle_days
+    {{ dec("ar_balance", 18, 2) }} as ar_balance,
+    {{ dec("ap_balance", 18, 2) }} as ap_balance,
+    {{ dec("ar_balance - ap_balance", 18, 2) }} as net_working_capital,
+    {{ dec("revenue", 18, 2) }} as revenue,
+    {{ dec("purchases", 18, 2) }} as purchases_on_credit,
+    {{ dec("round(ar_balance / nullif(revenue_t3m, 0) * 91, 1)", 9, 1) }} as dso_days,
+    {{ dec("round(ap_balance / nullif(purchases_t3m, 0) * 91, 1)", 9, 1) }} as dpo_days,
+    {{ dec("0", 9, 1) }} as dio_days,
+    {{ dec("round(ar_balance / nullif(revenue_t3m, 0) * 91 - ap_balance / nullif(purchases_t3m, 0) * 91, 1)", 9, 1) }} as cash_conversion_cycle_days
 from joined

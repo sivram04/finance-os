@@ -2,8 +2,8 @@
 -- that the generator posted a one-off expense to that department and account.
 with a as (
     select anomaly_id,
-           split_part(entity_id, '-', 1) as department_id,
-           split_part(entity_id, '-', 2) as account_id
+           {{ dbt.split_part("entity_id", "'-'", 1) }} as department_id,
+           {{ dbt.split_part("entity_id", "'-'", 2) }} as account_id
     from {{ ref('stg_synthetic__anomaly_manifest') }}
     where kind = 'unbudgeted_expense'
 ),

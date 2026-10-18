@@ -2,7 +2,7 @@ version: 2
 
 sources:
   - name: projects
-    schema: raw_projects
+    schema: "{{ var('dataset_prefix', '') }}raw_projects"
     description: Synthetic project accounting data (contracts, timesheets, POs, project billing).
     loaded_at_field: _loaded_at
     tables:

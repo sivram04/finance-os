@@ -5,7 +5,7 @@ select
     l.account_id,
     a.account_name,
     a.account_type,
-    a.rollup,
+    a.{{ adapter.quote('rollup') }},
     coalesce(l.department_id, 'NONE') as department_id,
     sum(l.debit) as debit,
     sum(l.credit) as credit,

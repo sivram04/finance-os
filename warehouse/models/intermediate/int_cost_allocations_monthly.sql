@@ -37,5 +37,5 @@ select
     pool_amount,
     driver_value,
     driver_total,
-    cast(round(pool_amount * (driver_value / nullif(driver_total, 0)), 6) as decimal(18, 6)) as allocated_amount
+    {{ dec("round(pool_amount * " ~ fdiv("driver_value", "nullif(driver_total, 0)") ~ ", 6)", 18, 6) }} as allocated_amount
 from matched

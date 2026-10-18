@@ -24,10 +24,10 @@ select
     cm.month,
     cm.gpu_type,
     cm.committed_hours,
-    cast(coalesce(u.used_hours, 0) as decimal(18, 4)) as used_hours,
-    cast(greatest(cm.committed_hours - coalesce(u.used_hours, 0), 0) as decimal(18, 4)) as shortfall_hours,
+    {{ dec("coalesce(u.used_hours, 0)", 18, 4) }} as used_hours,
+    {{ dec("greatest(cm.committed_hours - coalesce(u.used_hours, 0), 0)", 18, 4) }} as shortfall_hours,
     r.rate_per_gpu_hour,
-    cast(round(greatest(cm.committed_hours - coalesce(u.used_hours, 0), 0) * r.rate_per_gpu_hour, 2) as decimal(18, 2)) as shortfall_cost
+    {{ dec("round(greatest(cm.committed_hours - coalesce(u.used_hours, 0), 0) * r.rate_per_gpu_hour, 2)", 18, 2) }} as shortfall_cost
 from contract_months cm
 left join used u using (vendor_id, month, gpu_type)
 join {{ ref('gpu_rates') }} r

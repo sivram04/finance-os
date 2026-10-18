@@ -23,6 +23,6 @@ select
     r.month,
     r.customer_id,
     r.product_id,
-    cast(round(coalesce(f.customer_fee * (r.revenue / nullif(f.customer_revenue, 0)), 0), 6) as decimal(18, 6)) as payment_fees
+    {{ dec("round(coalesce(f.customer_fee * (r.revenue / nullif(f.customer_revenue, 0)), 0), 6)", 18, 6) }} as payment_fees
 from {{ ref('int_usage_rated_monthly') }} r
 join fees f using (month, customer_id)

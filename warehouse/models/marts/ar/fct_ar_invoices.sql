@@ -22,13 +22,13 @@ select
     i.due_date,
     i.amount,
     coalesce(a.applied_amount, 0) as applied_amount,
-    cast(i.amount - coalesce(a.applied_amount, 0) as decimal(18, 2)) as balance,
+    {{ dec("i.amount - coalesce(a.applied_amount, 0)", 18, 2) }} as balance,
     case when i.amount - coalesce(a.applied_amount, 0) <= 0 then a.last_applied_date end as paid_date,
     case when i.amount - coalesce(a.applied_amount, 0) <= 0
-         then date_diff('day', i.invoice_date, a.last_applied_date) end as days_to_pay,
+         then {{ days_between("i.invoice_date", "a.last_applied_date") }} end as days_to_pay,
     case when i.amount - coalesce(a.applied_amount, 0) <= 0
-         then greatest(date_diff('day', i.due_date, a.last_applied_date), 0) end as days_paid_late,
-    greatest(date_diff('day', i.due_date, o.as_of_date), 0) as days_past_due,
+         then greatest({{ days_between("i.due_date", "a.last_applied_date") }}, 0) end as days_paid_late,
+    greatest({{ days_between("i.due_date", "o.as_of_date") }}, 0) as days_past_due,
     d.dispute_id is not null and d.status = 'open' as is_disputed,
     case
         when i.amount - coalesce(a.applied_amount, 0) < 0 then 'overapplied'

@@ -19,8 +19,8 @@ select
     b.amount as expected,
     g.amount as actual,
     g.amount - b.amount as variance,
-    cast(round((g.amount - b.amount) / nullif(b.amount, 0), 4) as decimal(9, 4)) as variance_pct,
-    cast(0 as decimal(9, 4)) as tolerance_pct,
+    {{ dec("round((g.amount - b.amount) / nullif(b.amount, 0), 4)", 9, 4) }} as variance_pct,
+    {{ dec("0", 9, 4) }} as tolerance_pct,
     case when g.amount is not distinct from b.amount then 'pass' else 'fail' end as status,
     case when g.amount is null then 'Invoice not posted to the GL'
          when g.amount = b.amount then 'Exact match'

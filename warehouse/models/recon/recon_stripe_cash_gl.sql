@@ -23,8 +23,8 @@ select
     s.amount as expected,
     g.amount as actual,
     coalesce(g.amount, 0) - coalesce(s.amount, 0) as variance,
-    cast(null as decimal(9, 4)) as variance_pct,
-    cast(0 as decimal(9, 4)) as tolerance_pct,
+    {{ dec("null", 9, 4) }} as variance_pct,
+    {{ dec("0", 9, 4) }} as tolerance_pct,
     case when g.amount is not distinct from s.amount then 'pass' else 'fail' end as status,
     case when g.amount is not distinct from s.amount then 'Exact match (charges net of fees, and refunds)'
          else 'GL cash differs from the Stripe balance: investigate' end as explanation

@@ -15,12 +15,10 @@ select
     t.labor_category,
     t.hours,
     t.approved,
-    cast(round((e.annual_salary * (1 + pol.employer_tax_pct) + pol.benefits_per_month * 12) / pol.standard_hours_year, 2)
-         as decimal(18, 2)) as cost_rate,
-    cast(round(t.hours * round((e.annual_salary * (1 + pol.employer_tax_pct) + pol.benefits_per_month * 12)
-                               / pol.standard_hours_year, 2), 2) as decimal(18, 2)) as labor_cost,
+    {{ dec("round(" ~ fdiv("e.annual_salary * (1 + pol.employer_tax_pct) + pol.benefits_per_month * 12", "pol.standard_hours_year") ~ ", 2)", 18, 2) }} as cost_rate,
+    {{ dec("round(t.hours * " ~ dec("round(" ~ fdiv("e.annual_salary * (1 + pol.employer_tax_pct) + pol.benefits_per_month * 12", "pol.standard_hours_year") ~ ", 2)", 18, 2) ~ ", 2)", 18, 2) }} as labor_cost,
     r.bill_rate,
-    cast(t.hours * r.bill_rate as decimal(18, 2)) as billable_value
+    {{ dec("t.hours * r.bill_rate", 18, 2) }} as billable_value
 from {{ ref('stg_projects__timesheets') }} t
 join {{ ref('stg_payroll__employees') }} e using (employee_id)
 join {{ ref('stg_projects__projects') }} p using (project_id)

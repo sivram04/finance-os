@@ -21,7 +21,7 @@ select
     i.is_disputed,
     h.customer_id is not null as is_cash_app_hold,
     i.is_disputed or h.customer_id is not null as is_on_hold,
-    cast(i.balance * i.days_past_due * p.collection_weight as decimal(18, 2)) as priority_score,
+    {{ dec("i.balance * i.days_past_due * p.collection_weight", 18, 2) }} as priority_score,
     case when i.is_disputed or h.customer_id is not null then null
          else rank() over (partition by i.is_disputed or h.customer_id is not null
                            order by i.balance * i.days_past_due * p.collection_weight desc)

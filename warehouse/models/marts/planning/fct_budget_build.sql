@@ -6,7 +6,7 @@
 --              run rate × 12 × (1 + opex growth cap), spread across departments by their bottom-up ask.
 -- gap = bottom-up − top-down (a positive opex gap means departments asked for more than the ceiling allows).
 with fy as (
-    select year(max(month)) + 1 as fiscal_year from {{ ref('int_pnl_monthly') }}
+    select extract(year from max(month)) + 1 as fiscal_year from {{ ref('int_pnl_monthly') }}
 ),
 
 targets as (
@@ -21,20 +21,20 @@ targets as (
 forecast as (
     select sum(revenue) as revenue, sum(cogs) as cogs
     from {{ ref('fct_forecast_monthly') }} f
-    join fy on year(f.month) = fy.fiscal_year
+    join fy on extract(year from f.month) = fy.fiscal_year
     where f.is_latest and f.scenario = 'base'
 ),
 
 run_rate as (
     select avg(revenue) * 12 as revenue_annual, avg(opex) * 12 as opex_annual
     from {{ ref('int_pnl_monthly') }}
-    where month > (select max(month) from {{ ref('int_pnl_monthly') }}) - interval 3 month
+    where month > {{ add_months("(select max(month) from " ~ ref('int_pnl_monthly') ~ ")", -3) }}
 ),
 
 dept_payroll as (
     select department_id, sum(payroll_cost) as amount
     from {{ ref('fct_headcount_plan_monthly') }} h
-    join fy on year(h.month) = fy.fiscal_year
+    join fy on extract(year from h.month) = fy.fiscal_year
     where scenario = 'base'
     group by department_id
 ),
@@ -44,8 +44,8 @@ dept_other as (
     from (
         select department_id, sum(natural_amount) / 3 as avg_month
         from {{ ref('fct_gl_monthly') }}
-        where account_type = 'opex' and rollup <> 'Payroll'
-          and month > (select max(month) from {{ ref('fct_gl_monthly') }}) - interval 3 month
+        where account_type = 'opex' and {{ adapter.quote('rollup') }} <> 'Payroll'
+          and month > {{ add_months("(select max(month) from " ~ ref('fct_gl_monthly') ~ ")", -3) }}
         group by department_id
     ) g
     cross join (select value as growth from {{ ref('planning_scenarios') }}
@@ -81,9 +81,9 @@ select
     fy.fiscal_year,
     line,
     department_id,
-    cast(bottom_up as decimal(18, 2)) as bottom_up,
-    cast(top_down as decimal(18, 2)) as top_down,
-    cast(bottom_up - top_down as decimal(18, 2)) as gap,
-    cast(round((bottom_up - top_down) / nullif(top_down, 0), 4) as decimal(9, 4)) as gap_pct
+    {{ dec("bottom_up", 18, 2) }} as bottom_up,
+    {{ dec("top_down", 18, 2) }} as top_down,
+    {{ dec("bottom_up - top_down", 18, 2) }} as gap,
+    {{ dec("round((bottom_up - top_down) / nullif(top_down, 0), 4)", 9, 4) }} as gap_pct
 from rows_
 cross join fy

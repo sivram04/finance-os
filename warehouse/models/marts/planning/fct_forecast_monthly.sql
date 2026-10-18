@@ -13,7 +13,7 @@ with pnl as (
 versions as (
     select month as as_of_month
     from pnl
-    where month > (select max(month) from pnl) - interval 6 month
+    where month > {{ add_months("(select max(month) from pnl)", -6) }}
 ),
 
 run_rates as (
@@ -25,7 +25,7 @@ run_rates as (
         avg(p.other_opex) as other_opex_rr,
         max(case when p.month = v.as_of_month then p.payroll end) as payroll_last
     from versions v
-    join pnl p on p.month between v.as_of_month - interval 2 month and v.as_of_month
+    join pnl p on p.month between {{ add_months("v.as_of_month", -2) }} and v.as_of_month
     group by v.as_of_month
 ),
 
@@ -42,10 +42,10 @@ drivers as (
 
 grid as (
     select d.*, r.*, h.n as months_ahead,
-           cast(r.as_of_month + to_months(cast(h.n as integer)) as date) as month
+           {{ add_months("r.as_of_month", "h.n") }} as month
     from drivers d
     cross join run_rates r
-    cross join range(1, 19) h(n)
+    cross join {{ int_series('h', 1, 19 - 1) }}
 ),
 
 hires as (
@@ -96,15 +96,15 @@ select
     month,
     months_ahead,
     as_of_month = (select max(as_of_month) from versions) as is_latest,
-    cast(revenue_usage as decimal(18, 2)) as revenue_usage,
-    cast(revenue_services as decimal(18, 2)) as revenue_services,
-    cast(revenue as decimal(18, 2)) as revenue,
-    cast(cogs as decimal(18, 2)) as cogs,
-    cast(revenue - cogs as decimal(18, 2)) as gross_margin,
-    cast(round((revenue - cogs) / nullif(revenue, 0), 4) as decimal(9, 4)) as gross_margin_pct,
-    cast(payroll as decimal(18, 2)) as payroll,
-    cast(other_opex as decimal(18, 2)) as other_opex,
-    cast(opex as decimal(18, 2)) as opex,
-    cast(ebitda as decimal(18, 2)) as ebitda,
-    cast(closing_cash as decimal(18, 2)) as closing_cash
+    {{ dec("revenue_usage", 18, 2) }} as revenue_usage,
+    {{ dec("revenue_services", 18, 2) }} as revenue_services,
+    {{ dec("revenue", 18, 2) }} as revenue,
+    {{ dec("cogs", 18, 2) }} as cogs,
+    {{ dec("revenue - cogs", 18, 2) }} as gross_margin,
+    {{ dec("round((revenue - cogs) / nullif(revenue, 0), 4)", 9, 4) }} as gross_margin_pct,
+    {{ dec("payroll", 18, 2) }} as payroll,
+    {{ dec("other_opex", 18, 2) }} as other_opex,
+    {{ dec("opex", 18, 2) }} as opex,
+    {{ dec("ebitda", 18, 2) }} as ebitda,
+    {{ dec("closing_cash", 18, 2) }} as closing_cash
 from with_cash

@@ -5,6 +5,12 @@ models:
     description: "Grain: one row per API request (deduplicated). duration_ms merges schema v1 and v2."
     columns:
       - name: request_id
-        data_tests: [unique, not_null]
+        # full_scan: these read every event (590M rows at scale L). The daily cloud build skips them
+        # (--exclude tag:full_scan); recon_usage_events proves events = drivers every day, and these run
+        # locally and on demand.
+        data_tests:
+          - unique: {config: {tags: [full_scan]}}
+          - not_null: {config: {tags: [full_scan]}}
       - name: duration_ms
-        data_tests: [not_null]
+        data_tests:
+          - not_null: {config: {tags: [full_scan]}}

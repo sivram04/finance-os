@@ -38,8 +38,9 @@ def _q(x, step="0.0001"):
 
 
 class Day:
-    def __init__(self, world, today, stripe, live=LIVE, inbox=INBOX):
+    def __init__(self, world, today, stripe, live=LIVE, inbox=INBOX, approvals=None):
         self.w, self.today, self.stripe, self.live, self.inbox = world, today, stripe, live, inbox
+        self.approvals = approvals  # AP approval gate (simulator/ap_approvals.py), read once per run
         self.cfg = load_config()
         self.spikes = {}
         self.out = defaultdict(list)
@@ -263,7 +264,7 @@ class Day:
             self.books.opex()
         self.collect()
         if self.today.weekday() == 3:
-            self.books.payment_run()
+            self.books.payment_run(self.approvals)
         if self.today == month_end(self.today):
             self.books.payroll()
             self.books.accrue_vendors(*self.month_infra(self.today.replace(day=1)))

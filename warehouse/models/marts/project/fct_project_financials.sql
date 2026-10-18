@@ -34,7 +34,7 @@ tm_earned_monthly as (
 
 billed as (
     select c.project_id, c.month,
-           coalesce(sum(i.amount) filter (where i.invoice_date <= last_day(c.month)), 0) as billed_to_date
+           coalesce(sum(case when i.invoice_date <= last_day(c.month) then i.amount end), 0) as billed_to_date
     from costs c
     left join {{ ref('stg_projects__project_invoices') }} i using (project_id)
     group by all
@@ -58,25 +58,25 @@ base as (
         b.billed_to_date,
         coalesce(t.earned_to_date, 0) as tm_earned_to_date
     from costs c
-    join {{ ref('stg_projects__projects') }} p using (project_id)
-    join {{ ref('stg_projects__contracts') }} k using (contract_id)
+    join {{ ref('stg_projects__projects') }} p on p.project_id = c.project_id
+    join {{ ref('stg_projects__contracts') }} k on k.contract_id = p.contract_id
     left join {{ ref('stg_projects__pm_estimates') }} e on e.project_id = c.project_id and e.as_of_month = c.month
-    left join billed b using (project_id, month)
+    left join billed b on b.project_id = c.project_id and b.month = c.month
     left join (
         -- carry the last T&M earned value forward into months with no new activity
         select g.project_id, g.month, max(t.earned_to_date) as earned_to_date
         from costs g
         left join tm_earned_monthly t on t.project_id = g.project_id and t.month <= g.month
         group by all
-    ) t using (project_id, month)
+    ) t on t.project_id = c.project_id and t.month = c.month
 ),
 
 calc as (
     select
         *,
-        case when project_type = 'fixed_fee' then actual_to_date / nullif(eac, 0) end as pct_complete,
+        case when project_type = 'fixed_fee' then {{ fdiv('actual_to_date', 'nullif(eac, 0)') }} end as pct_complete,
         case when project_type = 'fixed_fee'
-             then least(actual_to_date / nullif(eac, 0), 1) * contract_value
+             then least({{ fdiv('actual_to_date', 'nullif(eac, 0)') }}, 1) * contract_value
              else tm_earned_to_date end as earned_to_date
     from base
 )
@@ -89,19 +89,19 @@ select
     c.customer_id,
     c.contract_id,
     c.contract_value,
-    cast(c.budget as decimal(18, 2)) as budget,
-    cast(c.actual_to_date as decimal(18, 2)) as actual_to_date,
-    cast(c.open_commitments as decimal(18, 2)) as open_commitments,
-    cast(c.etc as decimal(18, 2)) as etc,
-    cast(c.eac as decimal(18, 2)) as eac,
-    cast(c.budget - c.eac as decimal(18, 2)) as variance_at_completion,
-    cast(round(c.eac / nullif(c.budget, 0), 4) as decimal(9, 4)) as eac_pct_of_budget,
-    cast(round(c.pct_complete, 4) as decimal(9, 4)) as pct_complete,
-    cast(c.earned_to_date as decimal(18, 2)) as earned_to_date,
-    cast(c.billed_to_date as decimal(18, 2)) as billed_to_date,
-    cast(greatest(c.earned_to_date - c.billed_to_date, 0) as decimal(18, 2)) as unbilled,
-    cast(greatest(c.billed_to_date - c.earned_to_date, 0) as decimal(18, 2)) as deferred,
-    case when c.project_type = 'tm_cap' then cast(round(c.earned_to_date / c.ceiling, 4) as decimal(9, 4)) end as cap_used_pct,
+    {{ dec("c.budget", 18, 2) }} as budget,
+    {{ dec("c.actual_to_date", 18, 2) }} as actual_to_date,
+    {{ dec("c.open_commitments", 18, 2) }} as open_commitments,
+    {{ dec("c.etc", 18, 2) }} as etc,
+    {{ dec("c.eac", 18, 2) }} as eac,
+    {{ dec("c.budget - c.eac", 18, 2) }} as variance_at_completion,
+    {{ dec("round(c.eac / nullif(c.budget, 0), 4)", 9, 4) }} as eac_pct_of_budget,
+    {{ dec("round(c.pct_complete, 4)", 9, 4) }} as pct_complete,
+    {{ dec("c.earned_to_date", 18, 2) }} as earned_to_date,
+    {{ dec("c.billed_to_date", 18, 2) }} as billed_to_date,
+    {{ dec("greatest(c.earned_to_date - c.billed_to_date, 0)", 18, 2) }} as unbilled,
+    {{ dec("greatest(c.billed_to_date - c.earned_to_date, 0)", 18, 2) }} as deferred,
+    case when c.project_type = 'tm_cap' then {{ dec("round(c.earned_to_date / c.ceiling, 4)", 9, 4) }} end as cap_used_pct,
     coalesce(c.project_type = 'tm_cap' and c.earned_to_date / c.ceiling >= cap.threshold_pct, false) as is_cap_alert,
     coalesce(c.eac / nullif(c.budget, 0) > eac.threshold_pct, false) as is_over_budget
 from calc c

@@ -48,7 +48,7 @@ checked as (
         b.bill_id as erp_bill_id,
         b.amount as erp_amount,
         po.vendor_id as po_vendor_id,
-        list_filter([
+        {{ array_compact("[
             case when d.vendor_id is null then 'unknown_vendor' end,
             case when d.total is distinct from d.lines_total then 'arithmetic_mismatch' end,
             case when d.copy_number > 1 then 'duplicate_invoice' end,
@@ -57,7 +57,7 @@ checked as (
             case when po.po_id is not null and po.vendor_id <> d.vendor_id then 'po_vendor_mismatch' end,
             case when b.bill_id is null then 'not_in_erp' end,
             case when b.bill_id is not null and b.amount is distinct from d.total then 'amount_mismatch' end
-        ], x -> x is not null) as issues
+        ]") }} as issues
     from docs d
     left join erp_bills b
         on b.vendor_id = d.vendor_id and b.vendor_invoice_number = d.vendor_invoice_number
@@ -66,6 +66,6 @@ checked as (
 
 select
     *,
-    len(issues) as issue_count,
-    case when len(issues) = 0 then 'auto_approve' else 'needs_review' end as route
+    {{ array_size("issues") }} as issue_count,
+    case when {{ array_size("issues") }} = 0 then 'auto_approve' else 'needs_review' end as route
 from checked

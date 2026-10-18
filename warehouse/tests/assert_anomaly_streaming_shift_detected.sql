@@ -13,8 +13,8 @@ from {{ ref('stg_synthetic__anomaly_manifest') }} a
 join {{ ref('fct_customer_margin_monthly') }} m on m.customer_id = a.entity_id
 where a.kind = 'streaming_shift'
   and (
-        (m.month >= date_trunc('month', a.start_date) and not m.is_below_floor)
-     or (m.month >= date_trunc('month', a.start_date) - interval 3 month
-         and m.month < date_trunc('month', a.start_date)
+        (m.month >= {{ month_start("a.start_date") }} and not m.is_below_floor)
+     or (m.month >= {{ add_months(month_start("a.start_date"), -3) }}
+         and m.month < {{ month_start("a.start_date") }}
          and m.is_below_floor)
   )

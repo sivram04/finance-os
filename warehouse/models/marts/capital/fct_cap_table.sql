@@ -3,7 +3,7 @@ select
     holder,
     security_class,
     shares,
-    cast(round(shares / sum(shares) over (), 6) as decimal(9, 6)) as fully_diluted_pct,
+    {{ dec("round(shares / sum(shares) over (), 6)", 9, 6) }} as fully_diluted_pct,
     price_per_share,
     invested,
     issue_date

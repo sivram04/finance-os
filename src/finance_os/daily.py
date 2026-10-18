@@ -9,6 +9,8 @@ Steps (each logged to data/live/logs/<date>.log; a failed step stops the run and
   4 events       regenerate request-level usage events from the (now longer) daily drivers
   5 ap intake    read every vendor bill PDF in the inbox (rules extractor; offline)
   6 dbt build    models + tests, so forecasts, cash, close, AR and AP include today
+  7 bigquery     copy the raw layer to BigQuery (s_* datasets; events append only new days) and build there
+                 too (incremental; the full-scan event tests are skipped). Uses your gcloud login.
 A lock file stops two runs overlapping (e.g. a manual run while the scheduled one is going).
 Scheduled by scripts/schedule_daily.ps1 (Windows Task Scheduler, 7:00, runs late if the laptop was off).
 """
@@ -54,6 +56,7 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--no-stripe", action="store_true")
     p.add_argument("--skip-dbt", action="store_true")
+    p.add_argument("--no-bigquery", action="store_true", help="local warehouse only")
     a = p.parse_args()
     load_dotenv(ROOT / ".env")
     LIVE.mkdir(parents=True, exist_ok=True)
@@ -78,6 +81,10 @@ def main():
         if not a.skip_dbt:
             dbt = str(Path(PY).with_name("dbt.exe" if os.name == "nt" else "dbt"))
             sh(log, "dbt build", [dbt, "build", "--target", "local"], cwd=WAREHOUSE)
+        if not a.no_bigquery and not a.skip_dbt:
+            sh(log, "bigquery copy", [PY, "-m", "finance_os.ingestion.duckdb_to_bigquery", "--prefix", "s_"])
+            sh(log, "bigquery build", [dbt, "build", "--target", "cloud", "--vars", "dataset_prefix: s_",
+                                       "--exclude", "tag:full_scan"], cwd=WAREHOUSE)
         log(f"== done: {s['days']} day(s) simulated through {s['as_of']}, cash {s['cash']} ==")
         return 0
     except Exception as err:  # noqa: BLE001 - logged; the next run retries

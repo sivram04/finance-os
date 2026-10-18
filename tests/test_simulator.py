@@ -35,8 +35,12 @@ def _world():
     return w
 
 
-def _run(w, day, events, live):
-    return Day(w, day, NoStripe(), live, inbox=live / "inbox").run(decide=lambda s, tools: (events, {"total_tokens": 0}))
+def _run(w, day, events, live, approvals=None):
+    if approvals is None:  # default: every document approved, so payment tests aren't held by the gate
+        approvals = {"documents": {b["doc_file"]: "approved" for b in w.ops.get("open_bills", {}).values() if b.get("doc_file")},
+                     "decisions_readable": True}
+    return Day(w, day, NoStripe(), live, inbox=live / "inbox", approvals=approvals).run(
+        decide=lambda s, tools: (events, {"total_tokens": 0}))
 
 
 def test_bad_events_are_rejected_and_good_ones_applied(tmp_path):
@@ -160,3 +164,24 @@ def test_provider_order_falls_through_to_the_next(monkeypatch):
     monkeypatch.setattr(claude_provider, "decide", claude)
     events, usage = agent.decide_with_provider({}, {})
     assert calls == ["api", "claude_code"] and "insufficient_quota" in usage["fallback_from"]
+
+
+def test_payment_run_holds_bills_in_review_and_never_pays_rejected(tmp_path):
+    w = _world()
+    _run(w, date(2026, 10, 2), [ev(type="vendor_bill", category="legal", size="medium"),
+                                ev(type="wrong_po_bill", category="consulting", size="small")], tmp_path)
+    docs = {b["vendor_id"]: b["doc_file"] for b in w.ops["open_bills"].values() if b.get("doc_file")}
+    approvals = {"documents": {docs["lexpoint"]: "review", docs["northwind"]: "rejected"}, "decisions_readable": True}
+    day = date(2026, 10, 3)
+    while day <= date(2026, 11, 30):
+        _run(w, day, [], tmp_path, approvals)
+        day += timedelta(days=1)
+    paid = {p["vendor_id"] for p in read(tmp_path, "ap_payments")}
+    held = {(h["vendor_id"], h["reason"]) for h in read(tmp_path, "ap_holds")}
+    assert not paid & {"lexpoint", "northwind"}
+    assert ("lexpoint", "awaiting approval") in held and ("northwind", "rejected by AP") in held
+    approvals["documents"][docs["lexpoint"]] = "approved"                      # a person approves it in the app
+    while not any(p["vendor_id"] == "lexpoint" for p in read(tmp_path, "ap_payments")):
+        _run(w, day, [], tmp_path, approvals)
+        day += timedelta(days=1)
+    assert "northwind" in {b["vendor_id"] for b in w.ops["open_bills"].values()}   # rejected stays unpaid

@@ -5,16 +5,16 @@
 {% for c in checks %}
 select
     check_name,
-    period,
+    cast(period as date) as period,
     {{ 'vendor_id' if c == 'recon_vendor_invoices' else 'entity_id' }} as entity_id,
-    cast(expected as decimal(18, 2)) as expected,
-    cast(actual as decimal(18, 2)) as actual,
-    cast(variance as decimal(18, 2)) as variance,
+    {{ dec("expected", 18, 2) }} as expected,
+    {{ dec("actual", 18, 2) }} as actual,
+    {{ dec("variance", 18, 2) }} as variance,
     variance_pct,
     tolerance_pct,
     status,
     explanation
 from {{ ref(c) }}
-where period <= {{ closed_through() }}  -- open months are reconciled once they close
+where cast(period as date) <= {{ closed_through() }}  -- open months are reconciled once they close
 {% if not loop.last %}union all{% endif %}
 {% endfor %}

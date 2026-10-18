@@ -34,16 +34,16 @@ all_months as (
 running as (
     select
         m.*,
-        year(m.month) as fiscal_year,
+        extract(year from m.month) as fiscal_year,
         m.month <= l.last_month as is_actual_month,
         sum(case when m.month <= l.last_month then m.actual else 0 end)
-            over (partition by year(m.month), m.department_id, m.account_id order by m.month) as ytd_actual,
+            over (partition by extract(year from m.month), m.department_id, m.account_id order by m.month) as ytd_actual,
         sum(m.budget)
-            over (partition by year(m.month), m.department_id, m.account_id order by m.month) as ytd_budget,
+            over (partition by extract(year from m.month), m.department_id, m.account_id order by m.month) as ytd_budget,
         sum(m.budget)
-            over (partition by year(m.month), m.department_id, m.account_id) as fy_budget,
+            over (partition by extract(year from m.month), m.department_id, m.account_id) as fy_budget,
         sum(m.budget)
-            over (partition by year(m.month), m.department_id, m.account_id order by m.month
+            over (partition by extract(year from m.month), m.department_id, m.account_id order by m.month
                   rows between 1 following and unbounded following) as remaining_budget
     from all_months m
     cross join last_actual l
@@ -66,16 +66,16 @@ select
     s.account_id,
     s.account_name,
     s.account_type,
-    cast(s.actual as decimal(18, 2)) as actual,
-    cast(s.budget as decimal(18, 2)) as budget,
-    cast(s.actual - s.budget as decimal(18, 2)) as variance,
-    cast(round((s.actual - s.budget) / nullif(abs(s.budget), 0), 4) as decimal(9, 4)) as variance_pct,
+    {{ dec("s.actual", 18, 2) }} as actual,
+    {{ dec("s.budget", 18, 2) }} as budget,
+    {{ dec("s.actual - s.budget", 18, 2) }} as variance,
+    {{ dec("round((s.actual - s.budget) / nullif(abs(s.budget), 0), 4)", 9, 4) }} as variance_pct,
     s.unfavorable_amount > 0 as is_unfavorable,
-    cast(s.ytd_actual as decimal(18, 2)) as ytd_actual,
-    cast(s.ytd_budget as decimal(18, 2)) as ytd_budget,
-    cast(s.fy_budget as decimal(18, 2)) as fy_budget,
-    cast(s.ytd_actual + coalesce(s.remaining_budget, 0) as decimal(18, 2)) as fy_forecast,
-    cast(s.ytd_actual + coalesce(s.remaining_budget, 0) - s.fy_budget as decimal(18, 2)) as fy_forecast_variance,
+    {{ dec("s.ytd_actual", 18, 2) }} as ytd_actual,
+    {{ dec("s.ytd_budget", 18, 2) }} as ytd_budget,
+    {{ dec("s.fy_budget", 18, 2) }} as fy_budget,
+    {{ dec("s.ytd_actual + coalesce(s.remaining_budget, 0)", 18, 2) }} as fy_forecast,
+    {{ dec("s.ytd_actual + coalesce(s.remaining_budget, 0) - s.fy_budget", 18, 2) }} as fy_forecast_variance,
     s.unfavorable_amount > t.min_variance_abs
         and (s.budget = 0 or s.unfavorable_amount / abs(s.budget) > t.min_variance_pct) as is_alert
 from scored s

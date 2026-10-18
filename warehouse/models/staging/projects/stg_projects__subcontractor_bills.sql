@@ -4,7 +4,7 @@ select
     vendor_id,
     po_id,
     bill_date,
-    date_trunc('month', bill_date)::date as bill_month,
+    {{ month_start("bill_date") }} as bill_month,
     amount,
     description,
     vendor_invoice_number

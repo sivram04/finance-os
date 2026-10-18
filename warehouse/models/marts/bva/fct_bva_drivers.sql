@@ -36,7 +36,7 @@ select
     memo,
     customer_id,
     vendor_id,
-    cast(natural_amount as decimal(18, 2)) as amount,
-    cast(round(share_of_actual, 4) as decimal(9, 4)) as share_of_actual
+    {{ dec("natural_amount", 18, 2) }} as amount,
+    {{ dec("round(share_of_actual, 4)", 9, 4) }} as share_of_actual
 from ranked
 where driver_rank <= 5

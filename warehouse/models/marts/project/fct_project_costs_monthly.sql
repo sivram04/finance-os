@@ -8,7 +8,7 @@ with months as (
 grid as (
     select p.project_id, b.cost_type, m.month, b.budget_amount
     from {{ ref('stg_projects__projects') }} p
-    join months m on m.month >= date_trunc('month', p.start_date)
+    join months m on m.month >= {{ month_start("p.start_date") }}
     join (
         select project_id, cost_type, budget_amount from {{ ref('stg_projects__project_budgets') }}
         union all
@@ -62,8 +62,8 @@ select
     project_id,
     cost_type,
     month,
-    cast(budget as decimal(18, 2)) as budget,
-    cast(actual_month as decimal(18, 2)) as actual_month,
-    cast(actual_to_date as decimal(18, 2)) as actual_to_date,
-    cast(open_commitments as decimal(18, 2)) as open_commitments
+    {{ dec("budget", 18, 2) }} as budget,
+    {{ dec("actual_month", 18, 2) }} as actual_month,
+    {{ dec("actual_to_date", 18, 2) }} as actual_to_date,
+    {{ dec("open_commitments", 18, 2) }} as open_commitments
 from joined

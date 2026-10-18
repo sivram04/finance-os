@@ -17,7 +17,7 @@ select
     coalesce(label_env, 'untagged') as env,
     label_team is not null and label_env is not null as is_tagged,
     sum(gpu_seconds) as gpu_seconds,
-    cast(sum(gpu_cost) as decimal(18, 6)) as cost
+    {{ dec("sum(gpu_cost)", 18, 6) }} as cost
 from {{ ref('int_gpu_cost_jobs') }}
 group by all
 

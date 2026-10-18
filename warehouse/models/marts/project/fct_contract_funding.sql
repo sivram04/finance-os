@@ -34,17 +34,23 @@ billed_by_clin as (
     where l.clin_id is not null
 ),
 
-clin_month as (
-    select
-        c.contract_id, c.clin_id, m.month, c.ceiling, c.funded,
-        coalesce((select sum(b.amount) from billed_by_clin b
-                  where b.contract_id = c.contract_id and b.clin_id = c.clin_id
-                    and b.invoice_date <= last_day(m.month)), 0) as billed_to_date,
-        coalesce((select sum(e.amount) from earned_by_clin e
-                  where e.contract_id = c.contract_id and e.clin_id = c.clin_id and e.month <= m.month), 0) as earned_to_date
+clin_billed as (
+    -- billed and earned to date per CLIN × month (joins, not correlated subqueries, so BigQuery can run them)
+    select c.contract_id, c.clin_id, m.month, c.ceiling, c.funded, coalesce(sum(b.amount), 0) as billed_to_date
     from clins c
     cross join months m
+    left join billed_by_clin b
+        on b.contract_id = c.contract_id and b.clin_id = c.clin_id and b.invoice_date <= last_day(m.month)
     where c.clin_id <> 'TOTAL'
+    group by c.contract_id, c.clin_id, m.month, c.ceiling, c.funded
+),
+
+clin_month as (
+    select cb.*, coalesce(sum(e.amount), 0) as earned_to_date
+    from clin_billed cb
+    left join earned_by_clin e
+        on e.contract_id = cb.contract_id and e.clin_id = cb.clin_id and e.month <= cb.month
+    group by cb.contract_id, cb.clin_id, cb.month, cb.ceiling, cb.funded, cb.billed_to_date
 ),
 
 contract_month as (
@@ -64,8 +70,8 @@ unioned as (
 
 rules as (
     select
-        max(threshold_pct) filter (where rule_id = 'FUND-75') as t75,
-        max(threshold_pct) filter (where rule_id = 'FUND-90') as t90
+        max(case when rule_id = 'FUND-75' then threshold_pct end) as t75,
+        max(case when rule_id = 'FUND-90' then threshold_pct end) as t90
     from {{ ref('project_alert_rules') }}
 )
 
@@ -73,12 +79,12 @@ select
     u.contract_id,
     u.clin_id,
     u.month,
-    cast(u.ceiling as decimal(18, 2)) as ceiling,
-    cast(u.funded as decimal(18, 2)) as funded,
-    cast(u.billed_to_date as decimal(18, 2)) as billed_to_date,
-    cast(greatest(u.earned_to_date - u.billed_to_date, 0) as decimal(18, 2)) as unbilled,
-    cast(u.funded - u.billed_to_date - greatest(u.earned_to_date - u.billed_to_date, 0) as decimal(18, 2)) as funding_remaining,
-    cast(round((u.billed_to_date + greatest(u.earned_to_date - u.billed_to_date, 0)) / nullif(u.funded, 0), 4) as decimal(9, 4)) as funding_used_pct,
+    {{ dec("u.ceiling", 18, 2) }} as ceiling,
+    {{ dec("u.funded", 18, 2) }} as funded,
+    {{ dec("u.billed_to_date", 18, 2) }} as billed_to_date,
+    {{ dec("greatest(u.earned_to_date - u.billed_to_date, 0)", 18, 2) }} as unbilled,
+    {{ dec("u.funded - u.billed_to_date - greatest(u.earned_to_date - u.billed_to_date, 0)", 18, 2) }} as funding_remaining,
+    {{ dec("round((u.billed_to_date + greatest(u.earned_to_date - u.billed_to_date, 0)) / nullif(u.funded, 0), 4)", 9, 4) }} as funding_used_pct,
     k.is_federal,
     coalesce(k.is_federal and (u.billed_to_date + greatest(u.earned_to_date - u.billed_to_date, 0)) / nullif(u.funded, 0) >= r.t75, false) as is_funding_alert_75,
     coalesce(k.is_federal and (u.billed_to_date + greatest(u.earned_to_date - u.billed_to_date, 0)) / nullif(u.funded, 0) >= r.t90, false) as is_funding_alert_90

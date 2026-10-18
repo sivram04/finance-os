@@ -99,8 +99,21 @@ BigQuery (project `finance-os-sivaram`, your gcloud login, no key files):
 ```bash
 .venv/Scripts/python -m finance_os.generator.high_volume --engine bigquery
 ```
-Generation runs month by month (on-demand BigQuery caps CPU per byte scanned). dbt target `cloud` is configured;
-porting every model to run on it is in progress (usage-event models run on both today).
+Generation runs month by month (on-demand BigQuery caps CPU per byte scanned).
+
+**Every model runs on both engines.** DuckDB-only SQL goes through cross-database macros (`warehouse/macros/
+cross_db.sql`: dates, series, arrays, exact decimals, medians). Two companies live side by side in one project:
+L in the plain datasets (`raw_*`, `marts`, …) and the S company the live simulator runs in `s_*` datasets
+(`--vars "dataset_prefix: s_"`). The event rollup (`int_usage_daily_from_events`) is incremental and partitioned
+by day: a full L build processes ~44 GiB (≈ $0.27 on demand), a daily incremental run ~24 MB at S. Tests that
+scan every raw event are tagged `full_scan` and skipped in scheduled cloud builds (`--exclude tag:full_scan`).
+```bash
+.venv/Scripts/dbt build --project-dir warehouse --profiles-dir warehouse --target cloud --exclude tag:full_scan
+```
+**Parity:** `python -m finance_os.warehouse_parity` compares all 130 models between DuckDB and BigQuery (S): row
+counts and every numeric column's total. Books of record match exactly; forecast models (floating-point growth
+math) within one cent per row. Money never passes through a float: divisions use `fdiv` (exact to 9 places on
+both engines) and amounts round as decimals.
 
 ## Web app
 Assistant panel (agentic, shows every tool step, approval cards) next to a card-based workspace: Home (KPIs, periods,

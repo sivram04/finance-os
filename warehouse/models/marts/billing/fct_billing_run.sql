@@ -14,7 +14,7 @@ tm_drafts as (
     select
         l.project_id,
         'labor' as item_type,
-        l.work_month::varchar || ' ' || l.labor_category as reference,
+        cast(l.work_month as {{ t_string() }}) || ' ' || l.labor_category as reference,
         last_day(l.work_month) as billable_since,
         sum(l.hours) as hours,
         max(l.bill_rate) as rate,
@@ -26,7 +26,7 @@ tm_drafts as (
 ),
 
 odc_drafts as (
-    select o.project_id, 'odc', o.expense_month::varchar, last_day(o.expense_month), null, null, sum(o.amount)
+    select o.project_id, 'odc', cast(o.expense_month as {{ t_string() }}), last_day(o.expense_month), null, null, sum(o.amount)
     from {{ ref('stg_projects__odc_expenses') }} o
     join {{ ref('stg_projects__projects') }} p using (project_id)
     left join invoiced_months i on i.project_id = o.project_id and i.service_month = o.expense_month
@@ -61,14 +61,14 @@ select
     d.billable_since,
     d.hours,
     d.rate,
-    cast(d.amount as decimal(18, 2)) as amount,
-    date_diff('day', d.billable_since, a.as_of_date) as days_unbilled,
+    {{ dec("d.amount", 18, 2) }} as amount,
+    {{ days_between("d.billable_since", "a.as_of_date") }} as days_unbilled,
     case
         when h.project_type in ('tm_cap', 'federal_tm')
              and sum(d.amount) over (partition by d.project_id) > h.cap_headroom then 'exceeds_cap_or_funding'
         else 'pass'
     end as validation_status,
-    date_diff('day', d.billable_since, a.as_of_date) > r.threshold_days as is_unbilled_alert
+    {{ days_between("d.billable_since", "a.as_of_date") }} > r.threshold_days as is_unbilled_alert
 from drafts d
 cross join as_of a
 cross join (select threshold_days from {{ ref('billing_rules') }} where rule_id = 'UNBILLED-30') r

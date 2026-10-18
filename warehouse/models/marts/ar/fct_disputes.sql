@@ -14,7 +14,7 @@ select
     d.note,
     d.amount as disputed_amount,
     i.balance as invoice_balance,
-    date_diff('day', d.opened_date, coalesce(d.resolved_date, o.as_of_date)) as days_open
+    {{ days_between("d.opened_date", "coalesce(d.resolved_date, o.as_of_date)") }} as days_open
 from {{ ref('stg_erp__disputes') }} d
 cross join as_of o
 left join {{ ref('fct_ar_invoices') }} i using (invoice_ref)

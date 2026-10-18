@@ -19,8 +19,8 @@ select
     d.ms / 3600000.0 as expected,
     e.ms / 3600000.0 as actual,
     (coalesce(e.ms, 0) - coalesce(d.ms, 0)) / 3600000.0 as variance,
-    cast(null as decimal(9, 4)) as variance_pct,
-    cast(0 as decimal(9, 4)) as tolerance_pct,
+    {{ dec("null", 9, 4) }} as variance_pct,
+    {{ dec("0", 9, 4) }} as tolerance_pct,
     case when e.ms is not distinct from d.ms then 'pass' else 'fail' end as status,
     case when e.ms is not distinct from d.ms then 'Exact match (audio hours, to the millisecond)'
          else 'Events and drivers differ: lost, duplicated or double-counted requests' end as explanation

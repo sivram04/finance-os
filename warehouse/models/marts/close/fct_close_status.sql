@@ -5,18 +5,18 @@
 --   signoff            ready only when every other task is complete
 -- Due date = the task's workday after month end (Mon–Fri).
 with months as (
-    select distinct period::date as month from {{ ref('recon_status') }}
+    select distinct cast(period as date) as month from {{ ref('recon_status') }}
 ),
 
 recon as (
-    select period::date as month, check_name,
-           count(*) filter (where status <> 'pass') as exceptions, count(*) as checks
+    select cast(period as date) as month, check_name,
+           count(case when status <> 'pass' then 1 end) as exceptions, count(*) as checks
     from {{ ref('recon_status') }}
     group by all
 ),
 
 bva as (
-    select month, count(*) filter (where is_alert) as alerts from {{ ref('fct_bva_monthly') }} group by month
+    select month, count(case when is_alert then 1 end) as alerts from {{ ref('fct_bva_monthly') }} group by month
 ),
 
 prepaid as (
@@ -49,10 +49,13 @@ tasks as (
 
 workdays as (
     -- the n-th weekday after month end
-    select m.month, row_number() over (partition by m.month order by d) as workday, cast(d as date) as due_date
-    from months m
-    cross join generate_series(last_day(m.month) + 1, last_day(m.month) + 14, interval 1 day) g(d)
-    where dayofweek(d) between 1 and 5
+    select month, row_number() over (partition by month order by d) as workday, d as due_date
+    from (
+        select m.month, {{ add_days("last_day(m.month)", "g.n") }} as d
+        from months m
+        cross join {{ int_series('g', 1, 14) }}
+    ) days_after
+    where {{ day_of_week("d") }} between 1 and 5
 )
 
 select
@@ -64,7 +67,7 @@ select
     t.task,
     t.evidence,
     coalesce(t.status,
-             case when count(*) filter (where t.status not in ('complete', 'not_applicable') and t.evidence <> 'signoff')
+             case when count(case when t.status not in ('complete', 'not_applicable') and t.evidence <> 'signoff' then 1 end)
                        over (partition by t.month) = 0 then 'ready' else 'blocked' end) as status,
     t.open_items
 from tasks t

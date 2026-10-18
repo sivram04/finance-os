@@ -45,7 +45,7 @@ open_ap as (
 ),
 
 flows as (
-    select greatest(i.due_date + cast(round(coalesce(l.avg_days_late, 0)) as integer), a.d + 1) as flow_date,
+    select greatest({{ add_days("i.due_date", "round(coalesce(l.avg_days_late, 0))") }}, {{ add_days("a.d", 1) }}) as flow_date,
            'ar_collections' as category, i.invoice_ref as reference, i.balance as amount
     from {{ ref('fct_ar_invoices') }} i
     cross join as_of a
@@ -53,23 +53,23 @@ flows as (
     where i.status = 'open'
 
     union all
-    select last_day(f.month) + p.payment_terms_days + cast(round(coalesce(sl.avg_days_late, 0)) as integer),
-           'new_billings', 'usage ' || strftime(f.month, '%Y-%m') || ' ' || m.segment, f.revenue_usage * m.share
+    select {{ add_days("last_day(f.month)", "p.payment_terms_days + round(coalesce(sl.avg_days_late, 0))") }},
+           'new_billings', 'usage ' || {{ fmt_month("f.month") }} || ' ' || m.segment, f.revenue_usage * m.share
     from forecast f
     cross join segment_mix m
     join {{ ref('ar_policy') }} p on p.segment = m.segment
     left join segment_late sl on sl.segment = m.segment
 
     union all
-    select last_day(f.month) + 30, 'services', 'services ' || strftime(f.month, '%Y-%m'), f.revenue_services
+    select {{ add_days("last_day(f.month)", 30) }}, 'services', 'services ' || {{ fmt_month("f.month") }}, f.revenue_services
     from forecast f
 
     union all
-    select last_day(f.month), 'payroll', 'payroll ' || strftime(f.month, '%Y-%m'), -f.payroll
+    select last_day(f.month), 'payroll', 'payroll ' || {{ fmt_month("f.month") }}, -f.payroll
     from forecast f
 
     union all
-    select greatest(coalesce(b.bill_date, o.booked_date + 5) + coalesce(t.payment_terms_days, d.payment_terms_days), a.d + 1),
+    select greatest({{ add_days("coalesce(b.bill_date, " ~ add_days("o.booked_date", 5) ~ ")", "coalesce(t.payment_terms_days, d.payment_terms_days)") }}, {{ add_days("a.d", 1) }}),
            'vendor_bills', o.bill_ref, -o.amount
     from open_ap o
     cross join as_of a
@@ -78,14 +78,14 @@ flows as (
     cross join (select payment_terms_days from {{ ref('vendor_payment_terms') }} where vendor_id = 'default') d
 
     union all
-    select last_day(f.month) + 35, 'future_vendor', 'cogs ' || strftime(f.month, '%Y-%m'), -f.cogs
+    select {{ add_days("last_day(f.month)", 35) }}, 'future_vendor', 'cogs ' || {{ fmt_month("f.month") }}, -f.cogs
     from forecast f
 
     union all
-    select f.month + 14, 'other_opex', 'opex ' || strftime(f.month, '%Y-%m'), -f.other_opex
+    select {{ add_days("f.month", 14) }}, 'other_opex', 'opex ' || {{ fmt_month("f.month") }}, -f.other_opex
     from forecast f
 )
 
-select cast(flow_date as date) as flow_date, category, reference, cast(amount as decimal(18, 2)) as amount
+select cast(flow_date as date) as flow_date, category, reference, {{ dec("amount", 18, 2) }} as amount
 from flows
 where flow_date > (select d from as_of)

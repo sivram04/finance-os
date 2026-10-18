@@ -7,7 +7,9 @@ What runs on its own, by date:
   5th            vendor bills arrive, as the vendor meters them (metering noise, any price increase): PDF in the
                  AP inbox (read by M16 intake), ERP bill, and a true-up for the difference from the accrual
   15th           recurring opex (software, rent, legal, marketing), scaled by headcount
-  Thursday       vendor payment run: bills due within a week, or inside an early-pay discount window
+  Thursday       vendor payment run: approved bills due within a week, or inside an early-pay discount window
+                 (approval gate in ap_approvals.py: auto-approved by intake or approved by a person; bills in
+                 review are held, rejected bills are never paid)
   any day        planned hires start on their date (seeds/hiring_plan.csv)
 What the AI can add (validated in agent.py): a vendor price increase (shows up as a true-up surprise), a
 duplicate bill PDF, a one-off bill from a new vendor, a bill quoting a PO that doesn't exist.
@@ -22,6 +24,7 @@ from pathlib import Path
 
 from finance_os.generator.events.vendor_bills import build_vendor_bills
 from finance_os.paths import SEEDS
+from finance_os.simulator import ap_approvals
 
 CENT = Decimal("0.01")
 VENDOR_PREFIX = {"gcp": "GCP", "nimbus": "NIMBUS"}
@@ -309,7 +312,8 @@ class Books:
             self.day.log("ap_documents", doc_file=doc, bill_id=bill_id, vendor_id=vendor, total=str(total),
                          issue=issue if copy == 1 else "duplicate_submission")
         self.w.ops["open_bills"][bill_id] = {"vendor_id": vendor, "amount": str(total), "bill_date": today.isoformat(),
-                                             "due": (today + timedelta(days=30)).isoformat(), "kind": "vendor_payment"}
+                                             "due": (today + timedelta(days=30)).isoformat(), "kind": "vendor_payment",
+                                             "doc_file": f"{number}.pdf"}
         return number
 
     def one_off_bill(self, category, size, wrong_po=False):
@@ -326,8 +330,9 @@ class Books:
                 "quantity_hours": None, "amount": amount}
         return self._receive(bill_id, vendor, today.replace(day=1), [line], po=po, issue="wrong_po" if wrong_po else "new_vendor")
 
-    def payment_run(self):
-        """Thursday: pay bills due within the next 7 days, and bills inside an early-pay discount window."""
+    def payment_run(self, approvals=None):
+        """Thursday: pay approved bills due within the next 7 days, and approved bills inside an early-pay
+        discount window. Bills still in review are held (and logged); rejected bills are never paid."""
         today = self.day.today
         terms = {t["vendor_id"]: t for t in _rows(SEEDS / "vendor_payment_terms.csv")}
         for bill_id, b in sorted(self.w.ops["open_bills"].items()):
@@ -335,6 +340,11 @@ class Books:
             pct, window = Decimal(t["early_pay_discount_pct"]), int(t["discount_days"])
             in_window = pct > 0 and today <= date.fromisoformat(b["bill_date"]) + timedelta(days=window)
             if not (in_window or date.fromisoformat(b["due"]) <= today + timedelta(days=7)):
+                continue
+            gate = ap_approvals.payable(b, approvals)
+            if gate != "pay":
+                self.day.log("ap_holds", bill_id=bill_id, vendor_id=b["vendor_id"], run_date=today,
+                             amount=b["amount"], reason="rejected by AP" if gate == "rejected" else "awaiting approval")
                 continue
             amount = Decimal(b["amount"])
             discount = cents(amount * pct) if in_window else Decimal(0)

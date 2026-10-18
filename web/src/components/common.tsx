@@ -3,7 +3,7 @@ import { api, fmt, label, type Row, type ToolResult } from '../api'
 
 // ---- app context: navigation and handing questions to the assistant ------------------------------
 
-export type Page = 'home' | 'revenue' | 'spend' | 'budget' | 'projects' | 'billing' | 'ar' | 'ap' | 'trust'
+export type Page = 'home' | 'revenue' | 'spend' | 'budget' | 'plan' | 'cash' | 'close' | 'projects' | 'billing' | 'ar' | 'ap' | 'pricing' | 'capital' | 'tax' | 'trust'
 
 export interface Workspace {
   page: Page

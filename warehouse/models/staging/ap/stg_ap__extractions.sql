@@ -6,10 +6,10 @@ select
     extracted_at,
     trim(vendor_name) as vendor_name,
     trim(vendor_invoice_number) as vendor_invoice_number,
-    try_cast(invoice_date as date) as invoice_date,
+    {{ try_cast_date('invoice_date') }} as invoice_date,
     nullif(trim(po_number), '') as po_number,
     currency,
-    cast(total as decimal(18, 2)) as total,
+    {{ dec("total", 18, 2) }} as total,
     prompt_tokens,
     completion_tokens
 from {{ source('ap', 'extractions') }}

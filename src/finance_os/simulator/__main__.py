@@ -13,6 +13,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from finance_os.ingestion.ap_intake.__main__ import load_dotenv
 from finance_os.paths import ROOT
+from finance_os.simulator import ap_approvals
 from finance_os.simulator.engine import Day
 from finance_os.simulator.memory import Memory, history_chunks
 from finance_os.simulator.stripe_live import NoStripe, SandboxStripe
@@ -34,10 +35,13 @@ def run(no_stripe=False, reset=False, max_days=60, log=print):
         segment_of = {c.customer_id: c.segment for c in world.customers.values()}
         log(f"memory: seeded {memory.add(history_chunks(_rows('lifecycle_events', ROOT / 'data/synthetic'), segment_of))} history chunks")
     summary = {"days": 0, "tokens": 0, "fallbacks": 0, "events": 0, "rejected": 0}
+    approvals = ap_approvals.load()
+    if not approvals["decisions_readable"]:
+        log("AP approvals could not be read (app database busy and app not running): bills in review are held")
     try:
         day = world.day() + timedelta(days=1)
         while day <= date.today() and summary["days"] < max_days:
-            out = Day(world, day, stripe, live).run(memory=memory)
+            out = Day(world, day, stripe, live, approvals=approvals).run(memory=memory)
             world.save(live)  # after every day, so a crash loses at most one day
             applied = [d["event"]["type"] + (f" {d['event'].get('customer_id') or d['event'].get('vendor_id') or d['event'].get('category') or ''}")
                        for d in out["decisions"] if d["status"] == "applied"]
@@ -49,6 +53,7 @@ def run(no_stripe=False, reset=False, max_days=60, log=print):
             summary["rejected"] += rejected
             ap = f", {len(out['vendor_bills'])} bills in" if out["vendor_bills"] else ""
             ap += f", {len(out['ap_payments'])} bills paid" if out["ap_payments"] else ""
+            ap += f", {len(out['ap_holds'])} held for approval" if out["ap_holds"] else ""
             log(f"{day}: {len(out['invoices'])} invoices, {len(out['payments'])} payments{ap} | "
                 f"{', '.join(applied) or 'quiet day'}" + (f" ({rejected} rejected)" if rejected else "")
                 + (" [fallback provider]" if any(c.get("fallback_from") for c in calls) else ""))

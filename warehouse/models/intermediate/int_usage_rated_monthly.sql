@@ -35,8 +35,8 @@ select
     p.list_price_per_hour,
     t.tier,
     t.discount_pct,
-    cast(round(u.audio_hours * p.list_price_per_hour, 2) as decimal(18, 2)) as list_revenue,
-    cast(round(u.audio_hours * p.list_price_per_hour * (1 - t.discount_pct), 2) as decimal(18, 2)) as revenue
+    {{ dec("round(u.audio_hours * p.list_price_per_hour, 2)", 18, 2) }} as list_revenue,
+    {{ dec("round(u.audio_hours * p.list_price_per_hour * (1 - t.discount_pct), 2)", 18, 2) }} as revenue
 from usage u
 join {{ ref('stg_synthetic__products') }} p using (product_id)
 join tiered t using (month, customer_id)

@@ -20,8 +20,8 @@ select
     p.amount as expected,
     l.amount as actual,
     l.amount - coalesce(p.amount, 0) as variance,
-    cast(round(l.amount / nullif(p.amount, 0), 4) as decimal(9, 4)) as variance_pct,
-    cast(0 as decimal(9, 4)) as tolerance_pct,
+    {{ dec("round(l.amount / nullif(p.amount, 0), 4)", 9, 4) }} as variance_pct,
+    {{ dec("0", 9, 4) }} as tolerance_pct,
     case when p.amount is not null and l.amount <= p.amount + 1 then 'pass' else 'fail' end as status,
     case when p.amount is null then 'Project hours for an employee with no pay that month'
          when l.amount <= p.amount + 1 then 'Within payroll cost (' || round(100 * l.amount / p.amount) || '% charged to projects)'

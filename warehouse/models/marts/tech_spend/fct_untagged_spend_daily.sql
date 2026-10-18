@@ -5,17 +5,21 @@ with daily as (
     group by spend_date
 ),
 
+numbered as (
+    select spend_date, untagged_cost, row_number() over (order by spend_date) as rn from daily
+),
+
 with_baseline as (
-    select
-        spend_date,
-        untagged_cost,
-        median(untagged_cost) over (order by spend_date rows between 28 preceding and 1 preceding) as trailing_median_28d
-    from daily
+    -- exact median of the 28 preceding days (BigQuery has no median over a sliding window, so: self-join)
+    select distinct d.spend_date, d.untagged_cost,
+           {{ median_over("p.untagged_cost", "d.spend_date") }} as trailing_median_28d
+    from numbered d
+    left join numbered p on p.rn between d.rn - 28 and d.rn - 1
 )
 
 select
     spend_date,
-    cast(untagged_cost as decimal(18, 2)) as untagged_cost,
-    cast(trailing_median_28d as decimal(18, 2)) as trailing_median_28d,
+    {{ dec("untagged_cost", 18, 2) }} as untagged_cost,
+    {{ dec("trailing_median_28d", 18, 2) }} as trailing_median_28d,
     coalesce(untagged_cost > 3 * trailing_median_28d and untagged_cost - trailing_median_28d > 100, false) as is_spike
 from with_baseline

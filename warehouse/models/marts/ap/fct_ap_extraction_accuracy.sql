@@ -10,9 +10,9 @@ e as (
 
 line_match as (
     select tl.doc_file,
-           bool_and(el.amount is not distinct from tl.amount
+           {{ bool_and("el.amount is not distinct from tl.amount
                     and el.quantity is not distinct from tl.quantity
-                    and el.description = tl.description) and count(el.line_no) = count(*) as lines_ok
+                    and el.description = tl.description") }} and count(el.line_no) = count(*) as lines_ok
     from {{ ref('stg_synthetic__ap_document_truth_lines') }} tl
     left join {{ ref('stg_ap__extraction_lines') }} el using (doc_file, line_no)
     group by tl.doc_file
@@ -37,8 +37,8 @@ select
     '{{ var("ap_backend") }}' as backend,
     field,
     count(*) as documents,
-    count(*) filter (where ok) as correct,
-    cast(round(count(*) filter (where ok) / count(*), 4) as decimal(9, 4)) as accuracy
+    count(case when ok then 1 end) as correct,
+    {{ dec("round(count(case when ok then 1 end) / count(*), 4)", 9, 4) }} as accuracy
 from per_doc
 unpivot (ok for field in (extracted, vendor_name_ok, invoice_number_ok, invoice_date_ok, po_number_ok, total_ok, lines_ok))
 group by field

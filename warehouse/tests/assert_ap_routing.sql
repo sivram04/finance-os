@@ -19,8 +19,8 @@ select t.doc_file, t.doc_issue, t.expected_reason, d.route, d.issues
 from t
 join d using (doc_file)
 where
-    (t.expected_reason is not null and not list_contains(d.issues, t.expected_reason))
+    (t.expected_reason is not null and not {{ array_has("d.issues", "t.expected_reason") }})
     or (t.expected_reason is null and t.po_number is null and t.vendor_id in ('annotate_co', 'fedsec')
-        and not list_contains(d.issues, 'missing_po'))
+        and not {{ array_has("d.issues", "'missing_po'") }})
     or (t.expected_reason is null and not (t.po_number is null and t.vendor_id in ('annotate_co', 'fedsec'))
         and d.route <> 'auto_approve')

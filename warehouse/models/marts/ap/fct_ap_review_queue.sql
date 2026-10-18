@@ -6,21 +6,22 @@ select
     vendor_invoice_number,
     total,
     erp_bill_id,
-    unnest(issues) as reason,
-    case unnest(issues)
-        when 'arithmetic_mismatch' then 'Printed total ' || total || ' ≠ sum of lines ' || lines_total
+    reason,
+    case reason
+        when 'arithmetic_mismatch' then 'Printed total ' || cast(total as {{ t_string() }}) || ' ≠ sum of lines ' || cast(lines_total as {{ t_string() }})
         when 'duplicate_invoice' then 'Invoice ' || vendor_invoice_number || ' already received'
         when 'po_vendor_mismatch' then 'PO ' || po_number || ' belongs to ' || po_vendor_id
         when 'po_not_found' then 'PO ' || po_number || ' does not exist'
         when 'missing_po' then 'Subcontractor bill with no PO'
         when 'not_in_erp' then 'No posted bill for this vendor invoice number'
-        when 'amount_mismatch' then 'Posted ' || erp_amount || ' vs document ' || total
+        when 'amount_mismatch' then 'Posted ' || cast(erp_amount as {{ t_string() }}) || ' vs document ' || cast(total as {{ t_string() }})
         when 'unknown_vendor' then 'Unknown vendor "' || vendor_name || '"'
     end as detail
 from {{ ref('fct_ap_documents') }}
+{{ array_rows('issues', 'reason') }}
 where route = 'needs_review'
 
 union all
 
-select doc_file, null, null, null, null, 'extraction_failed', error
+select doc_file, cast(null as {{ t_string() }}), cast(null as {{ t_string() }}), {{ dec("null", 18, 2) }}, cast(null as {{ t_string() }}), 'extraction_failed', error
 from {{ ref('stg_ap__extraction_errors') }}

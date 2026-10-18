@@ -31,13 +31,13 @@ select
     invoice_ref,
     segment,
     invoice_type,
-    cast(balance as decimal(18, 2)) as balance,
-    greatest(date_diff('day', due_date, snapshot_date), 0) as days_past_due,
+    {{ dec("balance", 18, 2) }} as balance,
+    greatest({{ days_between("due_date", "snapshot_date") }}, 0) as days_past_due,
     case
         when snapshot_date <= due_date then 'current'
-        when date_diff('day', due_date, snapshot_date) <= 30 then '1-30'
-        when date_diff('day', due_date, snapshot_date) <= 60 then '31-60'
-        when date_diff('day', due_date, snapshot_date) <= 90 then '61-90'
+        when {{ days_between("due_date", "snapshot_date") }} <= 30 then '1-30'
+        when {{ days_between("due_date", "snapshot_date") }} <= 60 then '31-60'
+        when {{ days_between("due_date", "snapshot_date") }} <= 90 then '61-90'
         else '90+'
     end as aging_bucket
 from balances
