@@ -1,0 +1,118 @@
+"""Generate Echo Labs synthetic data as CSVs.
+
+    python -m finance_os.generator [--out data/synthetic] [--seed N]
+
+Same seed → byte-identical output (NFR-2).
+"""
+import argparse
+import csv
+import json
+import random
+from pathlib import Path
+
+import yaml
+
+from finance_os.generator.anomalies import build_manifest
+from finance_os.generator.documents.ap_bills import assign_vendor_invoice_numbers, build_ap_truth, render_ap_pdfs
+from finance_os.generator.entities.catalog import build_products, build_volume_tiers
+from finance_os.generator.entities.customers import build_customers
+from finance_os.generator.entities.employees import build_employees
+from finance_os.generator.entities.lifecycle import build_lifecycle
+from finance_os.generator.events.budget import build_budgets
+from finance_os.generator.events.infra import build_cloud_costs, build_gpu_jobs
+from finance_os.generator.events.ledger import build_ledger
+from finance_os.generator.events.payroll import build_payroll
+from finance_os.generator.events.projects import build_projects
+from finance_os.generator.events.stripe import build_stripe
+from finance_os.generator.events.usage import build_usage
+from finance_os.generator.events.vendor_bills import build_vendor_bills
+
+CONFIG = Path(__file__).with_name("config.yaml")
+
+
+def load_config(scale="S"):
+    cfg = yaml.safe_load(CONFIG.read_text(encoding="utf-8"))
+    for segment, count in cfg["scales"][scale].items():
+        cfg["segments"][segment]["count"] = count
+    cfg["scale"] = scale
+    return cfg
+
+
+def generate(seed=None, scale="S"):
+    cfg = load_config(scale)
+    rng = random.Random(seed if seed is not None else cfg["seed"])
+    customers, mixes = build_customers(cfg, rng)
+    lifecycle = build_lifecycle(cfg, customers, mixes, rng)
+    usage = build_usage(cfg, customers, mixes, lifecycle, rng)
+    gpu_jobs = build_gpu_jobs(cfg, usage, rng)
+    cloud_costs = build_cloud_costs(cfg, usage)
+    bills, bill_lines = build_vendor_bills(cfg, gpu_jobs, cloud_costs, rng)
+    employees = build_employees(cfg, rng)
+    pay_runs, pay_lines = build_payroll(cfg, employees)
+    projects = build_projects(cfg, employees, rng)
+    assign_vendor_invoice_numbers(cfg, bills, projects["subcontractor_bills"])
+    ap_docs, ap_doc_lines = build_ap_truth(cfg, bills, bill_lines, projects["subcontractor_bills"])
+    entries, lines, payments, disputes, billing = build_ledger(cfg, customers, usage, lifecycle, cloud_costs, bills, bill_lines, pay_lines, employees,
+                                  projects, rng)
+    return {
+        "products": build_products(cfg),
+        "volume_tiers": build_volume_tiers(cfg),
+        "customers": customers,
+        "customer_product_mix": mixes,
+        "lifecycle_events": lifecycle,
+        "usage_daily": usage,
+        "gpu_jobs": gpu_jobs,
+        "cloud_costs_daily": cloud_costs,
+        "vendor_bills": bills,
+        "vendor_bill_lines": bill_lines,
+        "employees": employees,
+        "pay_runs": pay_runs,
+        "pay_lines": pay_lines,
+        "journal_entries": entries,
+        "journal_lines": lines,
+        **build_stripe(cfg, customers, billing),
+        "customer_payments": payments,
+        "disputes": disputes,
+        "budgets": build_budgets(cfg, entries, lines),
+        **projects,
+        "anomaly_manifest": build_manifest(cfg),
+        "ap_document_truth": ap_docs,
+        "ap_document_truth_lines": ap_doc_lines,
+    }
+
+
+def write_csvs(tables, out_dir: Path):
+    """Flat tables as CSV; Stripe objects (nested JSON) as JSON lines in out_dir/stripe/."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for name, rows in tables.items():
+        if name.startswith("stripe_"):
+            (out_dir / "stripe").mkdir(exist_ok=True)
+            with open(out_dir / "stripe" / f"{name[7:]}.jsonl", "w", encoding="utf-8", newline="\n") as f:
+                for obj in rows:
+                    f.write(json.dumps({"id": obj["id"], "data": obj}, separators=(",", ":")) + "\n")
+            continue
+        with open(out_dir / f"{name}.csv", "w", newline="", encoding="utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+            w.writeheader()
+            w.writerows(rows)
+
+
+def main():
+    p = argparse.ArgumentParser()
+    p.add_argument("--out", default="data/synthetic")
+    p.add_argument("--seed", type=int)
+    p.add_argument("--scale", choices=["S", "M", "L"], default="S",
+                   help="S: local/tests (default); M, L: larger companies for the BigQuery build")
+    p.add_argument("--inbox", default="data/inbox/ap", help="where vendor bill PDFs are written")
+    a = p.parse_args()
+    tables = generate(a.seed, a.scale)
+    write_csvs(tables, Path(a.out))
+    cfg = load_config(a.scale)
+    render_ap_pdfs(cfg, tables["ap_document_truth"], tables["ap_document_truth_lines"], Path(a.inbox))
+    print(f"vendor bill PDFs: {len(tables['ap_document_truth'])} -> {a.inbox}")
+    for name, rows in tables.items():
+        print(f"{name}: {len(rows)} rows")
+
+
+if __name__ == "__main__":
+    main()

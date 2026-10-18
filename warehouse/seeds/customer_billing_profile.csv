@@ -1,0 +1,17 @@
+customer_id,country,region,currency,tax_regime,tax_rate
+EN-001,US,CA,USD,us_saas_exempt,0.0000
+EN-002,GB,UK,GBP,uk_vat_reverse_charge,0.0000
+EN-003,DE,EU,EUR,eu_vat_reverse_charge,0.0000
+EN-004,US,NY,USD,us_sales_tax,0.0888
+MM-001,US,TX,USD,us_sales_tax,0.0625
+MM-002,CA,ON,CAD,ca_hst,0.1300
+MM-003,US,WA,USD,us_sales_tax,0.0650
+MM-004,IN,KA,INR,in_gst_export_zero,0.0000
+MM-005,US,CA,USD,us_saas_exempt,0.0000
+MM-006,GB,UK,GBP,uk_vat_reverse_charge,0.0000
+MM-007,US,MA,USD,us_sales_tax,0.0625
+MM-008,DE,EU,EUR,eu_vat_reverse_charge,0.0000
+MM-009,US,NY,USD,us_sales_tax,0.0888
+MM-010,AU,NSW,AUD,au_gst,0.1000
+MM-011,US,FL,USD,us_saas_exempt,0.0000
+FED-001,US,DC,USD,us_federal_exempt,0.0000

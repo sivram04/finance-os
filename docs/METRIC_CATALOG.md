@@ -1,6 +1,6 @@
 # Metric catalog
 
-Generated from `warehouse/metrics/kpis.yml` by `scripts/build_metric_catalog.py`. Do not edit by hand.
+Generated from `warehouse/metrics/kpis.yml` by `finance_os.reports.build_metric_catalog`. Do not edit by hand.
 
 ## Revenue (`revenue`)
 
@@ -181,3 +181,33 @@ Generated from `warehouse/metrics/kpis.yml` by `scripts/build_metric_catalog.py`
 - **Owner:** VP Finance
 - **Status:** MEASURED
 - **Tolerance / caveats:** Usage noise makes every month show some contraction; trend matters more than level.
+
+## DSO (`dso_days`)
+
+- **Decision it supports:** How fast customers pay; cash planning and collections staffing.
+- **Formula:** Ending AR ÷ invoiced sales in the month × days in the month.
+- **Unit / grain:** days / month
+- **Source model:** `fct_ar_monthly`
+- **Owner:** Controller
+- **Status:** MEASURED
+- **Tolerance / caveats:** AR subledger must equal the GL control account (assert_ar_ties_to_gl). Month-end billing makes it swing.
+
+## Collection effectiveness index (`cei`)
+
+- **Decision it supports:** Collections team performance, independent of sales volume.
+- **Formula:** (Beginning AR + sales − ending AR) ÷ (beginning AR + sales − ending current AR).
+- **Unit / grain:** ratio / month
+- **Source model:** `fct_ar_monthly`
+- **Owner:** Controller
+- **Status:** MEASURED
+- **Tolerance / caveats:** 1.0 means everything collectible was collected.
+
+## AR over 60 days (`ar_over_60`)
+
+- **Decision it supports:** Bad-debt risk and write-off candidates.
+- **Formula:** Open invoice balances more than 60 days past due at month end.
+- **Unit / grain:** usd / month
+- **Source model:** `fct_ar_aging_snapshot`
+- **Owner:** Controller
+- **Status:** MEASURED
+- **Tolerance / caveats:** Includes failed-payment self-serve balances that should be reviewed for write-off.

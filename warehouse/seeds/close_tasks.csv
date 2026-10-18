@@ -1,0 +1,13 @@
+task_id,workday,owner,task,evidence
+C01,1,Accounting,Cut off revenue and post usage invoices,gl_revenue_vs_rated_usage
+C02,1,Accounting,Reconcile Stripe revenue to the GL,stripe_invoices_vs_gl_revenue
+C03,2,Accounting,Reconcile Stripe cash and payouts,stripe_balance_vs_gl_cash
+C04,2,Accounting,Reconcile payroll register to the GL,payroll_register_vs_gl
+C05,2,AP,Post vendor bills and accrue unbilled vendor costs,vendor_bill_vs_gl_ap
+C06,3,AP,Match vendor invoices to contracts and usage,vendor_invoice_vs_modeled
+C07,3,Project accounting,Reconcile project billing to the GL,project_billing_vs_gl
+C08,3,Project accounting,Reconcile project labor to timesheets,project_labor_within_payroll
+C09,3,Accounting,Book prepaid amortization,prepaids
+C10,4,FP&A,Review budget vs actuals variances,bva
+C11,4,Controller,Review metered usage vs billed usage,usage_events_vs_drivers
+C12,5,Controller,Sign off and lock the period,signoff

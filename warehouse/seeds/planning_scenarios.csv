@@ -1,0 +1,16 @@
+scenario,driver,value,note
+base,usage_growth_monthly,0.030,Usage revenue growth per month on the trailing-3-month run rate
+upside,usage_growth_monthly,0.055,New enterprise logos land and self-serve conversion improves
+downside,usage_growth_monthly,0.005,Competitor price cuts slow growth to flat
+base,services_monthly,1.00,Services revenue as a multiple of the trailing-3-month run rate
+upside,services_monthly,1.25,Two more federal task orders
+downside,services_monthly,0.60,Project pipeline slips
+base,cogs_pct_change,0.000,Change in COGS as a share of revenue vs trailing 3 months
+upside,cogs_pct_change,-0.020,GPU price drop and better utilisation
+downside,cogs_pct_change,0.030,GPU commit shortfall grows
+base,hiring_plan_pct,1.00,Share of open roles hired on plan
+upside,hiring_plan_pct,1.00,Hire every open role
+downside,hiring_plan_pct,0.50,Freeze half of open roles
+base,other_opex_growth_monthly,0.010,Non-payroll opex growth per month
+upside,other_opex_growth_monthly,0.015,More marketing to support growth
+downside,other_opex_growth_monthly,0.000,Spend held flat

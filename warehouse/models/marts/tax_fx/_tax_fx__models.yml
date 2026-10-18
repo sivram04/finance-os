@@ -1,0 +1,9 @@
+version: 2
+models:
+  - name: fct_invoice_tax_fx
+    description: AR invoices in billing currency with sales tax/VAT/GST and realized/unrealized FX.
+    columns:
+      - name: invoice_ref
+        tests: [unique, not_null]
+  - name: fct_tax_fx_monthly
+    description: Billings, tax to remit, and FX gains/losses by month × currency × tax regime.

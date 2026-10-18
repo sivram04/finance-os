@@ -1,0 +1,52 @@
+version: 2
+
+models:
+  - name: stg_stripe__customers
+    description: "Grain: Stripe customer, mapped to the ERP customer id via metadata."
+    columns:
+      - name: stripe_customer_id
+        data_tests: [unique, not_null]
+      - name: customer_id
+        data_tests: [unique, not_null]
+  - name: stg_stripe__invoices
+    description: "Grain: Stripe invoice (usage billing). Exact dollars from cents."
+    columns:
+      - name: invoice_id
+        data_tests: [unique, not_null]
+      - name: erp_invoice_ref
+        data_tests: [unique, not_null]
+      - name: status
+        data_tests:
+          - accepted_values:
+              arguments: {values: [paid, open, uncollectible]}
+  - name: stg_stripe__invoice_lines
+    description: "Grain: invoice line (unnested from lines.data)."
+    columns:
+      - name: line_id
+        data_tests: [unique, not_null]
+  - name: stg_stripe__charges
+    description: "Grain: charge attempt (succeeded or failed)."
+    columns:
+      - name: charge_id
+        data_tests: [unique, not_null]
+      - name: status
+        data_tests:
+          - accepted_values:
+              arguments: {values: [succeeded, failed]}
+  - name: stg_stripe__refunds
+    columns:
+      - name: refund_id
+        data_tests: [unique, not_null]
+  - name: stg_stripe__balance_transactions
+    description: "Grain: balance transaction (charge, refund, payout)."
+    columns:
+      - name: balance_transaction_id
+        data_tests: [unique, not_null]
+      - name: type
+        data_tests:
+          - accepted_values:
+              arguments: {values: [charge, refund, payout]}
+  - name: stg_stripe__payouts
+    columns:
+      - name: payout_id
+        data_tests: [unique, not_null]

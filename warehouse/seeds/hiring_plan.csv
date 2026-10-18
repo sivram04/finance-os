@@ -1,0 +1,13 @@
+role_id,department_id,title,annual_salary,planned_start,status
+R-101,ENG,Senior ML Engineer,235000,2026-11-01,open
+R-102,ENG,Software Engineer,195000,2026-12-01,open
+R-103,ENG,Software Engineer,195000,2027-02-01,open
+R-104,INF,Site Reliability Engineer,205000,2026-11-15,open
+R-105,INF,GPU Platform Engineer,225000,2027-03-01,open
+R-106,SAL,Account Executive,150000,2026-11-01,open
+R-107,SAL,Account Executive,150000,2027-01-15,open
+R-108,SAL,Sales Engineer,170000,2027-04-01,open
+R-109,PS,Delivery Manager,165000,2027-01-01,open
+R-110,PS,Data Scientist,185000,2027-05-01,open
+R-111,ENG,Engineering Manager,250000,2027-06-01,approved
+R-112,SAL,SDR,85000,2026-10-01,cancelled

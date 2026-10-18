@@ -1,0 +1,4 @@
+account_id,bank,account_type,target_share,annual_yield,note
+OP-01,Operating bank,operating,0.15,0.0000,Payroll and vendor payments
+MM-01,Government money market fund,money_market,0.35,0.0480,Same-day liquidity sweep
+TB-01,US Treasury bills (3-month ladder),treasury_bills,0.50,0.0510,Ladder of 3-month bills

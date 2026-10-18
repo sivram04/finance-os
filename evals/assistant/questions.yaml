@@ -1,0 +1,136 @@
+# Assistant eval (design §9.3, FR-11.5). Expected values are SQL evaluated at run time against the warehouse,
+# so the eval stays correct when the data is regenerated. M = the latest month with data.
+# Checks per question:
+#   expect_values: every value must appear in the answer (any rounding/scale the validator accepts)
+#   expect_text:   every regex must match the answer (case-insensitive)
+#   expect_refusal: the answer declines and calls no tools
+#   expect_proposal: a pending action of this kind is created (and nothing is executed)
+# Every answer is also checked for unverified numbers (numbers no tool returned).
+
+questions:
+  - id: kpi-runway
+    persona: VP Finance
+    ask: What's our runway right now?
+    expect_values: ["select value from marts.fct_kpi_monthly where metric_name='runway_months' and month=M"]
+  - id: kpi-arr
+    persona: VP Finance
+    ask: What is ARR?
+    expect_values: ["select value from marts.fct_kpi_monthly where metric_name='arr' and month=M"]
+  - id: kpi-net-burn
+    persona: VP Finance
+    ask: How much did we burn last month, net?
+    expect_values: ["select value from marts.fct_kpi_monthly where metric_name='net_burn' and month=M"]
+  - id: kpi-cash
+    persona: VP Finance
+    ask: How much cash do we have?
+    expect_values: ["select value from marts.fct_kpi_monthly where metric_name='closing_cash' and month=M"]
+  - id: kpi-gm
+    persona: VP Finance
+    ask: What's our gross margin percentage this month?
+    expect_values: ["select value from marts.fct_kpi_monthly where metric_name='gross_margin_pct' and month=M"]
+  - id: kpi-dso
+    persona: Controller
+    ask: What's DSO?
+    expect_values: ["select value from marts.fct_kpi_monthly where metric_name='dso_days' and month=M"]
+  - id: kpi-cei
+    persona: Controller
+    ask: How effective were collections this month (CEI)?
+    expect_values: ["select value from marts.fct_kpi_monthly where metric_name='cei' and month=M"]
+  - id: kpi-nrr
+    persona: VP Finance
+    ask: What's net revenue retention?
+    expect_values: ["select value from marts.fct_kpi_monthly where metric_name='nrr' and month=M"]
+  - id: kpi-logo-churn
+    persona: VP Finance
+    ask: What was logo churn this month?
+    expect_values: ["select value from marts.fct_kpi_monthly where metric_name='logo_churn_rate' and month=M"]
+  - id: kpi-headcount
+    persona: VP Finance
+    ask: How many employees do we have?
+    expect_values: ["select value from marts.fct_kpi_monthly where metric_name='headcount' and month=M"]
+  - id: ue-lowest-margin
+    persona: VP Finance
+    ask: Which customer has the lowest gross margin this month, and what is it?
+    expect_text: ["select customer_id from marts.fct_customer_margin_monthly where month=M order by margin_rank_asc limit 1"]
+    expect_values: ["select gross_margin_pct from marts.fct_customer_margin_monthly where month=M order by margin_rank_asc limit 1"]
+  - id: proj-p103-overrun
+    persona: Project Manager
+    ask: How far over budget is P-103 expected to finish?
+    expect_values: ["select variance_at_completion from marts.fct_project_financials where project_id='P-103' and month=M"]
+  - id: proj-federal-funding
+    persona: Project Manager
+    ask: How much of its funding has the federal contract used?
+    expect_values: ["select funding_used_pct from marts.fct_contract_funding where contract_id='C-105' and clin_id='TOTAL' and month=M"]
+  - id: proj-p102-cap
+    persona: Project Manager
+    ask: How close is P-102 to its T&M cap?
+    expect_values: ["select cap_used_pct from marts.fct_project_financials where project_id='P-102' and month=M"]
+  - id: proj-p106-unbilled
+    persona: Billing specialist
+    ask: How much unbilled work is sitting on P-106?
+    expect_values: ["select unbilled from marts.fct_project_financials where project_id='P-106' and month=M"]
+  - id: bill-wrong-rate
+    persona: Billing specialist
+    ask: Did we bill any invoice line at the wrong rate?
+    expect_text: ["select invoice_id from marts.fct_billing_exceptions where exception_type='rate_mismatch' limit 1"]
+  - id: spend-tagging
+    persona: Head of Infra
+    ask: What share of our cloud and GPU spend is tagged this month?
+    expect_values: ["select tagging_coverage_pct from marts.fct_tagging_coverage_monthly where month=M"]
+  - id: spend-nimbus
+    persona: Head of Infra
+    ask: How much did we spend with Nimbus this month?
+    expect_values: ["select sum(cost) from marts.fct_tech_spend_daily where vendor_id='nimbus' and spend_month=M"]
+  - id: spend-renewal
+    persona: Head of Infra
+    ask: Is any vendor contract coming up for renewal?
+    expect_text: ["'Nimbus'"]
+  - id: bva-legal-april
+    persona: VP Finance
+    ask: How much over budget was G&A professional fees in April 2026, and why?
+    expect_values: ["select variance from marts.fct_bva_monthly where month=date '2026-04-01' and department_id='GA' and account_id='6400'"]
+    expect_text: ["'counsel|dispute|legal'"]
+  - id: bva-revenue-forecast
+    persona: VP Finance
+    ask: Where will usage revenue land for the full year versus budget?
+    expect_values: ["select fy_forecast_variance from marts.fct_bva_monthly where month=M and account_id='4000'"]
+  - id: ar-over-60
+    persona: Controller
+    ask: How much AR is more than 60 days past due?
+    expect_values: ["select value from marts.fct_kpi_monthly where metric_name='ar_over_60' and month=M"]
+  - id: ar-late-payer
+    persona: Controller
+    ask: Do we have any customers who consistently pay late?
+    expect_text: ["select customer_id from marts.fct_customer_payment_behavior where is_chronic_late limit 1"]
+  - id: ar-misapplied
+    persona: Controller
+    ask: Are there any cash application problems I should know about?
+    expect_text: ["select customer_id from marts.fct_cash_application_exceptions limit 1"]
+  - id: ap-review-count
+    persona: AP specialist
+    ask: How many vendor bills are waiting for review, and why?
+    expect_text: ["select '\\b' || count(distinct doc_file) || ' (?:vendor )?(?:bills|documents|invoices)' from marts.fct_ap_review_queue", "'duplicate'"]
+  - id: rev-en003
+    persona: VP Finance
+    ask: What happened to EN-003's revenue this year?
+    expect_text: ["'churn'"]
+  - id: rev-new-mrr
+    persona: VP Finance
+    ask: How much new MRR did we add this month?
+    expect_values: ["select new_mrr from marts.fct_mrr_bridge_monthly where month=M"]
+  - id: recon-status
+    persona: Controller
+    ask: Are all our reconciliations passing?
+    expect_text: ["'pass'"]
+  - id: refuse-invest
+    persona: VP Finance
+    ask: Should we put our cash into Nvidia stock?
+    expect_refusal: true
+  - id: propose-reject-duplicate
+    persona: AP specialist
+    ask: Reject the duplicate FedSec bill FSP-2026-0007_copy2.pdf, it was sent twice.
+    expect_proposal: ap_reject
+  - id: propose-cash-fix
+    persona: Controller
+    ask: EN-001's June payment was applied to the wrong invoice. Prepare the fix.
+    expect_proposal: cash_application_fix

@@ -5,4 +5,14 @@ finance_os:
       type: duckdb
       path: "{{ env_var('FINANCE_OS_DUCKDB', '../data/finance_os.duckdb') }}"
       threads: 4
-    # cloud (BigQuery) target is added when the GCP project is set up (§6.4).
+    # BigQuery (design §6.4). Uses your gcloud login (Application Default Credentials); no key file.
+    # Run with: dbt build --profiles-dir . --target cloud
+    cloud:
+      type: bigquery
+      method: oauth
+      project: "{{ env_var('FINANCE_OS_GCP_PROJECT', 'finance-os-sivaram') }}"
+      dataset: staging
+      location: US
+      threads: 8
+      job_execution_timeout_seconds: 300
+      priority: interactive

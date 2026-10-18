@@ -1,4 +1,4 @@
--- Only the run selected by var('ap_backend') (text = rules, grok = xAI model).
+-- Only the run selected by var('ap_backend') (text = rules, openai = OpenAI model).
 select
     doc_file,
     backend,

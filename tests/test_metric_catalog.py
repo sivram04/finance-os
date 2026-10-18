@@ -1,4 +1,4 @@
-from scripts.build_metric_catalog import DOC, FIELDS, SEED, load, render_doc, render_seed
+from finance_os.reports.build_metric_catalog import DOC, FIELDS, SEED, load, render_doc, render_seed
 
 
 def test_every_metric_has_all_fields():
@@ -9,7 +9,7 @@ def test_every_metric_has_all_fields():
 
 
 def test_generated_files_are_up_to_date():
-    """Run `python scripts/build_metric_catalog.py` if this fails."""
+    """Run `python -m finance_os.reports.build_metric_catalog` if this fails."""
     metrics = load()
     assert SEED.read_text(encoding="utf-8") == render_seed(metrics)
     assert DOC.read_text(encoding="utf-8") == render_doc(metrics)

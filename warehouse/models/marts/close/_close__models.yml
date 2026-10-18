@@ -1,0 +1,12 @@
+version: 2
+models:
+  - name: fct_accruals_monthly
+    description: Vendor costs accrued at month end before the invoice arrived, with true-up.
+  - name: fct_prepaid_schedule
+    description: Straight-line prepaid amortization with opening and closing balances.
+  - name: fct_close_status
+    description: Month-end close checklist with evidence-driven task status.
+    columns:
+      - name: status
+        tests:
+          - accepted_values: {values: [complete, exceptions, review, no_data, not_applicable, ready, blocked]}

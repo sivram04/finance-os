@@ -1,0 +1,4 @@
+scenario,product_id,price_change_pct,volume_elasticity,note
+pro_plus_10,batch_pro,0.10,-0.6,Raise batch_pro 10%; moderately price-sensitive
+stream_plus_8,stream,0.08,-0.3,Raise streaming 8%; low sensitivity (latency moat)
+base_cut_15,batch_base,-0.15,-1.4,Cut batch_base 15% to match a competitor; elastic segment

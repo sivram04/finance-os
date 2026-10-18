@@ -1,0 +1,6 @@
+version: 2
+models:
+  - name: fct_price_simulation
+    description: Annualized revenue and gross-margin impact of each price scenario, with volume elasticity.
+  - name: fct_discount_leakage
+    description: Discount given vs policy per customer-month, and customers sitting on a tier cliff.

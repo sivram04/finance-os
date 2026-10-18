@@ -1,0 +1,5 @@
+rule_id,metric,threshold,description
+MIN-CASH,cash,3000000,Total cash never below $3M
+MIN-OPERATING,operating_weeks,4,Operating account holds at least 4 weeks of outflows
+RUNWAY-12,runway_months,12,Runway above 12 months (venture debt covenant)
+LIQ-1,liquidity_ratio,1.5,Cash plus AR over 3 months of opex (lender covenant)

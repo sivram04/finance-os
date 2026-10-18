@@ -1,0 +1,14 @@
+version: 2
+
+sources:
+  - name: stripe
+    schema: raw_stripe
+    description: Stripe API objects landed as raw JSON, one row per object (id, data), like an ELT tool's raw tables.
+    loaded_at_field: _loaded_at
+    tables:
+      - name: customers
+      - name: invoices
+      - name: charges
+      - name: refunds
+      - name: balance_transactions
+      - name: payouts

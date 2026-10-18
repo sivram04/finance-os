@@ -1,5 +1,5 @@
 # Metric catalog (design §7.5, FR-4.5, NFR-10). Source of truth for every KPI in fct_kpi_monthly.
-# After editing, run: python scripts/build_metric_catalog.py
+# After editing, run: python -m finance_os.reports.build_metric_catalog
 # status: MEASURED (from source data) or ASSUMED (depends on a modeled input).
 metrics:
   - name: revenue
@@ -199,3 +199,36 @@ metrics:
     owner: VP Finance
     status: MEASURED
     tolerance: Usage noise makes every month show some contraction; trend matters more than level.
+
+  - name: dso_days
+    label: DSO
+    unit: days
+    purpose: How fast customers pay; cash planning and collections staffing.
+    formula: Ending AR ÷ invoiced sales in the month × days in the month.
+    grain: month
+    source_model: fct_ar_monthly
+    owner: Controller
+    status: MEASURED
+    tolerance: AR subledger must equal the GL control account (assert_ar_ties_to_gl). Month-end billing makes it swing.
+
+  - name: cei
+    label: Collection effectiveness index
+    unit: ratio
+    purpose: Collections team performance, independent of sales volume.
+    formula: (Beginning AR + sales − ending AR) ÷ (beginning AR + sales − ending current AR).
+    grain: month
+    source_model: fct_ar_monthly
+    owner: Controller
+    status: MEASURED
+    tolerance: 1.0 means everything collectible was collected.
+
+  - name: ar_over_60
+    label: AR over 60 days
+    unit: usd
+    purpose: Bad-debt risk and write-off candidates.
+    formula: Open invoice balances more than 60 days past due at month end.
+    grain: month
+    source_model: fct_ar_aging_snapshot
+    owner: Controller
+    status: MEASURED
+    tolerance: Includes failed-payment self-serve balances that should be reviewed for write-off.

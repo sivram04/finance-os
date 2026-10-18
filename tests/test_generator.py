@@ -1,14 +1,16 @@
 from decimal import Decimal
 
-from generator.__main__ import generate, write_csvs
+from finance_os.generator.__main__ import generate, write_csvs
 
 
 def test_same_seed_gives_identical_files(tmp_path):
     """NFR-2: deterministic for a given seed."""
     write_csvs(generate(), tmp_path / "a")
     write_csvs(generate(), tmp_path / "b")
-    for f in (tmp_path / "a").iterdir():
-        assert f.read_bytes() == (tmp_path / "b" / f.name).read_bytes(), f.name
+    for f in (tmp_path / "a").rglob("*"):
+        if f.is_file():
+            rel = f.relative_to(tmp_path / "a")
+            assert f.read_bytes() == (tmp_path / "b" / rel).read_bytes(), str(rel)
 
 
 def test_different_seed_changes_usage():
@@ -24,7 +26,7 @@ def test_money_and_hours_are_decimal():
 
 def test_segment_counts_match_config():
     import yaml
-    from generator.__main__ import CONFIG
+    from finance_os.generator.__main__ import CONFIG
     cfg = yaml.safe_load(CONFIG.read_text(encoding="utf-8"))
     segs = [c["segment"] for c in generate()["customers"]]
     assert all(segs.count(s) == spec["count"] for s, spec in cfg["segments"].items())
@@ -71,7 +73,7 @@ def test_every_journal_entry_balances():
 
 def test_headcount_ends_at_plan():
     import yaml
-    from generator.__main__ import CONFIG
+    from finance_os.generator.__main__ import CONFIG
     cfg = yaml.safe_load(CONFIG.read_text(encoding="utf-8"))
     end = cfg["window"]["end"]
     active = [e for e in generate()["employees"]
@@ -80,7 +82,7 @@ def test_headcount_ends_at_plan():
 
 
 def test_no_usage_while_churned():
-    from generator.entities.lifecycle import CustomerState
+    from finance_os.generator.entities.lifecycle import CustomerState
     t = generate()
     events = {}
     for e in t["lifecycle_events"]:
@@ -112,3 +114,18 @@ def test_project_invoices_equal_their_lines_and_unbilled_milestone_has_no_invoic
     billed_milestones = {l["milestone_id"] for l in t["project_invoice_lines"] if l["milestone_id"]}
     unbilled = [m for m in t["milestones"] if m["accepted_date"] and m["milestone_id"] not in billed_milestones]
     assert [m["project_id"] for m in unbilled] == ["P-106"]
+
+
+def test_stripe_objects_tie_to_the_ledger():
+    t = generate()
+    entry_type = {e["entry_id"]: e["entry_type"] for e in t["journal_entries"]}
+    revenue = sum(l["credit"] for l in t["journal_lines"] if l["account_id"] == "4000")
+    stripe_revenue = sum(i["total"] for i in t["stripe_invoices"])
+    assert stripe_revenue == int(revenue * 100)
+    gl_cash = sum(l["debit"] - l["credit"] for l in t["journal_lines"]
+                  if l["account_id"] == "1000" and entry_type[l["entry_id"]] in ("collection", "payment_fee", "refund"))
+    stripe_net = sum(b["net"] for b in t["stripe_balance_transactions"] if b["type"] in ("charge", "refund"))
+    assert stripe_net == int(gl_cash * 100)
+    lines_total = sum(sum(l["amount"] for l in i["lines"]["data"]) for i in t["stripe_invoices"])
+    assert lines_total == stripe_revenue
+    assert all(c["status"] == "failed" for c in t["stripe_charges"] if c["balance_transaction"] is None)

@@ -9,5 +9,7 @@ sources:
       - name: journal_entries
       - name: journal_lines
       - name: budgets
+      - name: customer_payments
+      - name: disputes
       - name: vendor_bills
       - name: vendor_bill_lines

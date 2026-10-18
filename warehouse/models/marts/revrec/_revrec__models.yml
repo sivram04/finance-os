@@ -1,0 +1,13 @@
+version: 2
+models:
+  - name: fct_revenue_schedule_monthly
+    description: ASC 606 revenue per performance obligation × month vs billed and GL revenue, with contract balances.
+    columns:
+      - name: obligation
+        tests:
+          - accepted_values: {values: [usage, project_fixed_fee, project_tm, project_tm_cap, project_federal_tm]}
+  - name: fct_revenue_rollforward_monthly
+    description: Deferred revenue / contract asset roll-forward and the ASC 606 adjustment to GL revenue.
+    columns:
+      - name: month
+        tests: [unique, not_null]

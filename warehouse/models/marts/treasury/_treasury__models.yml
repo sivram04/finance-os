@@ -1,0 +1,20 @@
+version: 2
+models:
+  - name: fct_cash_forecast_13w
+    description: 13-week cash forecast by category with the minimum-cash check.
+    columns:
+      - name: week
+        tests: [unique, not_null]
+  - name: fct_cash_position
+    description: Cash by account at the target mix, interest, and operating-account coverage.
+  - name: fct_payment_run_proposal
+    description: Unpaid vendor bills scheduled into weekly payment runs, with early-pay discounts captured.
+    columns:
+      - name: bill_ref
+        tests: [unique, not_null]
+  - name: fct_treasury_covenants
+    description: Minimum cash, runway and liquidity covenants by month, actuals then base forecast.
+    columns:
+      - name: status
+        tests:
+          - accepted_values: {values: [pass, breach, not_burning]}

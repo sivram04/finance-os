@@ -1,0 +1,10 @@
+version: 2
+
+models:
+  - name: stg_usage__api_requests
+    description: "Grain: one row per API request (deduplicated). duration_ms merges schema v1 and v2."
+    columns:
+      - name: request_id
+        data_tests: [unique, not_null]
+      - name: duration_ms
+        data_tests: [not_null]

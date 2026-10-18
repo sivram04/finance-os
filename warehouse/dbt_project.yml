@@ -10,7 +10,7 @@ snapshot-paths: ["snapshots"]
 
 vars:
   allocation_scenario: base   # row set in seeds/allocation_rules.csv (FR-2.4)
-  ap_backend: text            # which AP extraction run the warehouse reads: text (rules) or grok
+  ap_backend: text            # which AP extraction run the warehouse reads: text (rules) or openai
 
 seeds:
   finance_os:
@@ -29,8 +29,40 @@ seeds:
       +column_types: {threshold_pct: "decimal(6,4)"}
     billing_rules:
       +column_types: {threshold_days: integer}
+    ar_policy:
+      +column_types: {payment_terms_days: integer, collection_weight: "decimal(6,2)"}
+    collection_tiers:
+      +column_types: {tier: integer, min_days_overdue: integer, max_days_overdue: integer}
     margin_floors:
       +column_types: {gross_margin_floor_pct: "decimal(5,4)"}
+    planning_scenarios:
+      +column_types: {value: "decimal(9,4)"}
+    planning_targets:
+      +column_types: {value: "decimal(18,4)"}
+    hiring_plan:
+      +column_types: {annual_salary: "decimal(18,2)", planned_start: date}
+    shared_cost_allocation:
+      +column_types: {account_id: varchar}
+    treasury_accounts:
+      +column_types: {target_share: "decimal(9,4)", annual_yield: "decimal(9,4)"}
+    treasury_policy:
+      +column_types: {threshold: "decimal(18,2)"}
+    vendor_payment_terms:
+      +column_types: {payment_terms_days: integer, early_pay_discount_pct: "decimal(9,4)", discount_days: integer}
+    prepaid_contracts:
+      +column_types: {account_id: varchar, start_month: date, months: integer, amount: "decimal(18,2)"}
+    price_scenarios:
+      +column_types: {price_change_pct: "decimal(9,4)", volume_elasticity: "decimal(9,4)"}
+    discount_policy:
+      +column_types: {max_discount_pct: "decimal(9,4)"}
+    cap_table:
+      +column_types: {shares: bigint, price_per_share: "decimal(18,4)", invested: "decimal(18,2)", issue_date: date}
+    fundraise_scenarios:
+      +column_types: {pre_money: "decimal(18,2)", raise_amount: "decimal(18,2)", option_pool_target_pct: "decimal(9,4)", close_month: date}
+    customer_billing_profile:
+      +column_types: {tax_rate: "decimal(9,4)"}
+    fx_rates:
+      +column_types: {month: date, usd_per_unit: "decimal(18,6)"}
     payment_fee_schedule:
       +column_types: {fee_pct: "decimal(6,4)", fee_fixed: "decimal(18,2)", fee_cap: "decimal(18,2)"}
 

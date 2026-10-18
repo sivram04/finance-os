@@ -96,13 +96,17 @@ base as (
         b.new_customers,
         b.churned_customers,
         b.churned_customers / nullif(b.opening_customers, 0) as logo_churn_rate,
-        -(b.contraction_mrr + b.churned_mrr) / nullif(b.opening_mrr, 0) as gross_mrr_churn_rate
+        -(b.contraction_mrr + b.churned_mrr) / nullif(b.opening_mrr, 0) as gross_mrr_churn_rate,
+        ar.dso_days,
+        ar.cei,
+        ar.ar_over_60
     from pnl p
     join cash c using (month)
     left join headcount h using (month)
     left join arr a using (month)
     left join retention r using (month)
     left join {{ ref('fct_mrr_bridge_monthly') }} b using (month)
+    left join {{ ref('fct_ar_monthly') }} ar using (month)
 ),
 
 metrics as (
@@ -111,7 +115,7 @@ metrics as (
         {%- for m in ['revenue', 'cogs', 'opex', 'gross_margin_pct', 'gross_burn', 'net_burn', 'closing_cash',
                       'runway_months', 'arr', 'headcount', 'arr_per_employee', 'nrr', 'grr',
                       'active_customers', 'new_customers', 'churned_customers', 'logo_churn_rate',
-                      'gross_mrr_churn_rate'] %}
+                      'gross_mrr_churn_rate', 'dso_days', 'cei', 'ar_over_60'] %}
         cast(round({{ m }}, 4) as decimal(18, 4)) as {{ m }}{{ "," if not loop.last }}
         {%- endfor %}
     from base
@@ -122,5 +126,6 @@ from metrics
 unpivot (value for metric_name in (
     revenue, cogs, opex, gross_margin_pct, gross_burn, net_burn, closing_cash,
     runway_months, arr, headcount, arr_per_employee, nrr, grr,
-    active_customers, new_customers, churned_customers, logo_churn_rate, gross_mrr_churn_rate
+    active_customers, new_customers, churned_customers, logo_churn_rate, gross_mrr_churn_rate,
+    dso_days, cei, ar_over_60
 ))

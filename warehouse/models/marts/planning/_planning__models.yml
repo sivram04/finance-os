@@ -1,0 +1,21 @@
+version: 2
+models:
+  - name: fct_headcount_plan_monthly
+    description: Headcount and fully loaded payroll by scenario × department × month for 18 months.
+  - name: fct_forecast_monthly
+    description: Driver-based 18-month forecast by scenario, re-run as of each of the last 6 closed months.
+    columns:
+      - name: scenario
+        tests:
+          - accepted_values: {values: [base, upside, downside]}
+  - name: fct_forecast_accuracy
+    description: Past base forecasts vs the actuals that closed since (error and error %).
+  - name: fct_scenario_summary
+    description: Latest forecast per scenario — next-12-month P&L, cash in 12 months, runway, cash-out month.
+    columns:
+      - name: scenario
+        tests: [unique, not_null]
+  - name: fct_budget_build
+    description: Next fiscal year's budget bottom-up (departments) vs top-down (board targets), with the gap.
+  - name: fct_shared_cost_allocation_monthly
+    description: Shared overhead re-allocated to departments by headcount share.

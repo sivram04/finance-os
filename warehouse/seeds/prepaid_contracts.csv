@@ -1,0 +1,7 @@
+prepaid_id,vendor,account_id,department_id,start_month,months,amount
+PP-01,Datadog annual,6200,INF,2025-01-01,12,96000.00
+PP-02,D&O insurance,6400,ENG,2025-03-01,12,42000.00
+PP-03,Prepaid office rent,6300,ENG,2025-01-01,24,180000.00
+PP-04,Datadog annual renewal,6200,INF,2026-01-01,12,118000.00
+PP-05,Salesforce annual,6200,SAL,2026-04-01,12,54000.00
+PP-06,D&O insurance renewal,6400,ENG,2026-03-01,12,47000.00

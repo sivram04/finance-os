@@ -145,7 +145,7 @@ flowchart LR
     DBT[dbt models + tests]
     ORC[Dagster orchestration]
     APP[Apps: deal desk, billing, collections<br/>Streamlit]
-    AG[Finance agent<br/>Grok (xAI), read-only tools]
+    AG[Finance agent<br/>OpenAI, read-only tools]
     AL[Alert service]
   end
   subgraph Consumers
@@ -328,19 +328,46 @@ Priority: **M** = must, **S** = should, **C** = could.
 | ID | Requirement | Pri | Trace |
 |---|---|---|---|
 | FR-16.1 | Vendor bills arrive as PDFs in an inbox; each is read into structured fields (vendor, invoice number, date, PO, lines, total) | M | PA-2, PA-10 |
-| FR-16.2 | Two interchangeable extractors: rules over the PDF text layer (offline, used in CI) and Grok with a strict JSON schema; the model copies printed values and never computes money | M | G5, AIR-1 |
+| FR-16.2 | Two interchangeable extractors: rules over the PDF text layer (offline, used in CI) and an OpenAI model with a strict JSON schema (Structured Outputs); the model copies printed values and never computes money | M | G5, AIR-1 |
 | FR-16.3 | Controls on every document: known vendor, total = sum of lines, no duplicate invoice number, PO exists and belongs to the vendor, matches the posted bill | M | PA-3 |
 | FR-16.4 | Documents that pass auto-approve; the rest go to a review queue with the reason; nothing is paid without a person clearing it | M | AIR-2 |
-| FR-16.5 | Extraction accuracy per field is measured against ground truth; the rules extractor must be 100%, the Grok score is its eval | M | AAI-7 |
+| FR-16.5 | Extraction accuracy per field is measured against ground truth; the rules extractor must be 100%, the OpenAI model score is its eval | M | AAI-7 |
+
+#### M17–M24 — FP&A, treasury, close and capital (added after v0.1)
+Assumptions live in seeds (planning_scenarios, hiring_plan, planning_targets, treasury_policy, prepaid_contracts, price_scenarios, cap_table, fundraise_scenarios, customer_billing_profile, fx_rates), so changing a driver is a reviewed CSV change, never an edit to SQL.
+
+| ID | Requirement | Model(s) |
+|---|---|---|
+| FR-17.1 | Working capital by month: AR, AP, DSO, DPO, cash conversion cycle (DIO = 0, no inventory) | `fct_working_capital_monthly` |
+| FR-18.1 | ASC 606 revenue per performance obligation: usage as billed; projects by cost-to-cost or hours × rate; contract asset / liability; the adjustment vs GL revenue | `fct_revenue_schedule_monthly` |
+| FR-18.2 | Deferred revenue roll-forward (opening + billings − revenue = closing, tested) | `fct_revenue_rollforward_monthly` |
+| FR-19.1 | Headcount plan: current staff plus open/approved roles, fully loaded cost, per scenario (downside freezes later roles) | `int_planned_hires`, `fct_headcount_plan_monthly` |
+| FR-19.2 | Driver-based 18-month forecast (base / upside / downside), re-run as of each of the last 6 closed months (rolling) | `fct_forecast_monthly` |
+| FR-19.3 | Forecast accuracy: each past version vs the actuals that closed since | `fct_forecast_accuracy` |
+| FR-19.4 | Scenario summary: next-12-month P&L, cash in 12 months, runway, cash-out month | `fct_scenario_summary` |
+| FR-20.1 | Next-year budget bottom-up (departments) vs top-down (board targets), with the gap | `fct_budget_build` |
+| FR-20.2 | Shared overhead allocated to departments by headcount; totals preserved (tested) | `fct_shared_cost_allocation_monthly` |
+| FR-21.1 | 13-week cash forecast from dated flows (open AR with each customer's lateness, forecast billings on terms, payroll, open AP on vendor terms, opex) with the minimum-cash check | `int_cash_flows_forecast`, `fct_cash_forecast_13w` |
+| FR-21.2 | Cash by account at the target mix, interest, operating-account coverage | `fct_cash_position` |
+| FR-21.3 | Weekly vendor payment runs, early-pay discounts captured (proposal only; nothing is paid) | `fct_payment_run_proposal` |
+| FR-21.4 | Covenants by month, actuals then forecast: minimum cash, runway, liquidity | `fct_treasury_covenants` |
+| FR-22.1 | Close checklist with status driven by evidence (recons, prepaids, BvA alerts); sign-off blocked until all complete | `fct_close_status` |
+| FR-22.2 | Accruals (costs booked before the invoice arrived, with true-up) and prepaid amortization schedules | `fct_accruals_monthly`, `fct_prepaid_schedule` |
+| FR-23.1 | Price-change simulation with volume elasticity: revenue and gross-margin impact | `fct_price_simulation` |
+| FR-23.2 | Discount leakage vs segment policy, and customers on a volume-tier cliff | `fct_discount_leakage` |
+| FR-24.1 | Fully diluted cap table; fundraise scenarios with the option-pool shuffle, dilution, and whether cash lasts until close | `fct_cap_table`, `fct_fundraise_scenarios` |
+| FR-24.2 | Multi-currency billing and indirect tax: invoices in the customer's currency, sales tax / VAT / GST (reverse charge where it applies), realized and unrealized FX | `fct_invoice_tax_fx`, `fct_tax_fx_monthly` |
+
+The assistant reaches these through 13 tools (`get_forecast`, `get_cash_forecast`, `get_close_status`, …), and `get_attention_items` raises covenant breaches, minimum-cash weeks and a round that closes after cash runs out.
 
 ### 5.2 Non-functional requirements
 | ID | Requirement |
 |---|---|
-| NFR-1 Correctness | All money in `NUMERIC` (BigQuery) / `DECIMAL` (DuckDB); no floats. Currency is USD only. |
+| NFR-1 Correctness | All money in `NUMERIC` (BigQuery) / `DECIMAL` (DuckDB); no floats. Books are kept in USD; customers may be billed in their own currency (FR-24.2). |
 | NFR-2 Reproducibility | The generator is deterministic for a given seed; a full rebuild produces identical marts. |
 | NFR-3 Idempotency | Loaders and models can rerun safely; incremental models use merge keys. |
 | NFR-4 Lineage | Every mart column traces to its source via dbt docs; the lineage graph is published. |
-| NFR-5 Cost | Runs inside the GCP free tier (≤1 TB queries, ≤10 GB storage/month) plus Grok API costs under $10/month. A GCP budget alert and an xAI spend limit are set. |
+| NFR-5 Cost | Runs inside the GCP free tier (≤1 TB queries, ≤10 GB storage/month) plus OpenAI API costs under $10/month. A GCP budget alert and an OpenAI project spend limit are set. |
 | NFR-6 Performance | Full daily pipeline < 15 minutes; Power BI pages load < 5 s on imported data. |
 | NFR-7 Security | Secrets in env/Secret Manager, never in git; service account with least privilege; agent tools read-only. |
 | NFR-8 Privacy | No real PII. GCP export holds only the owner's own cost data. |
@@ -356,7 +383,7 @@ Priority: **M** = must, **S** = should, **C** = could.
 | AIR-2 | Every AI output that leaves the system (emails, commentary) requires human approval. |
 | AIR-3 | Prompts, tool schemas and model versions are versioned in git. |
 | AIR-4 | An eval harness runs on every change to prompts or tools; regressions block merge. |
-| AIR-5 | Cost per agent question is recorded from token counts and reconciled monthly to the xAI usage/billing export. |
+| AIR-5 | Cost per agent question is recorded from token counts and reconciled monthly to the OpenAI usage/billing export. |
 | AIR-6 | Failure modes are documented: timeouts, tool errors, refusals, inconsistent answers. |
 
 ---
@@ -421,7 +448,7 @@ flowchart TB
 | Billing system | Stripe test mode | Real API, usage meters, invoices, payments | — |
 | Apps | Streamlit | Fast internal tools in Python | Next.js |
 | BI | Power BI Desktop | Owner's choice; common in finance teams; covers "Excel and business systems" | Looker Studio |
-| LLM | xAI Grok API (OpenAI-compatible endpoint) | Owner's choice; tool calling and structured output; cost reconciles to xAI usage export | Gemini (Vertex AI), Claude |
+| LLM | OpenAI API | Owner's choice; tool calling and Structured Outputs; cost reconciles to the OpenAI usage export | Grok (xAI), Gemini (Vertex AI), Claude |
 | PDFs | WeasyPrint or ReportLab | Invoice and quote documents | — |
 | Alerts | Telegram Bot API | Already used in JobRadar | Slack |
 | CI | GitHub Actions | dbt build on DuckDB + pytest + agent eval (mocked) | — |
@@ -436,15 +463,12 @@ Finance OS/
 │   ├── DECISIONS.md              # ADR log
 │   ├── investigations/           # one write-up per variance
 │   └── process/                  # maps, SIPOC, runbook, controls
-├── generator/                    # synthetic data (seeded)
-│   ├── config.yaml               # company size, prices, anomalies
-│   ├── entities/                 # customers, projects, employees, vendors
-│   ├── events/                   # usage, gpu jobs, timesheets, invoices, payments
-│   └── anomalies.py              # injected issues + manifest
-├── ingestion/
-│   ├── stripe_seed.py            # pushes synthetic usage into Stripe test mode
-│   ├── stripe_loader.py          # pulls Stripe objects into raw_stripe
-│   └── synthetic_loader.py
+├── pyproject.toml                # installable package: pip install -e .[dev]
+├── src/finance_os/               # all Python code (src layout)
+│   ├── paths.py                  # repo paths, resolved from the package
+│   ├── generator/                # synthetic company (seeded): config.yaml, entities/, events/, documents/
+│   ├── ingestion/                # synthetic_loader.py, ap_intake/ (vendor bill PDFs: rules + OpenAI), stripe later
+│   └── reports/                  # board_pack.py, invoice_pdf.py, build_metric_catalog.py
 ├── warehouse/                    # dbt project
 │   ├── models/staging/
 │   ├── models/intermediate/
@@ -717,14 +741,14 @@ A dbt test fails the build on any FAIL that has no explanation. Power BI's "Trus
 ### 9.2 Agent architecture
 ```mermaid
 flowchart LR
-  Q[User question] --> P[Planner<br/>Grok]
+  Q[User question] --> P[Planner<br/>OpenAI]
   P -->|selects| T1[get_metric<br/>name, period, filters]
   P --> T2[get_breakdown<br/>metric by dimension]
   P --> T3[get_recon_status<br/>check, period]
   P --> T4[get_transactions<br/>driver rows for a variance]
   P --> T5[get_definition<br/>metric catalog]
   T1 & T2 & T3 & T4 & T5 --> MA[(Metric API<br/>read-only, marts only)]
-  T1 & T2 & T3 & T4 & T5 --> W[Writer<br/>Grok]
+  T1 & T2 & T3 & T4 & T5 --> W[Writer<br/>OpenAI]
   W --> V[Validator<br/>code: every number in the answer<br/>must appear in tool results]
   V -->|pass| A[Answer + citations]
   V -->|fail| R[Retry once, else refuse]
@@ -746,6 +770,33 @@ flowchart LR
 | Recon failing | Answer flags the number as untrusted |
 | Ambiguous question | Ask one clarifying question |
 | Out of scope (e.g. investment advice) | Refuse |
+
+### 9.5 Workspace web app and assistant (replaces the Streamlit apps and Power BI as the main interface)
+**Shape.** A React + TypeScript web app served by a FastAPI backend that reuses the `finance_os` package. Left: a persistent assistant panel. Right: a card-based workspace (quick actions, module tiles, period cards, one position chart, "needs you" cards, module pages). The assistant can open and filter workspace views; any row can be handed to the assistant ("explain this").
+
+**Assistant behaviour (agentic, like a coding assistant).**
+- Loop: plan → call a tool → read the result → next tool … → answer. Each tool call is streamed to the UI as a visible, collapsible step.
+- Reads are free. Anything that changes state is a *proposal*: the assistant calls a `propose_*` tool, which records a pending action and shows a preview card with Approve / Reject. Only the user's click executes it.
+- Numbers come only from tool results. A code validator (§9.2) checks every number in the answer against the tool results; on a mismatch the model gets one retry, then anything still unmatched is flagged as unverified.
+- Grounding is enforced in code too: an answer given without any tool call is sent back once to check the data (out-of-scope questions repeat their refusal).
+- The backend puts the current reconciliation status into every turn's instructions, so the assistant always knows whether the numbers it quotes are trusted.
+- Files dropped into the chat go through AP intake: PDF text layer, else OCR with a vision model, then the same warehouse checks.
+
+**App state lives outside the warehouse.** The warehouse is rebuilt from scratch by the generator and dbt, so anything a person does is stored in a separate database, `data/app.duckdb`, which builds never touch: conversations, messages, tool calls, proposed actions, decisions and the audit log. The warehouse reads decisions from there when it needs them; it never writes to it.
+
+**Undo is a reversing entry, not a delete.** Approving, rejecting and undoing each append an audit row (who, when, what, before → after). An undo marks the action reverted and appends its own row; history is never rewritten. Actions with a real-world effect (a sent reminder) cannot be undone, only followed by a corrective action.
+
+**Users.** Phase 1 is a single local user (no login); every decision is recorded as that user. Roles (controller, AP clerk, project manager) and per-role action permissions come later.
+
+**Assistant limits.**
+| Limit | Value | Why |
+|---|---|---|
+| Model | `OPENAI_ASSISTANT_MODEL`, default `gpt-4.1` (extraction keeps `gpt-4.1-mini`) | Multi-step tool use needs the stronger model |
+| Tool steps per turn | 12 | Stops runaway loops |
+| Tokens per turn | 60,000 input | Cost cap; the turn ends with a summary of what it has |
+| Actions it may propose | approve / reject an AP document; approve / reject a reminder draft; flag a cash-application fix | Nothing else changes state |
+| Data access | Typed read-only tools over the marts and recon tables; no free-form SQL | FR-11.1 |
+| Token usage | Recorded per turn in `data/app.duckdb` | AIR-5 cost reconciliation |
 
 ---
 
@@ -796,7 +847,7 @@ Alerts are de-duplicated by (rule, entity, period) and stored in `audit.alert_lo
 - **Access:** service account with BigQuery Data Viewer on the billing dataset, Data Editor on Finance OS datasets only.
 - **Agent:** tools are read-only and limited to marts; no raw SQL; no write tools.
 - **Privacy:** synthetic names via Faker with a fixed seed; no real people. The repo can be public; the GCP export is not committed, only screenshots of aggregates.
-- **Cost guardrails:** GCP budget alert at $10; dbt models partitioned by date and clustered by customer; Grok calls capped per day.
+- **Cost guardrails:** GCP budget alert at $10; dbt models partitioned by date and clustered by customer; OpenAI calls capped per day.
 
 ---
 
@@ -870,7 +921,7 @@ Each phase ends with an exit check. Nothing moves forward until it passes.
 ### Phase 8 — AI layer (3 days)
 - Metric API and typed tools; planner, writer and validator.
 - Collections email drafter and BvA commentary drafter with approval queue.
-- Eval set (≥30 questions × 3 runs); cost per question reconciled to the xAI usage export.
+- Eval set (≥30 questions × 3 runs); cost per question reconciled to the OpenAI usage export.
 - Stretch: contract term extraction with human confirmation.
 - **Exit:** eval results recorded honestly (including failures); validator blocks any made-up number in testing.
 
@@ -906,7 +957,7 @@ Each phase ends with an exit check. Nothing moves forward until it passes.
 ## 16. Open questions for the owner
 1. Is the GitHub repo public? (Recommended: yes, since it holds no secrets or real PII.)
 2. Dagster or Airflow? Dagster is recommended; Airflow is named in the posting, so a short note on equivalence goes in the README.
-3. Which Grok model and daily cost cap for the agent?
+3. Which OpenAI model and daily cost cap for the agent?
 4. Include sales comp in the MVP, or leave it as a later phase?
 5. Should the federal contract go deeper (indirect rates, provisional billing)? Currently it's kept simple.
 

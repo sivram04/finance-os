@@ -1,6 +1,7 @@
 -- FR-6.8: funding status per contract × CLIN × month, plus a 'TOTAL' row per contract.
 -- Used = billed to date + unbilled (earned not yet billed). Alerts at 75% (Limitation of Funds notice)
--- and 90% of funded. Non-federal contracts have one TOTAL row with funded = contract value.
+-- and 90% of funded. Non-federal contracts have one TOTAL row with funded = contract value; the alerts apply
+-- only to federal (incrementally funded) contracts, where running out of funds stops the work.
 with months as (
     select distinct month from {{ ref('fct_project_financials') }}
 ),
@@ -78,7 +79,9 @@ select
     cast(greatest(u.earned_to_date - u.billed_to_date, 0) as decimal(18, 2)) as unbilled,
     cast(u.funded - u.billed_to_date - greatest(u.earned_to_date - u.billed_to_date, 0) as decimal(18, 2)) as funding_remaining,
     cast(round((u.billed_to_date + greatest(u.earned_to_date - u.billed_to_date, 0)) / nullif(u.funded, 0), 4) as decimal(9, 4)) as funding_used_pct,
-    coalesce((u.billed_to_date + greatest(u.earned_to_date - u.billed_to_date, 0)) / nullif(u.funded, 0) >= r.t75, false) as is_funding_alert_75,
-    coalesce((u.billed_to_date + greatest(u.earned_to_date - u.billed_to_date, 0)) / nullif(u.funded, 0) >= r.t90, false) as is_funding_alert_90
+    k.is_federal,
+    coalesce(k.is_federal and (u.billed_to_date + greatest(u.earned_to_date - u.billed_to_date, 0)) / nullif(u.funded, 0) >= r.t75, false) as is_funding_alert_75,
+    coalesce(k.is_federal and (u.billed_to_date + greatest(u.earned_to_date - u.billed_to_date, 0)) / nullif(u.funded, 0) >= r.t90, false) as is_funding_alert_90
 from unioned u
+join {{ ref('stg_projects__contracts') }} k using (contract_id)
 cross join rules r

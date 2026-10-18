@@ -1,0 +1,4 @@
+vendor_id,payment_terms_days,early_pay_discount_pct,discount_days,priority
+gcp,30,0.00,0,critical
+nimbus,30,0.02,10,critical
+default,30,0.00,0,normal

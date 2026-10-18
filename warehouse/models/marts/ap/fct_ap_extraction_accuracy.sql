@@ -1,5 +1,5 @@
 -- Extraction quality against the generator's ground truth, per field, for the selected backend.
--- This is the eval for the AI extractor: run with --vars '{ap_backend: grok}' to score Grok.
+-- This is the eval for the AI extractor: run with --vars '{ap_backend: openai}' to score the OpenAI model.
 with t as (
     select * from {{ ref('stg_synthetic__ap_document_truth') }}
 ),

@@ -6,10 +6,10 @@ Finance and project-accounting platform for the fictional company Echo Labs. Des
 
 ```bash
 python -m venv .venv
-.venv/Scripts/pip install -r requirements.txt
-.venv/Scripts/python -m generator                 # CSVs → data/synthetic/
-.venv/Scripts/python -m ingestion.synthetic_loader  # → data/finance_os.duckdb, raw_* schemas
-.venv/Scripts/python -m ingestion.ap_intake         # reads vendor bill PDFs in data/inbox/ap → raw_ap
+.venv/Scripts/pip install -e ".[dev]"          # installs the finance_os package from src/
+.venv/Scripts/python -m finance_os.generator                 # CSVs → data/synthetic/
+.venv/Scripts/python -m finance_os.ingestion.synthetic_loader  # → data/finance_os.duckdb, raw_* schemas
+.venv/Scripts/python -m finance_os.ingestion.ap_intake         # reads vendor bill PDFs in data/inbox/ap → raw_ap
 cd warehouse && ../.venv/Scripts/dbt build --profiles-dir .
 .venv/Scripts/python -m pytest tests
 ```
@@ -45,38 +45,96 @@ cd warehouse && ../.venv/Scripts/dbt build --profiles-dir .
 - Step 7 (M7 billing operations): pre-bill validation on every invoice line (`fct_billing_exceptions`: rate,
   hours, duplicates, milestone acceptance, cap, funding), the next billing run with unbilled-days alerts
   (`fct_billing_run`), billing status per project (`fct_project_billing_status`), and invoice PDFs with backup
-  hours (`scripts/invoice_pdf.py`). Anomaly A-M7-01: a P-102 line billed at the wrong labor-category rate.
+  hours (`finance_os.reports.invoice_pdf`). Anomaly A-M7-01: a P-102 line billed at the wrong labor-category rate.
+- Step 8 (M8 AR and collections): customer payments recorded with remittance vs. applied invoice, and a dispute
+  log. Marts: `fct_ar_invoices`, `fct_ar_aging_snapshot` (month-end buckets), `fct_ar_monthly` (DSO, CEI),
+  `fct_customer_payment_behavior` (per customer and invoice type), `fct_collections_queue` (ranked; disputes and
+  cash-application problems held), `fct_cash_application_exceptions`, `fct_disputes`. AR subledger ties to GL 1200.
+  Reminder drafts: `python -m finance_os.collections.draft_reminders` (template or `--backend openai`; drafts only,
+  checked to quote the exact invoice and amount, never sent). Anomalies A-M8-01 (slow payer), A-M8-02 (misapplied payment).
 - AP document intake (M16): the generator writes 82 vendor bill PDFs in four vendor layouts to `data/inbox/ap`.
-  `ingestion/ap_intake` reads them (rules backend offline; Grok backend with `XAI_API_KEY`), and the warehouse
+  `ingestion/ap_intake` reads them (rules backend offline; OpenAI backend with `OPENAI_API_KEY`), and the warehouse
   checks each one (`fct_ap_documents`): known vendor, total = lines, duplicate, PO exists and matches the vendor,
   matches the posted bill. Failures go to `fct_ap_review_queue`; `fct_ap_extraction_accuracy` scores the extractor.
   Anomalies A-AP-01..03 (arithmetic error, duplicate submission, wrong PO).
 
-## Using Grok for extraction
+## Scale and BigQuery
+The generator has three company sizes: `--scale S` (default: 105 customers, ~32M API requests; local DuckDB,
+tests), `M` (400 customers) and `L` (2,000 customers, ~590M API requests, ~70 GB; BigQuery). Request-level usage
+events are generated inside the warehouse by SQL from the daily drivers, with duplicates, late arrivals, failed
+requests and a mid-2026 logging change; dbt dedupes and rolls them up, and `recon_usage_events` proves they add back
+to the drivers to the millisecond.
+```bash
+.venv/Scripts/python -m finance_os.generator.high_volume --engine duckdb
+```
+BigQuery (project `finance-os-sivaram`, your gcloud login, no key files):
+```bash
+.venv/Scripts/python -m finance_os.generator --scale L --out data/synthetic_L --inbox data/inbox_L/ap
+```
+```bash
+.venv/Scripts/python -m finance_os.ingestion.bigquery_loader --src data/synthetic_L
+```
+```bash
+.venv/Scripts/python -m finance_os.generator.high_volume --engine bigquery
+```
+Generation runs month by month (on-demand BigQuery caps CPU per byte scanned). dbt target `cloud` is configured;
+porting every model to run on it is in progress (usage-event models run on both today).
+
+## Web app
+Assistant panel (agentic, shows every tool step, approval cards) next to a card-based workspace: Home (KPIs, periods,
+position chart, Needs you, approvals, modules) and pages for Revenue, Tech spend, Budget, Projects, Billing,
+Receivables, AP inbox and Trust. Pages read the same tools as the assistant, so both show the same numbers.
+Chats are kept (History menu; the last chat reopens after a reload). Drop a vendor bill into the assistant (PDF,
+scanned PDF or photo): it is read (PDF text, or OpenAI vision OCR for scans and images), checked against vendors,
+POs and the ledger (duplicate, arithmetic, PO owner and open balance), and the assistant prepares an approve or
+reject card. Sample scans: `python -m finance_os.generator.documents.sample_scans` → `data/samples/`.
+On phones the app shows one panel at a time with a Workspace / Assistant switch.
+
+Run the API and the web dev server, then open http://localhost:5173:
+```bash
+.venv/Scripts/python -m finance_os.app
+```
+```bash
+npm --prefix web install && npm --prefix web run dev
+```
+
+## Assistant backend (stage 1 of the web app)
+Agentic assistant over the warehouse: OpenAI with tool calling, 18 read-only tools, 3 proposal-only actions,
+a code validator for numbers and grounding, and an approve / reject / undo audit trail in `data/app.duckdb`.
+```bash
+.venv/Scripts/python -m finance_os.app
+```
+API at http://127.0.0.1:8000 (interactive docs at `/docs`). Eval (31 questions, real API, costs cents per question):
+```bash
+.venv/Scripts/python -m finance_os.app.eval --runs 3
+```
+Model: `OPENAI_ASSISTANT_MODEL` in `.env` (default `gpt-4.1`). Latest result: 93/93 over 3 runs (`evals/assistant/results/`).
+
+## Using OpenAI for extraction
 Put the key in `.env` (git-ignored), then extract and score:
 ```bash
-.venv/Scripts/python -m ingestion.ap_intake --backend grok
+.venv/Scripts/python -m finance_os.ingestion.ap_intake --backend openai
 ```
 ```bash
-cd warehouse && ../.venv/Scripts/dbt build --profiles-dir . --vars "{ap_backend: grok}"
+cd warehouse && ../.venv/Scripts/dbt build --profiles-dir . --vars "{ap_backend: openai}"
 ```
-`.env` holds `XAI_API_KEY=...` and optionally `XAI_MODEL=...`.
+`.env` holds `OPENAI_API_KEY=...` and optionally `OPENAI_MODEL=...` (default `gpt-4.1-mini`).
 
 ## Metrics and board pack
 KPIs are defined in `warehouse/metrics/kpis.yml`. After editing it:
 ```bash
-.venv/Scripts/python scripts/build_metric_catalog.py
+.venv/Scripts/python -m finance_os.reports.build_metric_catalog
 ```
 That writes `warehouse/seeds/metric_catalog.csv` and [docs/METRIC_CATALOG.md](docs/METRIC_CATALOG.md); dbt fails any KPI not in the catalog.
 
 One-page board summary for the latest month (written to `reports/`):
 ```bash
-.venv/Scripts/python scripts/board_pack.py
+.venv/Scripts/python -m finance_os.reports.board_pack
 ```
 
 Invoice PDF with backup detail (written to `reports/invoices/`):
 ```bash
-.venv/Scripts/python scripts/invoice_pdf.py --invoice PINV00014
+.venv/Scripts/python -m finance_os.reports.invoice_pdf --invoice PINV00014
 ```
 
 After changing a seed's columns, run `dbt seed --full-refresh` once.

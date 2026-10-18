@@ -43,3 +43,9 @@ models:
     data_tests:
       - dbt_utils_free_unique_combination:
           arguments: {columns: [month, customer_id, product_id]}
+
+  - name: int_usage_daily_from_events
+    description: "Grain: day × customer × model. Billable requests and audio rolled up from request-level events."
+    data_tests:
+      - dbt_utils_free_unique_combination:
+          arguments: {columns: [usage_date, customer_id, model]}

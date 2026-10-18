@@ -1,0 +1,4 @@
+segment,max_discount_pct,note
+self_serve,0.00,No negotiated discounts beyond tiers
+mid_market,0.10,Up to tier 2 without approval
+enterprise,0.20,Up to tier 3 without approval

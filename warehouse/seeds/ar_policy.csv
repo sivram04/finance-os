@@ -1,0 +1,5 @@
+segment,payment_terms_days,collection_weight,description
+self_serve,0,0.5,Card charged on invoice; small balances
+mid_market,30,1.0,Net 30
+enterprise,45,1.5,Net 45; large balances and relationship risk
+federal,30,2.0,Net 30 under the Prompt Payment Act; contract and funding risk

@@ -1,0 +1,5 @@
+tier,min_days_overdue,max_days_overdue,action,tone
+1,1,29,Friendly reminder with invoice copy,friendly
+2,30,59,Second notice; ask for payment date,firm
+3,60,89,Final notice; escalate to account owner,final
+4,90,99999,Escalate to VP Finance; consider credit hold,escalation

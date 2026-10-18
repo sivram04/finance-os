@@ -1,0 +1,7 @@
+version: 2
+models:
+  - name: fct_working_capital_monthly
+    description: AR, AP, net working capital, DSO, DPO and cash conversion cycle by month.
+    columns:
+      - name: month
+        tests: [unique, not_null]

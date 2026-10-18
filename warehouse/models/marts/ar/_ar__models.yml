@@ -1,0 +1,55 @@
+version: 2
+
+models:
+  - name: fct_ar_invoices
+    description: "Grain: one row per customer invoice (usage and project). Applied cash, balance, timing, status."
+    columns:
+      - name: invoice_ref
+        data_tests: [unique, not_null]
+      - name: status
+        data_tests:
+          - accepted_values:
+              arguments: {values: [open, paid, overapplied]}
+
+  - name: fct_ar_aging_snapshot
+    description: "Grain: month-end snapshot × open invoice. Balance and aging bucket (FR-8.1)."
+    data_tests:
+      - dbt_utils_free_unique_combination:
+          arguments: {columns: [snapshot_date, invoice_ref]}
+    columns:
+      - name: aging_bucket
+        data_tests:
+          - accepted_values:
+              arguments: {values: [current, 1-30, 31-60, 61-90, 90+]}
+
+  - name: fct_ar_monthly
+    description: "Grain: month. Beginning/ending AR, sales, DSO, CEI, AR over 60 days (FR-8.2)."
+    columns:
+      - name: month
+        data_tests: [unique, not_null]
+
+  - name: fct_customer_payment_behavior
+    description: "Grain: customer × invoice type. Days to pay, days late, chronic-late flag (terms customers only)."
+    data_tests:
+      - dbt_utils_free_unique_combination:
+          arguments: {columns: [customer_id, invoice_type]}
+
+  - name: fct_collections_queue
+    description: "Grain: open overdue invoice. Priority score, rank, recommended action and tone (FR-8.3)."
+    columns:
+      - name: invoice_ref
+        data_tests: [unique, not_null]
+
+  - name: fct_cash_application_exceptions
+    description: "Grain: one row per exception (remittance mismatch, overapplied invoice, unmatched payment) (FR-8.6)."
+    columns:
+      - name: exception_type
+        data_tests:
+          - accepted_values:
+              arguments: {values: [remittance_mismatch, overapplied, unmatched_payment]}
+
+  - name: fct_disputes
+    description: "Grain: one row per dispute, with days open and invoice balance (FR-8.5)."
+    columns:
+      - name: dispute_id
+        data_tests: [unique, not_null]

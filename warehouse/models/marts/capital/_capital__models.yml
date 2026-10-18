@@ -1,0 +1,9 @@
+version: 2
+models:
+  - name: fct_cap_table
+    description: Fully diluted cap table by holder.
+  - name: fct_fundraise_scenarios
+    description: Round pricing with the option-pool shuffle, dilution, and runway from the base forecast.
+    columns:
+      - name: scenario
+        tests: [unique, not_null]

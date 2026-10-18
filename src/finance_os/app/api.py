@@ -1,0 +1,154 @@
+"""HTTP API for the workspace (design §9.5).
+
+    python -m finance_os.app            # http://127.0.0.1:8000, docs at /docs
+
+POST /api/conversations/{id}/messages streams the agent's events as Server-Sent Events, one JSON object per
+`data:` line (step, tool_result, proposal, validator_retry, answer, error, done). Approving, rejecting and
+undoing actions happen only here, from the user's click; the assistant can only propose.
+"""
+import json
+
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+
+from finance_os.app import tools
+import base64
+
+from fastapi.responses import FileResponse
+
+from finance_os.app.agent import Agent
+from finance_os.app.documents import Documents
+from finance_os.app.history import replay
+from finance_os.app.state import AppState
+
+
+class MessageIn(BaseModel):
+    text: str
+
+
+class UploadIn(BaseModel):
+    filename: str
+    content_base64: str
+
+
+class DecisionIn(BaseModel):
+    note: str | None = None
+
+
+def create_app(state: AppState | None = None, wh: tools.Warehouse | None = None, agent_factory=None):
+    state = state or AppState()
+    wh = wh or tools.Warehouse()
+    agent_factory = agent_factory or (lambda: Agent(state, wh))
+    app = FastAPI(title="Finance OS", version="0.1.0")
+    app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+                       allow_methods=["*"], allow_headers=["*"])
+
+    @app.get("/api/health")
+    def health():
+        return {"ok": True, "data_through": wh.latest_month()}
+
+    @app.post("/api/conversations")
+    def new_conversation():
+        return {"id": state.new_conversation()}
+
+    @app.get("/api/conversations")
+    def list_conversations():
+        return state.conversations()
+
+    @app.get("/api/conversations/{cid}")
+    def get_conversation(cid: str):
+        """Past turns as the same events the UI renders live (steps, results, approval cards, answer, usage)."""
+        if not state.conversation_exists(cid):
+            raise HTTPException(404, "conversation not found")
+        return {"id": cid, "turns": replay(state, cid)}
+
+    @app.post("/api/conversations/{cid}/messages")
+    def post_message(cid: str, body: MessageIn):
+        if not state.conversation_exists(cid):
+            raise HTTPException(404, "conversation not found")
+        agent = agent_factory()
+
+        def stream():
+            for event in agent.run(cid, body.text):
+                yield f"data: {json.dumps(event, default=str)}\n\n"
+
+        return StreamingResponse(stream(), media_type="text/event-stream")
+
+    docs = Documents(state, wh)
+
+    @app.post("/api/documents")
+    def upload(body: UploadIn):
+        """A vendor bill dropped into the chat: read it (text or OCR) and run the AP controls."""
+        try:
+            data = base64.b64decode(body.content_base64)
+            doc = docs.upload(body.filename, data)
+        except (ValueError, RuntimeError) as e:
+            raise HTTPException(422, str(e))
+        return {k: v for k, v in doc.items() if k != "path"}
+
+    @app.get("/api/documents/{doc_id}")
+    def get_document(doc_id: str):
+        doc = docs.get(doc_id)
+        if not doc:
+            raise HTTPException(404, "document not found")
+        return {k: v for k, v in doc.items() if k != "path"}
+
+    @app.get("/api/documents/{doc_id}/file")
+    def document_file(doc_id: str):
+        doc = docs.get(doc_id)
+        if not doc:
+            raise HTTPException(404, "document not found")
+        return FileResponse(doc["path"], filename=doc["filename"])
+
+    @app.get("/api/actions")
+    def list_actions(status: str | None = None):
+        return state.actions(status=status)
+
+    def _decide(aid, new_status, note):
+        try:
+            return {"action": state.decide(aid, new_status, note), "audit": state.audit(aid)}
+        except KeyError:
+            raise HTTPException(404, "action not found")
+        except ValueError as e:
+            raise HTTPException(409, str(e))
+
+    @app.post("/api/actions/{aid}/approve")
+    def approve(aid: str, body: DecisionIn | None = None):
+        return _decide(aid, "approved", body.note if body else None)
+
+    @app.post("/api/actions/{aid}/reject")
+    def reject(aid: str, body: DecisionIn | None = None):
+        return _decide(aid, "rejected", body.note if body else None)
+
+    @app.post("/api/actions/{aid}/undo")
+    def undo(aid: str, body: DecisionIn | None = None):
+        return _decide(aid, "reverted", body.note if body else None)
+
+    @app.get("/api/audit")
+    def audit():
+        return state.audit()
+
+    @app.post("/api/data/{tool}")
+    def data(tool: str, args: dict | None = None):
+        """The workspace reads through the same read-only tools as the assistant, so both show the same numbers."""
+        if tool not in tools.TOOLS:
+            raise HTTPException(404, f"unknown tool {tool}")
+        try:
+            return tools.run_tool(wh, tool, args or {})
+        except TypeError as e:
+            raise HTTPException(422, f"bad arguments: {e}")
+
+    @app.get("/api/workspace/overview")
+    def overview():
+        kpis = tools.get_kpis(wh)
+        needs_you = {
+            "ap_bills_to_review": len({r["doc_file"] for r in tools.get_ap_review_queue(wh)["rows"]}),
+            "collections_on_hold": len(tools.get_collections_queue(wh)["on_hold"]),
+            "pending_approvals": len(state.actions(status="pending")),
+            "recon_failures": len(tools.get_reconciliation_status(wh)["failures"]),
+        }
+        return {"month": kpis["month"], "kpis": kpis["rows"], "needs_you": needs_you}
+
+    return app

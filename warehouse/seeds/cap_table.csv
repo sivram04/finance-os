@@ -1,0 +1,8 @@
+holder,security_class,shares,price_per_share,invested,issue_date
+Founder A,common,4000000,0.0001,400.00,2023-02-01
+Founder B,common,3000000,0.0001,300.00,2023-02-01
+Seed investors,series_seed,1500000,1.00,1500000.00,2023-09-15
+Lead VC,series_a,2600000,4.50,11700000.00,2025-01-02
+Co-investors,series_a,1400000,4.50,6300000.00,2025-01-02
+Option pool - granted,options_granted,1100000,0.00,0.00,2025-06-30
+Option pool - unallocated,options_unallocated,600000,0.00,0.00,2025-06-30

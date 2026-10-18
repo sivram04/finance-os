@@ -10,3 +10,7 @@ warehouse/dbt_packages/
 .env
 warehouse/.user.yml
 reports/
+*.egg-info/
+build/
+web/node_modules/
+web/dist/

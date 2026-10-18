@@ -1,0 +1,11 @@
+version: 2
+
+sources:
+  - name: usage
+    schema: raw_usage
+    description: Request-level API usage events, one row per request (and per duplicate delivery).
+    tables:
+      - name: api_requests
+        description: >
+          Raw request log: duplicates (same request_id delivered again), late arrivals (ingested days later),
+          failed requests (4xx/5xx), and a logging change from 2026-03 (audio_seconds instead of audio_duration_ms).

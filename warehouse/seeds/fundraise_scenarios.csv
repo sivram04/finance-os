@@ -1,0 +1,4 @@
+scenario,round_name,pre_money,raise_amount,option_pool_target_pct,close_month
+base,series_b,120000000,30000000,0.10,2027-06-01
+upside,series_b,180000000,40000000,0.10,2027-03-01
+downside,bridge,60000000,10000000,0.08,2027-03-01
