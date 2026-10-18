@@ -3,6 +3,7 @@ ODCs, milestones, project invoices and PM estimates to complete.
 
 - Fixed fee: labor cost follows budget × cost_overrun over the actual duration; milestones are billed
   on acceptance (unless bill: false).
+- Billing errors from config (wrong rate on one line) are injected for the M7 validator to catch.
 - T&M / T&M with cap / federal T&M: hours are scaled so labor + ODC earned through the end of data hits
   billed_target; invoiced monthly in arrears on the 5th (labor by category, ODC at cost; CLINs for federal).
 - PM estimate to complete each month: max(planned total cost − actual − open commitments, 0). The PM
@@ -175,9 +176,12 @@ def build_projects(cfg, employees, rng):
                 lines = []
                 for (mm, cat), hours in sorted(hours_by_month_cat.items()):
                     if mm == m:
+                        rate = next((Decimal(err["billed_rate"]) for err in cfg.get("billing_errors", [])
+                                     if err["project_id"] == pid and err["service_month"] == m
+                                     and err["labor_category"] == cat), bill_rate[cat])
                         lines.append({"line_type": "labor", "clin_id": "0001" if ctype == "federal_tm" else None,
                                       "labor_category": cat, "milestone_id": None, "hours": hours,
-                                      "rate": bill_rate[cat], "amount": _cents(hours * bill_rate[cat])})
+                                      "rate": rate, "amount": _cents(hours * rate)})
                 lines.append({"line_type": "odc", "clin_id": "0002" if ctype == "federal_tm" else None,
                               "labor_category": None, "milestone_id": None, "hours": None, "rate": None,
                               "amount": _cents(odc_month)})

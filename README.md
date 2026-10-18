@@ -41,6 +41,10 @@ cd warehouse && ../.venv/Scripts/dbt build --profiles-dir .
   `fct_project_financials` (EAC, % complete, earned, unbilled, deferred, cap usage), `fct_contract_funding`
   (75%/90% funding alerts), `fct_project_exceptions`. Recon: project invoices ↔ GL, project labor ≤ payroll.
   ARR now counts usage revenue only. Anomalies A-M6-01..04 and A-M6-05 (unbilled milestone, for M7).
+- Step 7 (M7 billing operations): pre-bill validation on every invoice line (`fct_billing_exceptions`: rate,
+  hours, duplicates, milestone acceptance, cap, funding), the next billing run with unbilled-days alerts
+  (`fct_billing_run`), billing status per project (`fct_project_billing_status`), and invoice PDFs with backup
+  hours (`scripts/invoice_pdf.py`). Anomaly A-M7-01: a P-102 line billed at the wrong labor-category rate.
 
 ## Metrics and board pack
 KPIs are defined in `warehouse/metrics/kpis.yml`. After editing it:
@@ -52,6 +56,11 @@ That writes `warehouse/seeds/metric_catalog.csv` and [docs/METRIC_CATALOG.md](do
 One-page board summary for the latest month (written to `reports/`):
 ```bash
 .venv/Scripts/python scripts/board_pack.py
+```
+
+Invoice PDF with backup detail (written to `reports/invoices/`):
+```bash
+.venv/Scripts/python scripts/invoice_pdf.py --invoice PINV00014
 ```
 
 After changing a seed's columns, run `dbt seed --full-refresh` once.

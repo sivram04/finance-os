@@ -167,6 +167,13 @@ anomalies:
     start: 2026-07-15
     description: Milestone accepted but never invoiced; shows as unbilled WIP.
     expected_detection: fct_project_financials.unbilled > 0 for P-106 at the last month
+  - anomaly_id: A-M7-01
+    module: M7
+    kind: wrong_bill_rate
+    entity_id: P-102
+    start: 2026-03-01
+    description: A T&M invoice line billed at the Senior ML Engineer rate for ML Engineer hours.
+    expected_detection: fct_billing_exceptions has a rate_mismatch for P-102, service month 2026-03
   - anomaly_id: A-M4-02
     module: M4
     kind: usage_spike
@@ -287,6 +294,9 @@ projects:
       - {name: Language pack 1, amount: "35000.00", accept: 2026-07-15, bill: false}   # accepted, never billed
       - {name: Language pack 2, amount: "35000.00", accept: null}
     team: {ML Engineer: 1, Senior ML Engineer: 1}
+# Billing errors the pre-bill validator must catch (M7).
+billing_errors:
+  - {project_id: P-102, service_month: 2026-03-01, labor_category: ML Engineer, billed_rate: "215.00"}   # contract rate 170
 # A subcontractor bill posted with no purchase order.
 bills_without_po:
   - {project_id: P-103, vendor_id: annotate_co, date: 2026-02-18, amount: "8500.00", description: Rush relabeling (no PO)}

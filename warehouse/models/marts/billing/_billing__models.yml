@@ -1,0 +1,28 @@
+version: 2
+
+models:
+  - name: fct_billing_exceptions
+    description: "Grain: one row per validation failure on an issued invoice line (FR-7.2)."
+    columns:
+      - name: exception_type
+        data_tests:
+          - accepted_values:
+              arguments: {values: [rate_mismatch, hours_mismatch, duplicate_line, milestone_not_accepted, cap_exceeded, funding_exceeded]}
+
+  - name: fct_billing_run
+    description: "Grain: one draft line per billable item not yet invoiced, with validation and unbilled-days alert (FR-7.1, 7.6)."
+    columns:
+      - name: validation_status
+        data_tests:
+          - accepted_values:
+              arguments: {values: [pass, exceeds_cap_or_funding]}
+
+  - name: fct_project_billing_status
+    description: "Grain: one row per project. Billing status, open AR, ready-to-bill amount (FR-7.4)."
+    columns:
+      - name: project_id
+        data_tests: [unique, not_null]
+      - name: billing_status
+        data_tests:
+          - accepted_values:
+              arguments: {values: [not_ready, ready, drafted, sent, paid]}
