@@ -8,5 +8,6 @@ sources:
     tables:
       - name: journal_entries
       - name: journal_lines
+      - name: budgets
       - name: vendor_bills
       - name: vendor_bill_lines

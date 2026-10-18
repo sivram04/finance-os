@@ -37,6 +37,8 @@ SCHEMAS = {
     ("raw_erp", "journal_lines"): {"entry_id": "VARCHAR", "line_no": "INTEGER", "account_id": "VARCHAR",
                                    "department_id": "VARCHAR", "customer_id": "VARCHAR", "vendor_id": "VARCHAR",
                                    "debit": "DECIMAL(18,2)", "credit": "DECIMAL(18,2)"},
+    ("raw_erp", "budgets"): {"fiscal_year": "INTEGER", "month": "DATE", "department_id": "VARCHAR",
+                             "account_id": "VARCHAR", "version": "VARCHAR", "amount": "DECIMAL(18,2)"},
     ("raw_payroll", "employees"): {"employee_id": "VARCHAR", "employee_name": "VARCHAR", "department_id": "VARCHAR",
                                    "function": "VARCHAR", "title": "VARCHAR", "hire_date": "DATE",
                                    "termination_date": "DATE", "annual_salary": "DECIMAL(18,2)"},

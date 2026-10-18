@@ -125,6 +125,13 @@ anomalies:
     start: 2026-03-01
     description: Enterprise customer evaluates a competitor, ramps down over 3 months and churns mid-June 2026.
     expected_detection: fct_customer_revenue_monthly shows contraction from 2026-03 and churn in 2026-07
+  - anomaly_id: A-M5-01
+    module: M5
+    kind: unbudgeted_expense
+    entity_id: GA-6400
+    start: 2026-03-01
+    description: Outside counsel for a customer contract dispute, unbudgeted, Mar–May 2026 in G&A professional fees.
+    expected_detection: fct_bva_alerts has a GA / 6400 overspend alert in each of 2026-03, 2026-04, 2026-05
   - anomaly_id: A-M4-02
     module: M4
     kind: usage_spike
@@ -132,6 +139,25 @@ anomalies:
     start: 2025-11-01
     description: One-off archive backfill at 5x normal volume in Nov 2025 inflates the usage run-rate (ARR).
     expected_detection: fct_customer_revenue_monthly.is_usage_spike = true for MM-003 in 2025-11
+
+# --- Budgets (raw_erp.budgets, M5). Built from the plan, never from actuals of the budgeted year. ---
+budget:
+  fy2025:
+    revenue_start: "120000.00"        # January 2025 plan
+    revenue_growth: "0.045"           # monthly
+    gross_margin_pct: "0.50"
+  fy2026:
+    revenue_base_month: 2025-10-01    # planned in Q4 2025 from the October run-rate
+    revenue_growth: "0.050"           # optimistic: the plan assumed no big churn and no price war
+    gross_margin_pct: "0.55"
+  cogs_split: {"5000": "0.92", "5010": "0.05", "5100": "0.03"}
+  rd_cloud_monthly: {fy2025: "900.00", fy2026: "1000.00"}
+
+# One-off expenses posted to the GL (paid by cash on the date).
+one_off_expenses:
+  - {date: 2026-03-20, account: "6400", department: GA, amount: "45000.00", memo: Outside counsel - customer contract dispute}
+  - {date: 2026-04-18, account: "6400", department: GA, amount: "32000.00", memo: Outside counsel - customer contract dispute}
+  - {date: 2026-05-22, account: "6400", department: GA, amount: "26000.00", memo: Outside counsel - settlement review}
 
 # --- Vendor billing (raw_erp). Rates and contracts are read from warehouse/seeds. ---
 vendor_billing:

@@ -1,0 +1,40 @@
+version: 2
+
+models:
+  - name: fct_bva_monthly
+    description: >
+      Grain: department × GL account × month (months with actuals). Actual vs. original budget in natural sign,
+      variance $ and %, YTD, full-year budget and forecast (YTD actual + remaining budget), alert flag (FR-5.1, 5.2).
+    data_tests:
+      - dbt_utils_free_unique_combination:
+          arguments: {columns: [month, department_id, account_id]}
+    columns:
+      - name: department_id
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_department'), field: department_id}
+      - name: is_alert
+        data_tests: [not_null]
+
+  - name: fct_bva_alerts
+    description: "Grain: one row per alert. Routed to the department owner; commentary pending (FR-5.3, 5.4)."
+    columns:
+      - name: alert_id
+        data_tests: [unique, not_null]
+      - name: route_to
+        data_tests: [not_null]
+      - name: commentary_status
+        data_tests:
+          - accepted_values:
+              arguments: {values: [pending, drafted, approved, rejected]}
+
+  - name: fct_bva_drivers
+    description: "Grain: alert × driver rank (top 5 journal lines behind each alert)."
+    data_tests:
+      - dbt_utils_free_unique_combination:
+          arguments: {columns: [alert_id, driver_rank]}
+    columns:
+      - name: alert_id
+        data_tests:
+          - relationships:
+              arguments: {to: ref('fct_bva_alerts'), field: alert_id}

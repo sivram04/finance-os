@@ -9,6 +9,7 @@ Postings:
 - vendor_payment bill date + N days: Dr AP / Cr cash
 - payroll        month end, per department: Dr salaries, taxes, benefits / Cr cash
 - opex           15th: Dr expense / Cr cash, scaled with headcount
+- one_off        on the date: Dr expense / Cr cash (e.g. unbudgeted legal fees)
 - funding        Dr cash / Cr equity
 """
 import calendar
@@ -151,5 +152,10 @@ def build_ledger(cfg, customers, usage, lifecycle, cloud_costs, bills, bill_line
             dims = {"department_id": o["department"]}
             gl.post(d, "opex", o["memo"], [(o["account"], amt, 0, dims), ("1000", 0, amt, dims)])
         y, m = y + (m == 12), m % 12 + 1
+
+    for o in cfg.get("one_off_expenses", []):
+        amt = Decimal(o["amount"])
+        dims = {"department_id": o["department"]}
+        gl.post(o["date"], "one_off", o["memo"], [(o["account"], amt, 0, dims), ("1000", 0, amt, dims)])
 
     return gl.entries, gl.lines

@@ -1,0 +1,2 @@
+rule_id,applies_to,min_variance_pct,min_variance_abs,description
+BVA-1,unfavorable,0.1000,5000.00,Alert when a line is unfavorable by more than 10% and more than $5K in the month

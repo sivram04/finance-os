@@ -16,6 +16,7 @@ from generator.entities.catalog import build_products, build_volume_tiers
 from generator.entities.customers import build_customers
 from generator.entities.employees import build_employees
 from generator.entities.lifecycle import build_lifecycle
+from generator.events.budget import build_budgets
 from generator.events.infra import build_cloud_costs, build_gpu_jobs
 from generator.events.ledger import build_ledger
 from generator.events.payroll import build_payroll
@@ -53,6 +54,7 @@ def generate(seed=None):
         "pay_lines": pay_lines,
         "journal_entries": entries,
         "journal_lines": lines,
+        "budgets": build_budgets(cfg, entries, lines),
         "anomaly_manifest": build_manifest(cfg),
     }
 

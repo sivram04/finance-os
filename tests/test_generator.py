@@ -94,3 +94,10 @@ def test_story_customers_sign_up_before_their_events():
     signup = {c["customer_id"]: c["signup_date"] for c in t["customers"]}
     scripted = [e for e in t["lifecycle_events"] if e["source"] == "scripted"]
     assert scripted and all(signup[e["customer_id"]] < e["event_date"] for e in scripted)
+
+
+def test_budgets_cover_both_fiscal_years_and_include_revenue():
+    budgets = generate()["budgets"]
+    months = {b["month"] for b in budgets}
+    assert len(months) == 24
+    assert all(any(b["month"] == m and b["account_id"] == "4000" for b in budgets) for m in months)

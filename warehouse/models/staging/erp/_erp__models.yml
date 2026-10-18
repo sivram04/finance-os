@@ -33,7 +33,7 @@ models:
       - name: entry_type
         data_tests:
           - accepted_values:
-              arguments: {values: [revenue, collection, payment_fee, vendor_bill, vendor_payment, payroll, opex, funding]}
+              arguments: {values: [revenue, collection, payment_fee, vendor_bill, vendor_payment, payroll, opex, one_off, funding]}
 
   - name: stg_erp__journal_lines
     description: "Grain: one row per journal line. amount = debit − credit."
@@ -49,6 +49,21 @@ models:
       - name: account_id
         data_tests:
           - not_null
+          - relationships:
+              arguments: {to: ref('gl_accounts'), field: account_id}
+      - name: department_id
+        data_tests:
+          - relationships:
+              arguments: {to: ref('departments'), field: department_id}
+
+  - name: stg_erp__budgets
+    description: "Grain: fiscal year × month × department × account × version. Amounts in natural sign (revenue positive)."
+    data_tests:
+      - dbt_utils_free_unique_combination:
+          arguments: {columns: [version, month, department_id, account_id]}
+    columns:
+      - name: account_id
+        data_tests:
           - relationships:
               arguments: {to: ref('gl_accounts'), field: account_id}
       - name: department_id

@@ -31,6 +31,10 @@ cd warehouse && ../.venv/Scripts/dbt build --profiles-dir .
   expansion and contraction, a competitor price cut hitting mid-market, an enterprise account lost to a
   competitor (A-M4-01) and a one-off backfill spike that inflates ARR (A-M4-02). Measured from revenue in
   `fct_customer_revenue_monthly` and `fct_mrr_bridge_monthly`; churn KPIs added to the catalog.
+- Step 5 (M5 budget vs. actuals): original budgets for FY2025 (from plan) and FY2026 (from the Oct 2025
+  run-rate, optimistic), `fct_bva_monthly` (variance, YTD, full-year forecast), `fct_bva_alerts` routed to the
+  department owner (threshold in `seeds/variance_thresholds.csv`), and `fct_bva_drivers` (top journal lines behind
+  each alert, for the variance explainer). Anomaly A-M5-01: unbudgeted legal fees in G&A, Mar–May 2026.
 
 ## Metrics and board pack
 KPIs are defined in `warehouse/metrics/kpis.yml`. After editing it:
