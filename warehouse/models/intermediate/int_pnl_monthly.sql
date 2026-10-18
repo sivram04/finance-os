@@ -9,4 +9,5 @@ select
     cast(sum(case when account_type = 'opex' and rollup <> 'Payroll' then natural_amount else 0 end) as decimal(18, 2)) as other_opex,
     cast(sum(case when account_type = 'opex' then natural_amount else 0 end) as decimal(18, 2)) as opex
 from {{ ref('fct_gl_monthly') }}
+where month <= {{ closed_through() }}
 group by month

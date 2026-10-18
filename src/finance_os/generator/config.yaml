@@ -377,6 +377,11 @@ ap_documents:
     gcp:         {name: "Google Cloud",           prefix: GCP, number_label: "Invoice number", total_label: "Total",    date_label: "Issue date",   po_label: "PO"}
     annotate_co: {name: "Annotate Co",            prefix: AC,  number_label: "Bill No.",    total_label: "Total Due",   date_label: "Date",         po_label: "Purchase Order"}
     fedsec:      {name: "FedSec Partners LLC",    prefix: FSP, number_label: "Invoice No",  total_label: "Balance Due", date_label: "Dated",        po_label: "Customer PO"}
+    # vendors that only appear in the live simulation (one-off bills; not in the vendor master, so intake flags them)
+    lexpoint:    {name: "Lexpoint LLP",           prefix: LXP, number_label: "Invoice No",  total_label: "Balance Due", date_label: "Dated",        po_label: "Customer PO"}
+    northwind:   {name: "Northwind Advisory",     prefix: NWA, number_label: "Invoice #",   total_label: "Amount Due",  date_label: "Invoice Date", po_label: "PO"}
+    brightstack: {name: "BrightStack Software",   prefix: BSS, number_label: "Invoice number", total_label: "Total",    date_label: "Issue date",   po_label: "PO"}
+    adhaven:     {name: "AdHaven Media",          prefix: ADH, number_label: "Bill No.",    total_label: "Total Due",   date_label: "Date",         po_label: "Purchase Order"}
   issues:    # problems in the documents themselves; intake must route each to review
     - {kind: arithmetic_error,     vendor_id: annotate_co, service_month: 2025-10-01, project_id: P-101, total_delta: "100.00"}
     - {kind: duplicate_submission, vendor_id: fedsec,      service_month: 2026-01-01}

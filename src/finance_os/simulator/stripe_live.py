@@ -2,6 +2,8 @@
 
 `NoStripe` stands in when running offline (--no-stripe, tests): same calls, nothing sent.
 """
+from decimal import Decimal
+
 from finance_os.ingestion.stripe_sandbox import call, client, search_one
 
 
@@ -45,7 +47,13 @@ class SandboxStripe:
         return call(self.http, "POST", f"/invoices/{inv['id']}/finalize", idem=f"fin-{ref}")["id"]
 
     def pay(self, invoice_id):
-        return call(self.http, "POST", f"/invoices/{invoice_id}/pay", idem=f"pay-{invoice_id}").get("charge")
+        """Collect an invoice; returns (charge id, Stripe's actual processing fee in dollars)."""
+        charge = call(self.http, "POST", f"/invoices/{invoice_id}/pay", idem=f"pay-{invoice_id}").get("charge")
+        if not charge:
+            return None, None
+        txn = call(self.http, "GET", f"/charges/{charge}", {"expand[]": "balance_transaction"}).get("balance_transaction")
+        fee = Decimal(txn["fee"]) / 100 if isinstance(txn, dict) else None
+        return charge, fee
 
     def fail(self, c, invoice_id):
         """Attempt the charge with Stripe's always-declined test card: a real failed charge in the sandbox."""
@@ -70,7 +78,7 @@ class NoStripe:
         return None
 
     def pay(self, invoice_id):
-        return None
+        return None, None
 
     def fail(self, c, invoice_id):
         pass

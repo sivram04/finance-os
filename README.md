@@ -58,6 +58,28 @@ cd warehouse && ../.venv/Scripts/dbt build --profiles-dir .
   matches the posted bill. Failures go to `fct_ap_review_queue`; `fct_ap_extraction_accuracy` scores the extractor.
   Anomalies A-AP-01..03 (arithmetic error, duplicate submission, wrong PO).
 
+## The live company (runs every morning)
+After the synthetic history ends (30 Sep 2026), Echo Labs keeps operating on real dates. Each morning
+`python -m finance_os.daily` simulates every day since the last run, through today:
+- **AI decides what happens** (Claude Code headless on your Claude plan; it may only search the company's memory),
+  code validates every event and computes every amount: signups, churn, expansions, late payers, card failures,
+  refunds, project milestones, vendor price increases, duplicate bills, one-off bills from new vendors.
+- **Revenue side:** usage, GPU job logs and cloud costs daily; usage invoices on the 1st (also in the Stripe
+  sandbox), card charges and declines, collections on terms.
+- **AP side:** cloud/GPU costs accrued at month end; bills arrive on the 5th as PDFs in `data/inbox/ap` (read by
+  M16 intake) with any true-up; recurring opex on the 15th; Thursday payment runs with early-pay discounts;
+  payroll at month end; planned hires start on their dates.
+- Everything posts balanced journal entries, is appended to the warehouse after the history, and dbt rebuilds.
+  KPIs, forecasts and reconciliations use closed months (a month closes when it is billed on the 1st).
+
+Scheduled with Windows Task Scheduler at 7:00 (runs when the laptop is back if it was off):
+```bash
+powershell -ExecutionPolicy Bypass -File scripts/schedule_daily.ps1
+```
+Logs: `data/live/logs/<date>.log`. Settings in `.env`: `SIM_PROVIDERS=claude_code` (default; add `,api` for an API fallback);
+`SIM_API_KEY` / `SIM_BASE_URL` / `SIM_MODEL` for an OpenAI-compatible fallback (e.g. Groq's free tier), else
+OpenAI as the API provider; `STRIPE_SECRET_KEY` (sandbox) to mirror billing in Stripe.
+
 ## Scale and BigQuery
 The generator has three company sizes: `--scale S` (default: 105 customers, ~32M API requests; local DuckDB,
 tests), `M` (400 customers) and `L` (2,000 customers, ~590M API requests, ~70 GB; BigQuery). Request-level usage

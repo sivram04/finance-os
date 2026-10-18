@@ -129,3 +129,4 @@ unpivot (value for metric_name in (
     active_customers, new_customers, churned_customers, logo_churn_rate, gross_mrr_churn_rate,
     dso_days, cei, ar_over_60
 ))
+where month <= {{ closed_through() }}

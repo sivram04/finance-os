@@ -28,7 +28,7 @@ segment_mix as (
     select c.segment, sum(r.revenue) / sum(sum(r.revenue)) over () as share
     from {{ ref('fct_customer_revenue_monthly') }} r
     join {{ ref('stg_synthetic__customers') }} c using (customer_id)
-    where r.month = (select max(month) from {{ ref('fct_customer_revenue_monthly') }})
+    where r.month = {{ closed_through() }}
     group by c.segment
 ),
 

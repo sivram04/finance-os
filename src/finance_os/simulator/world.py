@@ -37,6 +37,7 @@ class World:
     contracts: dict = field(default_factory=dict)   # contract_id -> {customer_id, funded, invoiced, terms, end}
     open_invoices: dict = field(default_factory=dict)  # erp ref -> {customer_id, amount, due, stripe_id, kind}
     paid: dict = field(default_factory=dict)            # erp ref -> {customer_id, amount, charge, refunded}
+    ops: dict = field(default_factory=dict)             # books: cash, staff, vendors, open bills (simulator/books.py)
     seq: dict = field(default_factory=lambda: {"customer": 0, "invoice": 0, "project_invoice": 0, "event": 0})
 
     def day(self):
@@ -46,7 +47,7 @@ class World:
         return [c for c in self.customers.values() if c.status == "active"]
 
     def next_id(self, kind, prefix, width=5):
-        self.seq[kind] += 1
+        self.seq[kind] = self.seq.get(kind, 0) + 1
         return f"{prefix}{self.seq[kind]:0{width}d}"
 
     def save(self, live=LIVE):
@@ -94,6 +95,11 @@ def from_history(src=SYNTH):
             "end": k["end_date"], "is_federal": k["is_federal"] == "True"}
     world.seq["customer"] = sum(1 for _ in world.customers)
     world.seq["project_invoice"] = len(_rows("project_invoices", src))
+    project_of = {p["contract_id"]: p["project_id"] for p in _rows("projects", src)}
+    for k, v in world.contracts.items():
+        v["project_id"] = project_of.get(k)
+    from finance_os.simulator.books import init_ops
+    init_ops(world, src)
     return world
 
 

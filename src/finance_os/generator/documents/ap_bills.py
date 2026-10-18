@@ -77,9 +77,10 @@ def build_ap_truth(cfg, bills, bill_lines, sub_bills):
     return docs, doc_lines
 
 
-def render_ap_pdfs(cfg, docs, doc_lines, out_dir: Path):
+def render_ap_pdfs(cfg, docs, doc_lines, out_dir: Path, clear=True):
+    """clear=False adds documents to the inbox (the live simulator) instead of replacing it."""
     out_dir.mkdir(parents=True, exist_ok=True)
-    for old in out_dir.glob("*.pdf"):
+    for old in out_dir.glob("*.pdf") if clear else ():
         old.unlink()
     layouts = cfg["ap_documents"]["layouts"]
     lines_by_doc = {}

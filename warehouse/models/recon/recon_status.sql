@@ -15,5 +15,6 @@ select
     status,
     explanation
 from {{ ref(c) }}
+where period <= {{ closed_through() }}  -- open months are reconciled once they close
 {% if not loop.last %}union all{% endif %}
 {% endfor %}

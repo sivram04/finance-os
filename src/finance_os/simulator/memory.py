@@ -41,28 +41,47 @@ def _words(s):
     return set(re.findall(r"[a-z0-9_-]+", s.lower()))
 
 
-class Memory:
-    def __init__(self, path: Path, embedder=embed):
-        path.parent.mkdir(parents=True, exist_ok=True)
-        self.con = duckdb.connect(str(path))
-        self.embed = embedder
-        self.con.execute("""create table if not exists chunks (
-            chunk_id varchar primary key, date date, kind varchar, customer_id varchar, event_type varchar,
-            segment varchar, text varchar, embedding float[])""")
+class _Session:
+    """One connection per operation, so another process (the memory-search CLI) can read between calls."""
 
-    def close(self):
+    def __init__(self, path, read_only=False):
+        self.path, self.read_only = path, read_only
+
+    def __enter__(self):
+        self.con = duckdb.connect(str(self.path), read_only=self.read_only)
+        return self.con
+
+    def __exit__(self, *exc):
         self.con.close()
 
+
+class Memory:
+    def __init__(self, path: Path, embedder=embed, read_only=False):
+        self.path, self.embed, self.read_only = path, embedder, read_only
+        if not read_only:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with _Session(path) as con:
+                con.execute("""create table if not exists chunks (
+                    chunk_id varchar primary key, date date, kind varchar, customer_id varchar, event_type varchar,
+                    segment varchar, text varchar, embedding float[])""")
+
+    def close(self):
+        pass
+
     def count(self):
-        return self.con.execute("select count(*) from chunks").fetchone()[0]
+        with _Session(self.path, self.read_only) as con:
+            return con.execute("select count(*) from chunks").fetchone()[0]
 
     def add(self, chunks):
         """chunks: dicts with chunk_id, date, kind, text and optional customer_id / event_type / segment."""
-        new = [c for c in chunks if not self.con.execute("select 1 from chunks where chunk_id = ?", [c["chunk_id"]]).fetchone()]
-        for c, v in zip(new, self.embed([c["text"] for c in new])):
-            self.con.execute("insert into chunks values (?, ?, ?, ?, ?, ?, ?, ?)",
-                             [c["chunk_id"], c["date"], c["kind"], c.get("customer_id"), c.get("event_type"),
-                              c.get("segment"), c["text"], v])
+        with _Session(self.path) as con:
+            new = [c for c in chunks if not con.execute("select 1 from chunks where chunk_id = ?", [c["chunk_id"]]).fetchone()]
+        vectors = self.embed([c["text"] for c in new])
+        with _Session(self.path) as con:
+            for c, v in zip(new, vectors):
+                con.execute("insert into chunks values (?, ?, ?, ?, ?, ?, ?, ?)",
+                            [c["chunk_id"], c["date"], c["kind"], c.get("customer_id"), c.get("event_type"),
+                             c.get("segment"), c["text"], v])
         return len(new)
 
     def search(self, query, customer_id=None, event_type=None, kind=None, since=None, until=None, k=8):
@@ -78,10 +97,14 @@ class Memory:
         if until:
             where.append("date <= cast(? as date)")
             args.append(until)
-        rows = self.con.execute(f"select chunk_id, date, text, embedding from chunks where {' and '.join(where)}", args).fetchall()
+        with _Session(self.path, self.read_only) as con:
+            return self._search(con, query, where, args, k)
+
+    def _search(self, con, query, where, args, k):
+        rows = con.execute(f"select chunk_id, date, text, embedding from chunks where {' and '.join(where)}", args).fetchall()
         qv = self.embed([query])[0] if query else None
         if qv is not None and rows and rows[0][3] is not None:
-            scored = self.con.execute(
+            scored = con.execute(
                 f"select date, text, list_cosine_similarity(embedding, ?::float[]) s from chunks "
                 f"where {' and '.join(where)} order by s desc, date desc limit {int(k)}", [qv, *args]).fetchall()
             return [{"date": str(d), "text": t, "score": round(s, 3)} for d, t, s in scored]
@@ -135,3 +158,29 @@ def history_chunks(lifecycle_rows, segment_of):
              "customer_id": r["customer_id"], "event_type": r["event_type"], "segment": segment_of.get(r["customer_id"]),
              "text": f"{r['event_date']}: {r['event_type']} {r['customer_id']} ({segment_of.get(r['customer_id'])}), "
                      f"usage x{r['multiplier']}. Reason: {r['reason']}."} for r in lifecycle_rows]
+
+
+def main():
+    """CLI used by the Claude Code provider: python -m finance_os.simulator.memory search "query" [filters]"""
+    import argparse
+
+    from finance_os.ingestion.ap_intake.__main__ import load_dotenv
+    from finance_os.paths import ROOT
+    p = argparse.ArgumentParser()
+    p.add_argument("command", choices=["search"])
+    p.add_argument("query")
+    p.add_argument("--customer")
+    p.add_argument("--type", dest="event_type")
+    p.add_argument("--kind")
+    p.add_argument("--since")
+    p.add_argument("--until")
+    p.add_argument("-k", type=int, default=8)
+    a = p.parse_args()
+    load_dotenv(ROOT / ".env")
+    m = Memory(ROOT / "data" / "live" / "memory.duckdb", read_only=True)
+    print(json.dumps(m.search(a.query, customer_id=a.customer, event_type=a.event_type, kind=a.kind,
+                              since=a.since, until=a.until, k=a.k), indent=1))
+
+
+if __name__ == "__main__":
+    main()

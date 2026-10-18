@@ -12,7 +12,9 @@ from datetime import timedelta
 from decimal import Decimal
 
 EVENT_TYPES = ["new_customer", "expansion", "contraction", "churn", "spike", "late_payer", "payment_failure",
-               "refund", "project_milestone"]
+               "refund", "project_milestone", "vendor_price_increase", "duplicate_bill", "vendor_bill", "wrong_po_bill"]
+CLOUD_VENDORS = ["gcp", "nimbus"]
+BILL_CATEGORIES = ["legal", "consulting", "software", "marketing"]
 
 BOUNDS = {"expansion": (Decimal("1.05"), Decimal("1.8")), "contraction": (Decimal("0.4"), Decimal("0.95")),
           "spike": (Decimal("1.5"), Decimal("4"))}
@@ -24,7 +26,8 @@ fixed-fee or T&M projects under contracts). Given today's state, decide what rea
 
 Pace: over a typical month expect roughly 6-10 self-serve signups, 0-1 mid-market signup, 2-4 self-serve
 churns, 0-1 mid-market churn, 3-6 expansions, 2-4 contractions, 1-2 late payers, 0-2 refunds, a payment failure
-or two, and about one milestone per live contract. Use allowed_today (already netted against the last 30 days) to keep that pace and make today's
+or two, about one milestone per live contract, 2-4 one-off vendor bills, and occasionally (every month or
+two) a vendor price increase, a duplicate bill or a bill with a bad PO. Use allowed_today (already netted against the last 30 days) to keep that pace and make today's
 events close the gap (so most days have 0-2 events, and not every day is quiet). allowed_today is how many more of each event the rules accept now (0 = none);
 customers in usage_change_cooldown cannot expand, contract or spike yet. Base decisions on the state (usage trends, segment, overdue invoices,
 remaining contract funding, weekday, month-end) and keep yearly rates plausible: self-serve churn ~3%/month,
@@ -40,6 +43,11 @@ Event fields (use null when not relevant):
 - payment_failure: customer_id (self-serve card will be declined at next charge)
 - refund: invoice_ref (a paid invoice), pct (0.05-1)
 - project_milestone: contract_id, milestone_name, pct (share of the contract's remaining funding, 0.05-0.5)
+Accounts payable (the bills Echo Labs receives; cloud and GPU bills, payroll and rent already run on schedule):
+- vendor_price_increase: vendor_id ("gcp"|"nimbus"), pct (0.02-0.15): the next bill comes in higher than accrued
+- duplicate_bill: vendor_id ("gcp"|"nimbus"): the vendor's next bill PDF is also sent a second time
+- vendor_bill: category ("legal"|"consulting"|"software"|"marketing"), size: a one-off bill from a new vendor
+- wrong_po_bill: category, size: a one-off bill that quotes a purchase order that doesn't exist
 Before changing a specific customer, search_memory for its past (and similar customers' patterns) so the
 story stays consistent. Always give a short business `reason` (e.g. competitor_price_cut, new_use_case, budget_cut)."""
 
@@ -49,7 +57,7 @@ SCHEMA = {
     "properties": {"events": {"type": "array", "items": {
         "type": "object", "additionalProperties": False,
         "required": ["type", "customer_id", "segment", "products", "size", "multiplier", "days", "invoice_ref",
-                     "pct", "contract_id", "milestone_name", "reason"],
+                     "pct", "contract_id", "milestone_name", "vendor_id", "category", "reason"],
         "properties": {
             "type": {"type": "string", "enum": EVENT_TYPES},
             "customer_id": _NULLABLE, "segment": {"type": ["string", "null"], "enum": ["self_serve", "mid_market", "enterprise", None]},
@@ -57,7 +65,10 @@ SCHEMA = {
             "size": {"type": ["string", "null"], "enum": ["small", "medium", "large", None]},
             "multiplier": {"type": ["number", "null"]}, "days": {"type": ["integer", "null"]},
             "invoice_ref": _NULLABLE, "pct": {"type": ["number", "null"]},
-            "contract_id": _NULLABLE, "milestone_name": _NULLABLE, "reason": {"type": "string"}}}}}}
+            "contract_id": _NULLABLE, "milestone_name": _NULLABLE,
+            "vendor_id": {"type": ["string", "null"], "enum": CLOUD_VENDORS + [None]},
+            "category": {"type": ["string", "null"], "enum": BILL_CATEGORIES + [None]},
+            "reason": {"type": "string"}}}}}}
 
 
 # Code-enforced rates, so a chatty model can't make the company unrealistic: (event, segment) -> (max, days)
@@ -65,7 +76,8 @@ CAPS = {("new_customer", "self_serve"): (3, 7), ("new_customer", "mid_market"): 
         ("new_customer", "enterprise"): (1, 90), ("project_milestone", None): (2, 30),
         ("expansion", None): (6, 30), ("contraction", None): (4, 30), ("churn", None): (4, 30),
         ("spike", None): (2, 30), ("late_payer", None): (2, 30), ("payment_failure", None): (2, 30),
-        ("refund", None): (2, 30)}
+        ("refund", None): (2, 30), ("vendor_price_increase", None): (1, 90), ("duplicate_bill", None): (1, 30),
+        ("vendor_bill", None): (4, 30), ("wrong_po_bill", None): (1, 60)}
 COOLDOWN_DAYS = 60  # one usage change (expansion / contraction / spike) per customer per 60 days
 
 
@@ -94,6 +106,11 @@ def summarize(world, today, paid_invoices, history=()):
                                    for k, v in world.contracts.items()
                                    if Decimal(v["funded"]) > Decimal(v["invoiced"]) and v["end"] >= today.isoformat()],
         "products": ["batch_base", "batch_pro", "stream"],
+        "cash": world.ops.get("cash"),
+        "open_vendor_bills": [{"bill_id": b, "vendor_id": v["vendor_id"], "amount": v["amount"], "due": v["due"]}
+                              for b, v in sorted(world.ops.get("open_bills", {}).items())][:15],
+        "vendor_price_factor": world.ops.get("price_factor"),
+        "headcount": len(world.ops.get("employees", [])),
         "allowed_today": {f"{t} {s or 'any'}": n - sum(h["event"]["type"] == t and (s is None or h["event"].get("segment") == s)
                                                          for h in recent(history, today, d))
                           for (t, s), (n, d) in CAPS.items()},
@@ -128,10 +145,12 @@ def count_events(history, today, event_type, segment, days, segment_of):
 
 
 def _chat(body):
-    key = os.environ.get("OPENAI_API_KEY")
+    """Any OpenAI-compatible API: SIM_API_KEY / SIM_BASE_URL (e.g. Groq's free tier), else OpenAI's."""
+    key = os.environ.get("SIM_API_KEY") or os.environ.get("OPENAI_API_KEY")
     if not key:
-        raise RuntimeError("OPENAI_API_KEY is not set (put it in .env)")
-    base = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
+        raise RuntimeError("Neither SIM_API_KEY nor OPENAI_API_KEY is set (put one in .env)")
+    base = os.environ.get("SIM_BASE_URL") or ("https://api.openai.com/v1" if not os.environ.get("SIM_API_KEY")
+                                              else os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1"))
     req = urllib.request.Request(f"{base}/chat/completions", data=json.dumps(body).encode(),
                                  headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=120) as resp:
@@ -152,7 +171,7 @@ def _events(content):
 def decide(summary, tools):
     """Agent loop: the model may search memory / count events a few times, then returns the day's events.
     `tools` maps tool name -> callable(**args). Returns (events, usage incl. the searches it made)."""
-    model = os.environ.get("OPENAI_SIM_MODEL", "gpt-4.1-mini")
+    model = os.environ.get("SIM_MODEL") or os.environ.get("OPENAI_SIM_MODEL", "gpt-4.1-mini")
     messages = [{"role": "system", "content": PROMPT}, {"role": "user", "content": json.dumps(summary)}]
     usage = {"model": model, "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "tool_calls": []}
     for round_ in range(MAX_TOOL_ROUNDS + 1):
@@ -173,6 +192,24 @@ def decide(summary, tools):
             usage["tool_calls"].append({"tool": call["function"]["name"], **{k: v for k, v in args.items() if v is not None}})
             messages.append({"role": "tool", "tool_call_id": call["id"], "content": json.dumps(result, default=str)})
     raise RuntimeError("agent did not finish")
+
+
+def decide_with_provider(summary, tools):
+    """Try providers in SIM_PROVIDERS order. Default "claude_code": Claude Code headless only, on the user's
+    Claude plan, no API keys. Add "api" (SIM_API_KEY or OpenAI) to the list for a fallback, e.g.
+    "claude_code,api". The reason a provider was skipped is logged as fallback_from."""
+    from finance_os.simulator import claude_provider
+    providers = {"api": decide, "claude_code": claude_provider.decide}
+    order = [p.strip() for p in os.environ.get("SIM_PROVIDERS", "claude_code").split(",") if p.strip()]
+    skipped = []
+    for name in order:
+        try:
+            events, usage = providers[name](summary, tools)
+        except Exception as err:  # noqa: BLE001 - try the next provider; the reason is logged
+            skipped.append(f"{name}: {str(err)[:200]}")
+            continue
+        return events, ({**usage, "fallback_from": "; ".join(skipped)} if skipped else usage)
+    raise RuntimeError("every simulator provider failed: " + " | ".join(skipped))
 
 
 def validate(e, world, today, paid_refs, products, history=()):
@@ -208,6 +245,12 @@ def validate(e, world, today, paid_refs, products, history=()):
             return "new customer needs segment and size"
         if not e.get("products") or any(p not in products for p in e["products"]):
             return f"unknown products {e.get('products')}"
+    if t in ("vendor_price_increase", "duplicate_bill") and e.get("vendor_id") not in CLOUD_VENDORS:
+        return f"vendor must be one of {CLOUD_VENDORS}"
+    if t == "vendor_price_increase" and (e.get("pct") is None or not 0.02 <= e["pct"] <= 0.15):
+        return "price increase pct must be 0.02-0.15"
+    if t in ("vendor_bill", "wrong_po_bill") and (e.get("category") not in BILL_CATEGORIES or e.get("size") is None):
+        return f"one-off bill needs a category in {BILL_CATEGORIES} and a size"
     if t == "refund":
         if e.get("invoice_ref") not in paid_refs:
             return f"{e.get('invoice_ref')} is not a paid invoice"
