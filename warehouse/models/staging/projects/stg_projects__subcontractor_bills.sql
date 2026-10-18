@@ -6,5 +6,6 @@ select
     bill_date,
     date_trunc('month', bill_date)::date as bill_month,
     amount,
-    description
+    description,
+    vendor_invoice_number
 from {{ source('projects', 'subcontractor_bills') }}

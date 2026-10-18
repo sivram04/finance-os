@@ -324,6 +324,15 @@ Priority: **M** = must, **S** = should, **C** = could.
 | FR-15.4 | Controls list (who approves what, segregation of duties) | S | PA-8 |
 | FR-15.5 | Before/after: manual steps removed by automation, with estimated time saved | S | PA-8 |
 
+#### M16 — AP document intake (added after v0.1)
+| ID | Requirement | Pri | Trace |
+|---|---|---|---|
+| FR-16.1 | Vendor bills arrive as PDFs in an inbox; each is read into structured fields (vendor, invoice number, date, PO, lines, total) | M | PA-2, PA-10 |
+| FR-16.2 | Two interchangeable extractors: rules over the PDF text layer (offline, used in CI) and Grok with a strict JSON schema; the model copies printed values and never computes money | M | G5, AIR-1 |
+| FR-16.3 | Controls on every document: known vendor, total = sum of lines, no duplicate invoice number, PO exists and belongs to the vendor, matches the posted bill | M | PA-3 |
+| FR-16.4 | Documents that pass auto-approve; the rest go to a review queue with the reason; nothing is paid without a person clearing it | M | AIR-2 |
+| FR-16.5 | Extraction accuracy per field is measured against ground truth; the rules extractor must be 100%, the Grok score is its eval | M | AAI-7 |
+
 ### 5.2 Non-functional requirements
 | ID | Requirement |
 |---|---|

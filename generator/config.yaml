@@ -174,6 +174,27 @@ anomalies:
     start: 2026-03-01
     description: A T&M invoice line billed at the Senior ML Engineer rate for ML Engineer hours.
     expected_detection: fct_billing_exceptions has a rate_mismatch for P-102, service month 2026-03
+  - anomaly_id: A-AP-01
+    module: AP
+    kind: ap_arithmetic_error
+    entity_id: annotate_co
+    start: 2025-10-01
+    description: Vendor PDF total is $100 more than the sum of its lines.
+    expected_detection: fct_ap_review_queue has an arithmetic_mismatch for this document
+  - anomaly_id: A-AP-02
+    module: AP
+    kind: ap_duplicate_submission
+    entity_id: fedsec
+    start: 2026-01-01
+    description: The same vendor invoice is emailed twice.
+    expected_detection: fct_ap_review_queue has a duplicate_invoice for the second copy
+  - anomaly_id: A-AP-03
+    module: AP
+    kind: ap_wrong_po
+    entity_id: fedsec
+    start: 2026-04-01
+    description: Vendor cites another vendor's PO number on the bill.
+    expected_detection: fct_ap_review_queue has a po_vendor_mismatch for this document
   - anomaly_id: A-M4-02
     module: M4
     kind: usage_spike
@@ -300,6 +321,18 @@ billing_errors:
 # A subcontractor bill posted with no purchase order.
 bills_without_po:
   - {project_id: P-103, vendor_id: annotate_co, date: 2026-02-18, amount: "8500.00", description: Rush relabeling (no PO)}
+
+# --- AP document intake (data/inbox/ap). Vendors send PDF bills; each vendor has its own layout. ---
+ap_documents:
+  layouts:   # how each vendor prints its bill (labels differ, as real vendors do)
+    nimbus:      {name: "Nimbus GPU Cloud, Inc.", prefix: NGC, number_label: "Invoice #",   total_label: "Amount Due",  date_label: "Invoice Date", po_label: "PO"}
+    gcp:         {name: "Google Cloud",           prefix: GCP, number_label: "Invoice number", total_label: "Total",    date_label: "Issue date",   po_label: "PO"}
+    annotate_co: {name: "Annotate Co",            prefix: AC,  number_label: "Bill No.",    total_label: "Total Due",   date_label: "Date",         po_label: "Purchase Order"}
+    fedsec:      {name: "FedSec Partners LLC",    prefix: FSP, number_label: "Invoice No",  total_label: "Balance Due", date_label: "Dated",        po_label: "Customer PO"}
+  issues:    # problems in the documents themselves; intake must route each to review
+    - {kind: arithmetic_error,     vendor_id: annotate_co, service_month: 2025-10-01, project_id: P-101, total_delta: "100.00"}
+    - {kind: duplicate_submission, vendor_id: fedsec,      service_month: 2026-01-01}
+    - {kind: wrong_po,             vendor_id: fedsec,      service_month: 2026-04-01, printed_po: PO00001}
 
 # --- Vendor billing (raw_erp). Rates and contracts are read from warehouse/seeds. ---
 vendor_billing:

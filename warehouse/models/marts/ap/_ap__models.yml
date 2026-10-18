@@ -1,0 +1,26 @@
+version: 2
+
+models:
+  - name: fct_ap_documents
+    description: >
+      Grain: one row per vendor bill PDF. Extracted fields, the matched ERP bill and PO, the list of control
+      failures, and the route (auto_approve or needs_review).
+    columns:
+      - name: doc_file
+        data_tests: [unique, not_null]
+      - name: route
+        data_tests:
+          - accepted_values:
+              arguments: {values: [auto_approve, needs_review]}
+
+  - name: fct_ap_review_queue
+    description: "Grain: document × reason. Work queue for AP; nothing is paid until a person clears it."
+    columns:
+      - name: reason
+        data_tests:
+          - accepted_values:
+              arguments: {values: [unknown_vendor, arithmetic_mismatch, duplicate_invoice, missing_po, po_not_found,
+                                   po_vendor_mismatch, not_in_erp, amount_mismatch, extraction_failed]}
+
+  - name: fct_ap_extraction_accuracy
+    description: "Grain: backend × field. Share of documents where the extracted field equals ground truth."

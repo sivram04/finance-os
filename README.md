@@ -9,6 +9,7 @@ python -m venv .venv
 .venv/Scripts/pip install -r requirements.txt
 .venv/Scripts/python -m generator                 # CSVs → data/synthetic/
 .venv/Scripts/python -m ingestion.synthetic_loader  # → data/finance_os.duckdb, raw_* schemas
+.venv/Scripts/python -m ingestion.ap_intake         # reads vendor bill PDFs in data/inbox/ap → raw_ap
 cd warehouse && ../.venv/Scripts/dbt build --profiles-dir .
 .venv/Scripts/python -m pytest tests
 ```
@@ -45,6 +46,21 @@ cd warehouse && ../.venv/Scripts/dbt build --profiles-dir .
   hours, duplicates, milestone acceptance, cap, funding), the next billing run with unbilled-days alerts
   (`fct_billing_run`), billing status per project (`fct_project_billing_status`), and invoice PDFs with backup
   hours (`scripts/invoice_pdf.py`). Anomaly A-M7-01: a P-102 line billed at the wrong labor-category rate.
+- AP document intake (M16): the generator writes 82 vendor bill PDFs in four vendor layouts to `data/inbox/ap`.
+  `ingestion/ap_intake` reads them (rules backend offline; Grok backend with `XAI_API_KEY`), and the warehouse
+  checks each one (`fct_ap_documents`): known vendor, total = lines, duplicate, PO exists and matches the vendor,
+  matches the posted bill. Failures go to `fct_ap_review_queue`; `fct_ap_extraction_accuracy` scores the extractor.
+  Anomalies A-AP-01..03 (arithmetic error, duplicate submission, wrong PO).
+
+## Using Grok for extraction
+Put the key in `.env` (git-ignored), then extract and score:
+```bash
+.venv/Scripts/python -m ingestion.ap_intake --backend grok
+```
+```bash
+cd warehouse && ../.venv/Scripts/dbt build --profiles-dir . --vars "{ap_backend: grok}"
+```
+`.env` holds `XAI_API_KEY=...` and optionally `XAI_MODEL=...`.
 
 ## Metrics and board pack
 KPIs are defined in `warehouse/metrics/kpis.yml`. After editing it:

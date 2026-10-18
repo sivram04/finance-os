@@ -1,0 +1,10 @@
+version: 2
+
+sources:
+  - name: ap
+    schema: raw_ap
+    description: Fields extracted from vendor bill PDFs by ingestion/ap_intake (one run per backend).
+    tables:
+      - name: extractions
+      - name: extraction_lines
+      - name: extraction_errors

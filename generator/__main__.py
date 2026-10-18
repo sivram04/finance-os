@@ -12,6 +12,7 @@ from pathlib import Path
 import yaml
 
 from generator.anomalies import build_manifest
+from generator.documents.ap_bills import assign_vendor_invoice_numbers, build_ap_truth, render_ap_pdfs
 from generator.entities.catalog import build_products, build_volume_tiers
 from generator.entities.customers import build_customers
 from generator.entities.employees import build_employees
@@ -39,6 +40,8 @@ def generate(seed=None):
     employees = build_employees(cfg, rng)
     pay_runs, pay_lines = build_payroll(cfg, employees)
     projects = build_projects(cfg, employees, rng)
+    assign_vendor_invoice_numbers(cfg, bills, projects["subcontractor_bills"])
+    ap_docs, ap_doc_lines = build_ap_truth(cfg, bills, bill_lines, projects["subcontractor_bills"])
     entries, lines = build_ledger(cfg, customers, usage, lifecycle, cloud_costs, bills, bill_lines, pay_lines, employees,
                                   projects, rng)
     return {
@@ -60,6 +63,8 @@ def generate(seed=None):
         "budgets": build_budgets(cfg, entries, lines),
         **projects,
         "anomaly_manifest": build_manifest(cfg),
+        "ap_document_truth": ap_docs,
+        "ap_document_truth_lines": ap_doc_lines,
     }
 
 
@@ -76,9 +81,13 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--out", default="data/synthetic")
     p.add_argument("--seed", type=int)
+    p.add_argument("--inbox", default="data/inbox/ap", help="where vendor bill PDFs are written")
     a = p.parse_args()
     tables = generate(a.seed)
     write_csvs(tables, Path(a.out))
+    cfg = yaml.safe_load(CONFIG.read_text(encoding="utf-8"))
+    render_ap_pdfs(cfg, tables["ap_document_truth"], tables["ap_document_truth_lines"], Path(a.inbox))
+    print(f"vendor bill PDFs: {len(tables['ap_document_truth'])} -> {a.inbox}")
     for name, rows in tables.items():
         print(f"{name}: {len(rows)} rows")
 

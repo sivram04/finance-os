@@ -10,6 +10,7 @@ snapshot-paths: ["snapshots"]
 
 vars:
   allocation_scenario: base   # row set in seeds/allocation_rules.csv (FR-2.4)
+  ap_backend: text            # which AP extraction run the warehouse reads: text (rules) or grok
 
 seeds:
   finance_os:

@@ -13,3 +13,5 @@ sources:
       - name: usage_daily
       - name: lifecycle_events
       - name: anomaly_manifest
+      - name: ap_document_truth
+      - name: ap_document_truth_lines

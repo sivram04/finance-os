@@ -1,0 +1,15 @@
+version: 2
+
+models:
+  - name: stg_ap__extractions
+    description: "Grain: one row per vendor bill PDF, for the selected extraction backend."
+    columns:
+      - name: doc_file
+        data_tests: [unique, not_null]
+  - name: stg_ap__extraction_lines
+    description: "Grain: document × line."
+    data_tests:
+      - dbt_utils_free_unique_combination:
+          arguments: {columns: [doc_file, line_no]}
+  - name: stg_ap__extraction_errors
+    description: "Grain: one row per document the extractor could not read."
