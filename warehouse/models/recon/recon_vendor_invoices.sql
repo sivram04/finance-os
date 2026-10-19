@@ -1,4 +1,4 @@
--- Design §8 M3 check: each vendor invoice ↔ modeled cost for the same month, within 1%.
+-- Design §8 M3 check: each metered vendor's invoice ↔ modeled cost for the same month, within 1%.
 -- Modeled = GPU job cost at seed rates + commit shortfall (+ cloud lines for GCP).
 -- Standard recon columns (design §7.3): check, period, expected, actual, variance, tolerance, status, explanation.
 with modeled as (
@@ -31,7 +31,12 @@ compared as (
         b.bill_id,
         b.total_amount as expected,
         {{ dec("round(m.modeled_amount, 2)", 18, 2) }} as actual
-    from {{ ref('stg_erp__vendor_bills') }} b
+    from (
+        -- metered vendors only (cloud and GPU, which have a contract and a cost model); one-off bills from
+        -- other vendors (legal, software, ...) have nothing to be modeled against
+        select * from {{ ref('stg_erp__vendor_bills') }}
+        where vendor_id in (select vendor_id from {{ ref('vendor_contracts') }})
+    ) b
     full outer join modeled_total m
         on m.vendor_id = b.vendor_id and m.month = b.service_month
 )

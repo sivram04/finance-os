@@ -115,6 +115,32 @@ counts and every numeric column's total. Books of record match exactly; forecast
 math) within one cent per row. Money never passes through a float: divisions use `fdiv` (exact to 9 places on
 both engines) and amounts round as decimals.
 
+## Deal desk, commissions, alerts, processes
+- **Deal desk (M9):** price a deal with real unit costs, check discount band / margin floor / term / commit
+  guardrails (`seeds/deal_guardrails.csv`, `deal_policy.csv`), auto-approve or route to Finance with reasons, print the
+  quote and order form. Workspace page "Deal desk"; assistant tools `price_deal`, `submit_deal`.
+- **Sales commissions (M10):** monthly statements per rep from billed revenue (credit above each account's previous
+  peak, so usage noise is never paid twice), quota attainment, accelerator, 90-day clawback, disputes as approval cards.
+- **Alerts (M13):** `fct_alerts` holds every condition true now; `python -m finance_os.alerts` sends new ones once as a
+  digest (Slack, email or Telegram, configured in `.env`; otherwise `data/live/alerts_outbox.md`), logs them, and
+  marks cleared ones resolved. Alerts page with acknowledge. Runs in the morning job.
+- **Processes (M15):** `docs/PROCESSES.md`: swim-lane maps, SIPOC, close runbook, controls, before/after.
+- **Board pack:** `python -m finance_os.reports.board_pack` adds the scenario outlook, cash and covenants, fundraising
+  and board-attention items to the KPI summary.
+
+## Source systems, as they really land
+- **ERP = NetSuite.** The ledger arrives as a NetSuite data export (`raw_netsuite`: `transaction`, `transactionline`,
+  `account`, `accountingperiod`, `department`, `entity`; NetSuite types such as CustInvc/VendBill/Check, internal
+  ids, custom body fields for the posting rule and source reference). ERP staging maps it back to account numbers
+  and codes. Live days are converted the same way by the live loader.
+- **Payroll = line-item register** (`raw_payroll.pay_register_lines`, like an ADP/Gusto export): earnings, federal and
+  state withholding, Social Security (to its wage base), Medicare, 401(k), medical, employer FUTA/SUTA and match,
+  net pay. The GL posts expense plus payroll tax and benefits liabilities, remitted on the 15th.
+- **Google Cloud = the detailed billing export** (`raw_gcp.gcp_billing_export_v1`, Google's nested schema: hourly
+  rows, service/SKU/project structs, key/value labels, sustained-use credits, invoice month). `recon_gcp_export_bill`
+  proves each invoice month's net cost equals the GCP bill to the cent.
+- **Scale:** headcount, opex and funding scale with the company (S 1×, M 3×, L 10×: L has ~520 people).
+
 ## Web app
 Assistant panel (agentic, shows every tool step, approval cards) next to a card-based workspace: Home (KPIs, periods,
 position chart, Needs you, approvals, modules) and pages for Revenue, Tech spend, Budget, Projects, Billing,

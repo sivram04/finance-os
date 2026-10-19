@@ -28,6 +28,9 @@ CREATE TABLE IF NOT EXISTS turns (
 CREATE TABLE IF NOT EXISTS actions (
     id VARCHAR PRIMARY KEY, conversation_id VARCHAR, kind VARCHAR, target_id VARCHAR, payload JSON,
     preview VARCHAR, status VARCHAR, created_at TIMESTAMP, decided_at TIMESTAMP, decided_by VARCHAR);
+CREATE TABLE IF NOT EXISTS deals (
+    id VARCHAR PRIMARY KEY, customer VARCHAR, payload JSON, evaluation JSON, route VARCHAR, action_id VARCHAR,
+    created_at TIMESTAMP);
 CREATE SEQUENCE IF NOT EXISTS audit_seq;
 CREATE TABLE IF NOT EXISTS audit_log (
     seq BIGINT DEFAULT nextval('audit_seq'), id VARCHAR PRIMARY KEY, action_id VARCHAR, event VARCHAR, actor VARCHAR, occurred_at TIMESTAMP,
@@ -114,6 +117,28 @@ class AppState:
         self._audit(aid, {"approved": "approved", "rejected": "rejected", "reverted": "undone"}[new_status],
                     USER, a["status"], new_status, note)
         return self.action(aid)
+
+    # deals (deal desk)
+    def save_deal(self, customer, payload, evaluation):
+        n = self._q("SELECT count(*) AS n FROM deals")[0]["n"] + 1
+        did = f"Q-{now():%Y%m}-{n:04d}"
+        self._q("INSERT INTO deals VALUES (?, ?, ?, ?, ?, NULL, ?)",
+                [did, customer, json.dumps(payload), json.dumps(evaluation), evaluation["route"], now()])
+        return did
+
+    def link_deal_action(self, did, aid):
+        self._q("UPDATE deals SET action_id = ? WHERE id = ?", [aid, did])
+
+    def deals(self):
+        rows = self._q("""SELECT d.id, d.customer, d.route, d.created_at, d.evaluation, a.status AS approval_status
+                          FROM deals d LEFT JOIN actions a ON a.id = d.action_id ORDER BY d.created_at DESC""")
+        for r in rows:
+            r["evaluation"] = json.loads(r["evaluation"]) if isinstance(r["evaluation"], str) else r["evaluation"]
+        return rows
+
+    def deal(self, did):
+        rows = [r for r in self.deals() if r["id"] == did]
+        return rows[0] if rows else None
 
     def audit(self, aid=None):
         if aid:

@@ -1,9 +1,9 @@
 // FP&A, treasury, close, pricing, capital and tax pages. Like the module pages, each reads the same read-only
 // tools the assistant uses, so a number on a page and in an answer always agree.
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { fmt, type Row } from '../api'
-import { AskButton, Card, Chip, DataTable, Loading, Source, useTool, useWorkspace } from '../components/common'
+import { api, fmt, type Row } from '../api'
+import { AskButton, Card, Chip, DataTable, Loading, Source, useTool, useWorkspace, type Page } from '../components/common'
 
 const AXIS = { tick: { fontSize: 11, fill: 'var(--faint)' }, tickLine: false, axisLine: false } as const
 const TIP = { contentStyle: { background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 } }
@@ -271,6 +271,129 @@ export function TaxFx() {
       </Card>
       <Card title="All time by currency">
         {t.data ? <DataTable rows={t.data.all_time_by_currency as Row[]} columns={[{ key: 'currency', chip: true }, { key: 'billings_usd', label: 'Billings (USD)', unit: 'usd' }, { key: 'tax_collected_usd', label: 'Tax collected', unit: 'usd' }, { key: 'realized_fx', unit: 'usd' }, { key: 'unrealized_fx', label: 'Unrealized FX (open AR)', unit: 'usd' }]} /> : <Loading state={t} />}
+      </Card>
+    </div>
+  )
+}
+
+// ---- Alerts --------------------------------------------------------------------------------------------------
+
+export function Alerts() {
+  const [status, setStatus] = useState('open')
+  const [rows, setRows] = useState<Row[] | null>(null)
+  const [error, setError] = useState<string>()
+  const { go, refreshKey } = useWorkspace()
+  const load = () => api.alerts(status === 'all' ? undefined : status).then(setRows).catch((e) => setError(String(e)))
+  useEffect(() => { load() }, [status, refreshKey])  // eslint-disable-line react-hooks/exhaustive-deps
+  const ack = (key: string) => api.ackAlert(key).then(load).catch((e) => setError(String(e)))
+  return (
+    <div className="page">
+      <Head title="Alerts" sub="What the morning run flagged: delivered once as a digest (Slack, email or Telegram), logged here until acknowledged or resolved."
+        ask="Which alerts need action today, and what should each owner do?" />
+      <Card title="Alert log" right={<div className="segmented">{['open', 'acknowledged', 'resolved', 'all'].map((s) => <button key={s} className={status === s ? 'on' : ''} onClick={() => setStatus(s)}>{s}</button>)}</div>}>
+        {error && <div className="error">{error}</div>}
+        {rows ? <DataTable rows={rows} empty="No alerts here." columns={[
+          { key: 'severity', chip: true }, { key: 'rule_id', label: 'Rule' }, { key: 'message' }, { key: 'recipients', label: 'For' },
+          { key: 'first_seen', render: (r) => String(r.first_seen ?? '').slice(0, 10) },
+          { key: 'page', label: '', render: (r) => <button className="btn small" onClick={() => go(r.page as Page)}>Open</button> },
+          { key: 'status', render: (r) => r.status === 'open'
+              ? <button className="btn small" onClick={() => ack(String(r.alert_key))}>Acknowledge</button>
+              : <Chip value={String(r.status)} kind={r.status === 'resolved' ? 'good' : undefined} /> }]} /> : <div className="muted">Loading…</div>}
+      </Card>
+    </div>
+  )
+}
+
+// ---- Deal desk -----------------------------------------------------------------------------------------------
+
+const PRODUCTS = ['batch_base', 'batch_pro', 'stream']
+
+export function DealDesk() {
+  const [customer, setCustomer] = useState('New Co')
+  const [hours, setHours] = useState<Record<string, number>>({ batch_base: 0, batch_pro: 20000, stream: 10000 })
+  const [discount, setDiscount] = useState(10)
+  const [term, setTerm] = useState(24)
+  const [commit, setCommit] = useState(5000)
+  const [ev, setEv] = useState<Row | null>(null)
+  const [msg, setMsg] = useState<string>()
+  const [deals, setDeals] = useState<Row[]>([])
+  const { refreshKey, refresh } = useWorkspace()
+  const body = () => ({ customer, discount_pct: discount / 100, term_months: term, monthly_commit: commit,
+    lines: PRODUCTS.filter((p) => hours[p] > 0).map((p) => ({ product_id: p, hours_per_month: hours[p] })) })
+  const post = (url: string) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body()) }).then((r) => r.json())
+  const check = () => post('/api/deals/evaluate').then(setEv)
+  const submit = () => post('/api/deals').then((r) => { setMsg(`${r.deal_id}: ${r.status}`); refresh() })
+  useEffect(() => { fetch('/api/deals').then((r) => r.json()).then(setDeals) }, [refreshKey])
+  const num = (v: number, set: (n: number) => void) => <input type="number" value={v} onChange={(e) => set(Number(e.target.value))} style={{ width: 110 }} />
+  const checks = (ev?.checks ?? []) as Row[]
+  return (
+    <div className="page">
+      <Head title="Deal desk" sub="Price a deal with real unit costs, check it against the guardrails, route it for approval and print the quote."
+        ask="What's the most discount we can give a 50,000-hour/month streaming deal and stay above the margin floor?" />
+      <Card title="Deal">
+        <div className="grid cols-3" style={{ gap: 10, alignItems: 'end' }}>
+          <label>Customer<br /><input value={customer} onChange={(e) => setCustomer(e.target.value)} /></label>
+          {PRODUCTS.map((p) => <label key={p}>{p} hours / month<br />{num(hours[p], (n) => setHours({ ...hours, [p]: n }))}</label>)}
+          <label>Discount %<br />{num(discount, setDiscount)}</label>
+          <label>Term (months)<br />{num(term, setTerm)}</label>
+          <label>Monthly minimum commit $<br />{num(commit, setCommit)}</label>
+        </div>
+        <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
+          <button className="btn" onClick={check}>Check deal</button>
+          <button className="btn" onClick={submit} disabled={!ev}>Submit for approval</button>
+          {msg && <span className="muted">{msg}</span>}
+        </div>
+      </Card>
+      {ev && !ev.error ? (
+        <>
+          <div className="grid cols-4">
+            <Kpi label="Monthly revenue" value={usd(ev.monthly_revenue)} />
+            <Kpi label="Gross margin" value={`${((ev.gross_margin_pct as number) * 100).toFixed(1)}%`} note={`floor ${((ev.floor_pct as number) * 100).toFixed(1)}%`}
+              tone={(ev.gross_margin_pct as number) < (ev.floor_pct as number) ? 'bad' : 'good'} />
+            <Kpi label="Contract value" value={usd(ev.contract_value)} note={`${ev.term_months} months`} />
+            <Kpi label="Routing" value={ev.route === 'auto_approve' ? 'Auto-approve' : 'Finance review'} tone={ev.route === 'auto_approve' ? 'good' : 'bad'} />
+          </div>
+          <div className="grid cols-2" style={{ alignItems: 'start' }}>
+            <Card title="Guardrails">
+              <DataTable rows={checks} columns={[{ key: 'rule' }, { key: 'passed', render: (r) => <Chip value={r.passed ? 'pass' : 'fail'} /> }, { key: 'detail' }]} />
+            </Card>
+            <Card title="Pricing by product">
+              <DataTable rows={ev.lines as Row[]} columns={[{ key: 'product_id' }, { key: 'hours_per_month', unit: 'count' }, { key: 'net_price', label: '$/hr', render: (r) => (r.net_price as number).toFixed(4) },
+                { key: 'monthly_revenue', unit: 'usd' }, { key: 'gross_margin_pct', unit: 'ratio' }, { key: 'floor_pct', label: 'Floor', unit: 'ratio' }]} />
+            </Card>
+          </div>
+        </>
+      ) : null}
+      {ev?.error ? <div className="error">{String(ev.error)}</div> : null}
+      <Card title="Deals" sub="Approval status comes from the approval card (audited)">
+        <DataTable rows={deals} empty="No deals yet." columns={[{ key: 'id' }, { key: 'customer' }, { key: 'route', chip: true },
+          { key: 'approval_status', label: 'Status', chip: true }, { key: 'created_at', render: (r) => String(r.created_at).slice(0, 10) },
+          { key: 'quote', label: '', render: (r) => <a className="btn small" href={`/api/deals/${r.id}/quote.pdf`} target="_blank" rel="noreferrer">Quote PDF</a> }]} />
+      </Card>
+    </div>
+  )
+}
+
+// ---- Commissions -----------------------------------------------------------------------------------------------
+
+export function Commissions() {
+  const c = useTool('get_commissions')
+  const { ask } = useWorkspace()
+  return (
+    <div className="page">
+      <Head title="Sales commissions" sub="Monthly statements from billed revenue: credited ARR above each account's previous peak, quota attainment, accelerators and clawbacks."
+        ask="Summarize this month's commission statements: who earned what, who is above quota, and why." />
+      <Card title="Year to date" sub={c.data ? `Through ${String(c.data.month).slice(0, 7)}` : ''}>
+        {c.data ? <DataTable rows={c.data.year_to_date as Row[]} columns={[{ key: 'rep_id' }, { key: 'rep_name' }, { key: 'commission_ytd', unit: 'usd' }, { key: 'attainment', label: 'Quota attainment', unit: 'ratio' }]} /> : <Loading state={c} />}
+      </Card>
+      <Card title="This month's statements" sub="Click a rep to ask about their statement">
+        {c.data ? <DataTable rows={c.data.rows} onRow={(r) => ask(`Explain ${r.rep_id}'s commission statement for ${String(r.month).slice(0, 7)}.`)}
+          columns={[{ key: 'rep_id' }, { key: 'segment_focus', chip: true }, { key: 'new_arr', unit: 'usd' }, { key: 'expansion_arr', unit: 'usd' }, { key: 'clawback_arr', unit: 'usd' },
+            { key: 'quota_attainment_pct', label: 'YTD attainment', unit: 'ratio' }, { key: 'commission_base', unit: 'usd' }, { key: 'commission_accelerator', unit: 'usd' }, { key: 'commission_total', unit: 'usd' }]} /> : <Loading state={c} />}
+        <Source data={c.data} />
+      </Card>
+      <Card title="Credits behind this month">
+        {c.data ? <DataTable rows={c.data.credits as Row[]} empty="No credits this month." columns={[{ key: 'rep_id' }, { key: 'customer_id' }, { key: 'credit_type', chip: true }, { key: 'billed_revenue', unit: 'usd' }, { key: 'credited_arr', unit: 'usd' }]} /> : <Loading state={c} />}
       </Card>
     </div>
   )

@@ -38,6 +38,22 @@ SCHEMAS = {
     ("raw_infra", "cloud_costs_daily"): {"usage_date": "DATE", "service": "VARCHAR", "sku": "VARCHAR",
                                          "label_team": "VARCHAR", "label_env": "VARCHAR",
                                          "cost": "DECIMAL(18,6)"},
+    ("raw_netsuite", "transaction"): {"id": "BIGINT", "tranid": "VARCHAR", "type": "VARCHAR", "trandate": "DATE",
+                                      "postingperiod": "INTEGER", "memo": "VARCHAR", "entity": "BIGINT",
+                                      "currency": "INTEGER", "exchangerate": "DECIMAL(18,6)", "posting": "VARCHAR",
+                                      "status": "VARCHAR", "custbody_echo_entry_type": "VARCHAR",
+                                      "custbody_echo_source_ref": "VARCHAR", "createddate": "TIMESTAMP",
+                                      "lastmodifieddate": "TIMESTAMP"},
+    ("raw_netsuite", "transactionline"): {"transaction": "BIGINT", "id": "INTEGER", "account": "INTEGER",
+                                          "department": "INTEGER", "entity": "BIGINT", "subsidiary": "INTEGER",
+                                          "location": "INTEGER", "memo": "VARCHAR", "debit": "DECIMAL(18,2)",
+                                          "credit": "DECIMAL(18,2)", "posting": "VARCHAR"},
+    ("raw_netsuite", "account"): {"id": "INTEGER", "acctnumber": "VARCHAR", "fullname": "VARCHAR", "accttype": "VARCHAR",
+                                  "isinactive": "VARCHAR"},
+    ("raw_netsuite", "department"): {"id": "INTEGER", "name": "VARCHAR", "externalid": "VARCHAR", "isinactive": "VARCHAR"},
+    ("raw_netsuite", "entity"): {"id": "BIGINT", "entityid": "VARCHAR", "type": "VARCHAR", "isinactive": "VARCHAR"},
+    ("raw_netsuite", "accountingperiod"): {"id": "INTEGER", "periodname": "VARCHAR", "startdate": "DATE", "enddate": "DATE",
+                                           "isquarter": "VARCHAR", "isyear": "VARCHAR", "isadjust": "VARCHAR"},
     ("raw_erp", "journal_entries"): {"entry_id": "VARCHAR", "entry_date": "DATE", "entry_type": "VARCHAR",
                                      "memo": "VARCHAR", "source_ref": "VARCHAR"},
     ("raw_erp", "journal_lines"): {"entry_id": "VARCHAR", "line_no": "INTEGER", "account_id": "VARCHAR",
@@ -89,6 +105,9 @@ SCHEMAS = {
     ("raw_payroll", "pay_lines"): {"pay_run_id": "VARCHAR", "employee_id": "VARCHAR", "department_id": "VARCHAR",
                                    "gross_pay": "DECIMAL(18,2)", "employer_tax": "DECIMAL(18,2)",
                                    "benefits": "DECIMAL(18,2)"},
+    ("raw_payroll", "pay_register_lines"): {"pay_run_id": "VARCHAR", "employee_id": "VARCHAR", "department_id": "VARCHAR",
+                                            "line_no": "INTEGER", "line_type": "VARCHAR", "code": "VARCHAR",
+                                            "amount": "DECIMAL(18,2)"},
     ("raw_erp", "vendor_bills"): {"bill_id": "VARCHAR", "vendor_id": "VARCHAR", "service_month": "DATE",
                                   "bill_date": "DATE", "total_amount": "DECIMAL(18,2)",
                                   "vendor_invoice_number": "VARCHAR"},
@@ -103,7 +122,7 @@ def load(src: Path, db: Path):
     con.execute("DROP TABLE IF EXISTS raw_erp.opex_pools_monthly")  # replaced by payroll (step 4)
     for (schema, table), cols in SCHEMAS.items():
         con.execute(f"CREATE SCHEMA IF NOT EXISTS {schema}")
-        path = (src / f"{table}.csv").as_posix()
+        path = (src / (f"netsuite_{table}.csv" if schema == "raw_netsuite" else f"{table}.csv")).as_posix()
         types = ", ".join(f"'{c}': '{t}'" for c, t in cols.items())
         con.execute(
             f"CREATE OR REPLACE TABLE {schema}.{table} AS "
@@ -113,7 +132,35 @@ def load(src: Path, db: Path):
         n = con.execute(f"SELECT count(*) FROM {schema}.{table}").fetchone()[0]
         print(f"{schema}.{table}: {n} rows")
     load_stripe(con, src)
+    load_gcp(con, src)
     con.close()
+
+
+def load_gcp(con, src: Path):
+    """Google's billing export lands as Google writes it: nested structs and repeated key/value labels."""
+    path = src / "gcp" / "gcp_billing_export_v1.jsonl"
+    if not path.exists():
+        return
+    con.execute("CREATE SCHEMA IF NOT EXISTS raw_gcp")
+    con.execute(f"CREATE OR REPLACE TABLE raw_gcp.gcp_billing_export_v1 AS SELECT *, current_timestamp AS _loaded_at "
+                f"FROM read_json('{path.as_posix()}', format='newline_delimited', columns={GCP_EXPORT_COLUMNS})")
+    print(f"raw_gcp.gcp_billing_export_v1: {con.execute('SELECT count(*) FROM raw_gcp.gcp_billing_export_v1').fetchone()[0]} rows")
+
+
+KV = "STRUCT(key VARCHAR, value VARCHAR)[]"
+GCP_EXPORT_COLUMNS = "{" + ", ".join(f"'{c}': '{t}'" for c, t in {
+    "billing_account_id": "VARCHAR",
+    "service": "STRUCT(id VARCHAR, description VARCHAR)",
+    "sku": "STRUCT(id VARCHAR, description VARCHAR)",
+    "usage_start_time": "TIMESTAMP", "usage_end_time": "TIMESTAMP",
+    "project": f"STRUCT(id VARCHAR, number VARCHAR, name VARCHAR, labels {KV}, ancestry_numbers VARCHAR)",
+    "labels": KV, "system_labels": KV,
+    "location": "STRUCT(location VARCHAR, country VARCHAR, region VARCHAR, zone VARCHAR)",
+    "export_time": "TIMESTAMP", "cost": "DOUBLE", "currency": "VARCHAR", "currency_conversion_rate": "DOUBLE",
+    "usage": "STRUCT(amount DOUBLE, unit VARCHAR, amount_in_pricing_units DOUBLE, pricing_unit VARCHAR)",
+    "credits": "STRUCT(name VARCHAR, amount DOUBLE, full_name VARCHAR, id VARCHAR, type VARCHAR)[]",
+    "invoice": "STRUCT(month VARCHAR, publisher_type VARCHAR)",
+    "cost_type": "VARCHAR", "transaction_type": "VARCHAR", "seller_name": "VARCHAR"}.items()) + "}"
 
 
 STRIPE_OBJECTS = ["customers", "invoices", "charges", "refunds", "balance_transactions", "payouts"]

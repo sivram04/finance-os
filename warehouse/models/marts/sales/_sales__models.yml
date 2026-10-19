@@ -1,0 +1,10 @@
+version: 2
+
+models:
+  - name: int_sales_credits
+    description: Commission credits per rep × customer × month from billed revenue (high-water mark), plus clawbacks.
+  - name: fct_commission_statement_monthly
+    description: Monthly commission statement per rep with quota attainment, base and accelerator commission, clawbacks.
+    data_tests:
+      - dbt_utils_free_unique_combination:
+          arguments: {columns: [rep_id, month]}

@@ -5,6 +5,7 @@
 #   expect_text:   every regex must match the answer (case-insensitive)
 #   expect_refusal: the answer declines and calls no tools
 #   expect_proposal: a pending action of this kind is created (and nothing is executed)
+#   expect_tools:  each tool must have been called (the right source, not a lucky number)
 # Every answer is also checked for unverified numbers (numbers no tool returned).
 
 questions:
@@ -134,3 +135,101 @@ questions:
     persona: Controller
     ask: EN-001's June payment was applied to the wrong invoice. Prepare the fix.
     expect_proposal: cash_application_fix
+
+  # ---- FP&A, treasury, close, pricing, capital, tax (M17-M24) -------------------------------------------
+  - id: fpa-base-runway
+    persona: VP Finance
+    ask: In the base forecast, how many months of runway do we have?
+    expect_values: ["select runway_months from marts.fct_scenario_summary where scenario='base'"]
+    expect_tools: [get_forecast]
+  - id: fpa-upside-revenue
+    persona: VP Finance
+    ask: What revenue do we forecast over the next 12 months in the upside scenario?
+    expect_values: ["select revenue_next_12m from marts.fct_scenario_summary where scenario='upside'"]
+    expect_tools: [get_forecast]
+  - id: fpa-forecast-bias
+    persona: FP&A analyst
+    ask: How biased have our one-month-ahead revenue forecasts been?
+    expect_values: ["select avg(error_pct) from marts.fct_forecast_accuracy where line='revenue' and months_ahead=1"]
+    expect_tools: [get_forecast_accuracy]
+  - id: fpa-hires
+    persona: VP Finance
+    ask: How many hires are in the base-case hiring plan?
+    expect_values: ["select count(*) from intermediate.int_planned_hires where scenario='base'"]
+    expect_tools: [get_headcount_plan]
+  - id: fpa-budget-gap
+    persona: FP&A analyst
+    ask: In total, how far over the board's opex ceiling are next year's department budget requests?
+    expect_values: ["select sum(gap) from marts.fct_budget_build where line='opex'"]
+    expect_tools: [get_budget_build]
+  - id: treasury-low-point
+    persona: VP Finance
+    ask: What's the lowest our cash gets in the 13-week forecast?
+    expect_values: ["select min(closing_cash) from marts.fct_cash_forecast_13w"]
+    expect_tools: [get_cash_forecast]
+  - id: treasury-covenants
+    persona: VP Finance
+    ask: Are we breaching any covenants or treasury policies?
+    expect_text: ["'MIN-CASH|minimum|[$]3M|[$]3,000,000'", "'runway'"]
+    expect_tools: [get_cash_forecast]
+  - id: treasury-payment-run
+    persona: Controller
+    ask: How much will the next vendor payment run pay out?
+    expect_values: ["select sum(amount_to_pay) from marts.fct_payment_run_proposal where payment_run_date = (select min(payment_run_date) from marts.fct_payment_run_proposal)"]
+    expect_tools: [get_payment_runs]
+  - id: wc-ccc
+    persona: Controller
+    ask: What's our cash conversion cycle?
+    expect_values: ["select cash_conversion_cycle_days from marts.fct_working_capital_monthly order by month desc limit 1"]
+    expect_tools: [get_working_capital]
+  - id: revrec-adjustment
+    persona: Controller
+    ask: What ASC 606 revenue adjustment do we need to book for the latest closed month?
+    expect_values: ["select revenue_adjustment from marts.fct_revenue_rollforward_monthly order by month desc limit 1"]
+    expect_tools: [get_revenue_recognition]
+  - id: close-blocker
+    persona: Controller
+    ask: What's blocking sign-off of the month-end close?
+    expect_text: ["'budget|BvA|variance'"]
+    expect_tools: [get_close_status]
+  - id: pricing-stream
+    persona: VP Finance
+    ask: What would raising streaming prices by 8% do to gross margin over a year?
+    expect_values: ["select delta_gross_margin from marts.fct_price_simulation where scenario='stream_plus_8'"]
+    expect_tools: [get_pricing_analysis]
+  - id: capital-price
+    persona: CEO
+    ask: What price per share does the base-case Series B imply, and what do founders own afterwards?
+    expect_values: ["select price_per_share from marts.fct_fundraise_scenarios where scenario='base'",
+                    "select founders_pct_after from marts.fct_fundraise_scenarios where scenario='base'"]
+    expect_tools: [get_cap_table_and_fundraise]
+  - id: tax-collected
+    persona: Controller
+    ask: How much sales tax, VAT and GST have we collected in total?
+    expect_values: ["select sum(tax_collected_usd) from marts.fct_tax_fx_monthly"]
+    expect_tools: [get_tax_and_fx]
+  - id: allocation-eng
+    persona: FP&A analyst
+    ask: How much of this month's shared rent was allocated to Engineering?
+    expect_values: ["select allocated_amount from marts.fct_shared_cost_allocation_monthly where pool='facilities' and department_id='ENG' and month=M"]
+    expect_tools: [get_shared_cost_allocation]
+
+  # ---- deal desk, commissions (M9, M10) ------------------------------------------------------------------
+  - id: deal-price-check
+    persona: Sales
+    ask: Price a deal for Acme at 40,000 batch_pro hours a month, 15% off, 24 months, with a $10,000 monthly commit. Does it auto-approve?
+    expect_text: ["'auto|approv'"]
+    expect_tools: [price_deal]
+  - id: deal-submit-over-guardrail
+    persona: Sales
+    ask: Submit a deal for Beta Corp, 5,000 stream hours a month at 30% off for 12 months with no commit.
+    expect_proposal: deal_approval
+  - id: comp-top-rep
+    persona: VP Sales
+    ask: What is AE-01's quota attainment year to date?
+    expect_values: ["select quota_attainment_pct from marts.fct_commission_statement_monthly where rep_id='AE-01' and month=M"]
+    expect_tools: [get_commissions]
+  - id: comp-dispute
+    persona: Sales
+    ask: AE-02 disputes their September 2026 statement for MM-003 — they think the expansion was undercounted. Log it.
+    expect_proposal: commission_dispute

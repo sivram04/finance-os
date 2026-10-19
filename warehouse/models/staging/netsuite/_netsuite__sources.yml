@@ -1,0 +1,16 @@
+version: 2
+
+sources:
+  - name: netsuite
+    schema: "{{ var('dataset_prefix', '') }}raw_netsuite"
+    description: >
+      NetSuite data export of the general ledger: transactions and lines with internal ids, plus the account,
+      department, entity and accounting-period lists. custbody_echo_entry_type / custbody_echo_source_ref are
+      custom body fields set by the implementation (posting rule, source document).
+    tables:
+      - name: transaction
+      - name: transactionline
+      - name: account
+      - name: department
+      - name: entity
+      - name: accountingperiod

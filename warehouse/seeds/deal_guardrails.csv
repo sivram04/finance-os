@@ -1,0 +1,5 @@
+band_id,min_hours_month,max_hours_month,max_discount_pct,note
+D1,0,10000,0.0000,Small deals: list price (volume tiers still apply)
+D2,10000,50000,0.1500,Mid-size: up to 15% off list
+D3,50000,200000,0.2500,Large: up to 25% off list
+D4,200000,100000000,0.3500,Strategic: up to 35% off list

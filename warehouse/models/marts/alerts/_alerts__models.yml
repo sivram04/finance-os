@@ -1,0 +1,14 @@
+version: 2
+
+models:
+  - name: fct_alerts
+    description: Every alert condition true now, one row per rule × entity × period, with severity, recipients and page.
+    columns:
+      - name: alert_key
+        data_tests: [unique, not_null]
+      - name: rule_id
+        data_tests:
+          - relationships:
+              arguments: {to: ref('alert_rules'), field: rule_id}
+  - name: fct_source_freshness
+    description: Last load time per source system and hours since.

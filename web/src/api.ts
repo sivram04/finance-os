@@ -70,6 +70,10 @@ export const api = {
       body: JSON.stringify({ filename: file.name, content_base64: btoa(binary) }),
     }).then(json<UploadedDoc>)
   },
+  alerts: (status?: string) => fetch(`/api/alerts${status ? `?status=${status}` : ''}`).then(json<Row[]>),
+  ackAlert: (alert_key: string) => fetch('/api/alerts/ack', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ alert_key }),
+  }).then(json<{ acknowledged: string }>),
   actions: (status?: string) => fetch(`/api/actions${status ? `?status=${status}` : ''}`).then(json<Action[]>),
   decide: (id: string, decision: 'approve' | 'reject' | 'undo') =>
     fetch(`/api/actions/${id}/${decision}`, { method: 'POST' }).then(json<{ action: Action }>),

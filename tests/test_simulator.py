@@ -31,7 +31,8 @@ def _world():
              "vendor_cost_per_hour": [{"vendor_id": "gcp", "line_type": "cloud_services", "gpu_type": "", "per_hour": "0.01"},
                                       {"vendor_id": "nimbus", "line_type": "gpu_usage", "gpu_type": "H100", "per_hour": "0.05"}],
              "gpu_rates": {"H100": "3.40"}, "gcp_prod_share": "0.6", "price_factor": {"gcp": "1", "nimbus": "1"},
-             "invoice_seq": {}, "accrued": {}, "pending_duplicates": [], "open_bills": {}}
+             "invoice_seq": {}, "accrued": {}, "pending_duplicates": [], "open_bills": {},
+             "ytd_wages": {}, "payroll_owed": {}}
     return w
 
 
@@ -185,3 +186,30 @@ def test_payment_run_holds_bills_in_review_and_never_pays_rejected(tmp_path):
         _run(w, day, [], tmp_path, approvals)
         day += timedelta(days=1)
     assert "northwind" in {b["vendor_id"] for b in w.ops["open_bills"].values()}   # rejected stays unpaid
+
+
+def test_gcp_billing_export_arrives_with_the_gcp_bill_and_ties_to_it(tmp_path):
+    w = _world()
+    day = date(2026, 9, 30)
+    while day <= date(2026, 10, 5):
+        _run(w, day, [], tmp_path)
+        day += timedelta(days=1)
+    bill = next(b for b in read(tmp_path, "vendor_bills") if b["vendor_id"] == "gcp")
+    export = read(tmp_path, "gcp_billing_export_v1")
+    net = sum(Decimal(str(r["cost"])) + sum(Decimal(str(c["amount"])) for c in r["credits"]) for r in export)
+    assert export and net.quantize(Decimal("0.01")) == Decimal(bill["total_amount"])
+
+
+def test_payroll_register_posts_liabilities_and_remits_them_on_the_15th(tmp_path):
+    w = _world()
+    day = date(2026, 10, 31)
+    while day <= date(2026, 11, 15):
+        _run(w, day, [], tmp_path)
+        day += timedelta(days=1)
+    reg = read(tmp_path, "pay_register_lines")
+    assert {"REG", "FIT", "SS_EE", "SS_ER", "401K_MATCH", "NET"} <= {r["code"] for r in reg}
+    lines = read(tmp_path, "journal_lines")
+    liab = sum(Decimal(l["credit"]) - Decimal(l["debit"]) for l in lines if l["account_id"] in ("2100", "2110"))
+    assert liab == 0 and w.ops["payroll_owed"] == {}                     # owed at month end, remitted Nov 15
+    types = [e["entry_type"] for e in read(tmp_path, "journal_entries")]
+    assert "payroll" in types and "payroll_remittance" in types

@@ -3,12 +3,12 @@ import { api } from './api'
 import { Assistant } from './components/Assistant'
 import { WorkspaceContext, type Page } from './components/common'
 import { Home } from './pages/Home'
-import { Capital, Cash, Close, Plan, Pricing, TaxFx } from './pages/Finance'
+import { Alerts, Capital, Cash, Close, Commissions, DealDesk, Plan, Pricing, TaxFx } from './pages/Finance'
 import { AP, AR, Billing, Budget, Projects, Revenue, Spend, Trust } from './pages/Modules'
 
 const TABS: [Page, string][] = [
-  ['home', 'Home'], ['plan', 'Plan'], ['cash', 'Cash'], ['close', 'Close'], ['revenue', 'Revenue'], ['spend', 'Tech spend'], ['budget', 'Budget'], ['projects', 'Projects'],
-  ['billing', 'Billing'], ['ar', 'Receivables'], ['ap', 'AP inbox'], ['pricing', 'Pricing'], ['capital', 'Capital'], ['tax', 'Tax & FX'], ['trust', 'Trust'],
+  ['home', 'Home'], ['alerts', 'Alerts'], ['plan', 'Plan'], ['cash', 'Cash'], ['close', 'Close'], ['revenue', 'Revenue'], ['spend', 'Tech spend'], ['budget', 'Budget'], ['projects', 'Projects'],
+  ['billing', 'Billing'], ['ar', 'Receivables'], ['ap', 'AP inbox'], ['deals', 'Deal desk'], ['comp', 'Commissions'], ['pricing', 'Pricing'], ['capital', 'Capital'], ['tax', 'Tax & FX'], ['trust', 'Trust'],
 ]
 
 export default function App() {
@@ -53,6 +53,9 @@ export default function App() {
               {page === 'ar' && <AR />}
               {page === 'ap' && <AP />}
               {page === 'trust' && <Trust />}
+              {page === 'alerts' && <Alerts />}
+              {page === 'deals' && <DealDesk />}
+              {page === 'comp' && <Commissions />}
               {page === 'plan' && <Plan />}
               {page === 'cash' && <Cash />}
               {page === 'close' && <Close />}

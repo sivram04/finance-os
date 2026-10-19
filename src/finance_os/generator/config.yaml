@@ -21,6 +21,8 @@ scales:
   S: {self_serve: 90,   mid_market: 11,  enterprise: 4}
   M: {self_serve: 300,  mid_market: 80,  enterprise: 20}
   L: {self_serve: 1500, mid_market: 400, enterprise: 100}
+# Headcount (and the opex that grows with it) per scale: a 2,000-customer company is not run by 49 people.
+people_scale: {S: 1, M: 3, L: 10}
 
 # Request-level API usage (raw_usage.api_requests), expanded from the daily drivers by SQL in the warehouse
 # (finance_os.generator.high_volume). Each day's requests split the day's audio exactly, so the warehouse can
@@ -94,8 +96,8 @@ headcount_plan:
   - {department: PS,  function: support,              title: Support Engineer,        start: 2,  end: 3,  salary: [85000, 110000]}
   - {department: GA,  function: g_and_a,              title: G&A,                     start: 4,  end: 5,  salary: [130000, 260000]}
 terminations: 3                     # random leavers over the window, replaced by the hiring plan
-payroll:
-  employer_tax_pct: "0.0765"
+payroll:   # rates, wage bases and benefits live in generator/events/payroll.py (line-item register)
+  employer_tax_pct: "0.0765"     # planning rate only (labor cost policy); the register computes actual taxes
   benefits_per_month: "950.00"
 
 # --- Ledger (raw_erp). ---

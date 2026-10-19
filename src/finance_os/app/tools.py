@@ -42,10 +42,14 @@ def _jsonable(v):
 
 
 def _month(m, wh):
-    """'2026-09' or '2026-09-01' → '2026-09-01'; None → latest month."""
+    """'2026-09' or '2026-09-01' → '2026-09-01'; None → latest closed month. A month that hasn't closed yet (it is
+    billed and closed on the 1st of the next month) also gives the latest closed month: monthly views are only
+    complete for closed months."""
+    latest = str(wh.latest_month())[:10]
     if not m:
-        return wh.latest_month()
-    return m if len(m) == 10 else f"{m}-01"
+        return latest
+    m = m if len(m) == 10 else f"{m}-01"
+    return min(m, latest)
 
 
 def _result(rows, source, note=None, **extra):
@@ -178,7 +182,7 @@ def get_projects(wh, project_id=None):
                open_commitments, etc, eac, variance_at_completion, eac_pct_of_budget, pct_complete,
                earned_to_date, billed_to_date, unbilled, deferred, cap_used_pct, is_cap_alert, is_over_budget
         from marts.fct_project_financials
-        where month = (select max(month) from marts.fct_project_financials) and (? is null or project_id = ?)
+        where month = (select max(month) from marts.fct_kpi_monthly) and (? is null or project_id = ?)
         order by project_id""", [project_id, project_id])
     exceptions = wh.query("""select exception_type, project_id, reference_id, amount, detail from marts.fct_project_exceptions
                              where ? is null or project_id = ?""", [project_id, project_id])
@@ -192,7 +196,7 @@ def get_contract_funding(wh, contract_id=None, project_id=None):
                        from marts.fct_contract_funding f
                        join staging.stg_projects__contracts k using (contract_id)
                        join staging.stg_projects__projects p using (contract_id)
-                       where f.month = (select max(month) from marts.fct_contract_funding)
+                       where f.month = (select max(month) from marts.fct_kpi_monthly)
                          and (? is null or f.contract_id = ?) and (? is null or p.project_id = ?)
                        order by f.contract_id, f.clin_id""", [contract_id, contract_id, project_id, project_id])
     note = "Latest month only. clin_id 'TOTAL' is the whole contract."
@@ -273,7 +277,7 @@ def get_attention_items(wh):
         items.append({"area": area, "page": page, "severity": severity, "title": title, "detail": detail, "entity": entity})
 
     for r in q("""select * from marts.fct_project_financials
-                  where month = (select max(month) from marts.fct_project_financials)
+                  where month = (select max(month) from marts.fct_kpi_monthly)
                     and (is_over_budget or is_cap_alert or unbilled > 0)"""):
         if r["is_over_budget"]:
             add("Projects", "projects", "high", f"{r['project_id']} over budget",
@@ -282,7 +286,7 @@ def get_attention_items(wh):
             add("Projects", "projects", "medium", f"{r['project_id']} near its T&M cap",
                 f"{r['cap_used_pct']:.1%} of cap used", r["project_id"])
     for r in q("""select contract_id, funding_used_pct, is_funding_alert_90 from marts.fct_contract_funding
-                  where month = (select max(month) from marts.fct_contract_funding) and clin_id = 'TOTAL'
+                  where month = (select max(month) from marts.fct_kpi_monthly) and clin_id = 'TOTAL'
                     and is_funding_alert_75"""):
         add("Projects", "projects", "high" if r["is_funding_alert_90"] else "medium", f"{r['contract_id']} funding notice",
             f"{r['funding_used_pct']:.1%} of funded amount used (Limitation of Funds threshold 75%)", r["contract_id"])
@@ -365,7 +369,9 @@ def get_headcount_plan(wh, scenario="base"):
 
 def get_budget_build(wh):
     rows = wh.query("select * from marts.fct_budget_build order by line desc, department_id")
-    return _result(rows, "marts.fct_budget_build, seeds.planning_targets",
+    totals = wh.query("""select line, sum(bottom_up) as bottom_up, sum(top_down) as top_down, sum(gap) as gap
+                         from marts.fct_budget_build group by line order by line desc""")
+    return _result(rows, "marts.fct_budget_build, seeds.planning_targets", totals_by_line=totals,
                    note="bottom_up = department plans; top_down = board targets; positive opex gap = asks exceed the ceiling.")
 
 
@@ -408,7 +414,10 @@ def get_cash_forecast(wh):
 
 def get_payment_runs(wh):
     rows = wh.query("select * from marts.fct_payment_run_proposal order by payment_run_date, priority, bill_ref")
-    return _result(rows, "marts.fct_payment_run_proposal", note="Proposal only; nothing is paid.")
+    runs = wh.query("""select payment_run_date, count(*) as bills, sum(amount) as amount_due,
+                              sum(discount_captured) as discount_captured, sum(amount_to_pay) as amount_to_pay
+                       from marts.fct_payment_run_proposal group by 1 order by 1""")
+    return _result(rows, "marts.fct_payment_run_proposal", totals_by_run=runs, note="Proposal only; nothing is paid.")
 
 
 def get_close_status(wh, month=None):
@@ -428,7 +437,7 @@ def get_pricing_analysis(wh):
                                  count(*) filter (where is_over_policy) as over_policy,
                                  count(*) filter (where is_near_tier_cliff) as near_tier_cliff
                           from marts.fct_discount_leakage
-                          where month > (select max(month) from marts.fct_discount_leakage) - interval 12 month
+                          where month > (select max(month) from marts.fct_kpi_monthly) - interval 12 month
                           group by 1 order by 2 desc""")
     return _result(sims, "marts.fct_price_simulation, marts.fct_discount_leakage", discounts_last_12m=leakage)
 
@@ -445,7 +454,37 @@ def get_tax_and_fx(wh, month=None):
     totals = wh.query("""select currency, sum(billings_usd) as billings_usd, sum(tax_collected_usd) as tax_collected_usd,
                                 sum(realized_fx) as realized_fx, sum(unrealized_fx_on_open_ar) as unrealized_fx
                          from marts.fct_tax_fx_monthly group by 1 order by 2 desc""")
-    return _result(rows, "marts.fct_tax_fx_monthly, marts.fct_invoice_tax_fx", month=m, all_time_by_currency=totals)
+    grand = wh.query("""select sum(billings_usd) as billings_usd, sum(tax_collected_usd) as tax_collected_usd,
+                               sum(realized_fx) as realized_fx, sum(unrealized_fx_on_open_ar) as unrealized_fx
+                        from marts.fct_tax_fx_monthly""")
+    return _result(rows, "marts.fct_tax_fx_monthly, marts.fct_invoice_tax_fx", month=m, all_time_by_currency=totals,
+                   all_time_total=grand)
+
+
+def get_commissions(wh, rep_id=None, month=None):
+    m = _month(month, wh)
+    rows = wh.query("""select * from marts.fct_commission_statement_monthly
+                       where month = ?::date and (? is null or rep_id = ?) order by rep_id""", [m, rep_id, rep_id])
+    ytd = wh.query("""select rep_id, rep_name, sum(commission_total) as commission_ytd, max(quota_attainment_pct) as attainment
+                      from marts.fct_commission_statement_monthly
+                      where extract(year from month) = extract(year from ?::date) and month <= ?::date
+                      group by 1, 2 order by 1""", [m, m])
+    credits = wh.query("""select rep_id, customer_id, credit_type, billed_revenue, credited_arr from marts.int_sales_credits
+                          where month = ?::date and (? is null or rep_id = ?) order by abs(credited_arr) desc""", [m, rep_id, rep_id])
+    return _result(rows, "marts.fct_commission_statement_monthly, marts.int_sales_credits", month=m,
+                   year_to_date=ytd, credits=credits,
+                   note="Credits come from billed revenue above each account's previous peak month (x12 = ARR).")
+
+
+def price_deal(wh, customer, lines, discount_pct=0, term_months=12, monthly_commit=0):
+    from finance_os import dealdesk
+    ev = dealdesk.evaluate(wh, {"customer": customer, "lines": lines, "discount_pct": discount_pct,
+                                "term_months": term_months, "monthly_commit": monthly_commit})
+    if ev.get("error"):
+        return _result([], "deal desk", note=ev["error"])
+    return _result(ev["lines"], "deal desk (seeds.deal_guardrails, seeds.deal_policy, seeds.margin_floors, "
+                   "marts.fct_unit_economics_monthly)", **{k: v for k, v in ev.items() if k != "lines"},
+                   note="Read-only pricing check; submit_deal records it and routes it for approval.")
 
 
 # ---- registry: name → (function, description, JSON-schema parameters) -----------------------------
@@ -478,7 +517,10 @@ TOOLS = {
     "get_pnl": (get_pnl, "Income statement (revenue, COGS, opex) for a month range, grouped by account, rollup or department.",
                 _p({"start_month": MONTH, "end_month": MONTH,
                     "group_by": {"type": "string", "enum": ["account", "rollup", "department"]}})),
-    "get_budget_vs_actual": (get_budget_vs_actual, "Budget vs. actual for a month by department and account, with alerts.",
+    "get_budget_vs_actual": (get_budget_vs_actual, "Company budget vs. actual for a month by DEPARTMENT and GL ACCOUNT (not "
+                             "projects: for a project's budget or overrun use get_projects), with alerts, "
+                             "and THIS fiscal year's full-year forecast vs budget (fy_forecast, fy_forecast_variance). "
+                             "Use for 'where will we land this year versus budget'.",
                              _p({"month": MONTH, "department": {"type": "string", "description": "ENG, INF, SAL, PS, GA or NONE"},
                                  "alerts_only": {"type": "boolean"}})),
     "get_variance_drivers": (get_variance_drivers, "The journal lines behind a budget alert (alert_id from get_budget_vs_actual).",
@@ -490,7 +532,8 @@ TOOLS = {
     "get_tech_spend": (get_tech_spend, "Cloud and GPU spend for a month by vendor, team, category or model, with tagging coverage.",
                        _p({"month": MONTH, "group_by": {"type": "string", "enum": ["vendor", "team", "category", "model"]}})),
     "get_gpu_capacity_and_forecast": (get_gpu_capacity_and_forecast, "Reserved GPU use vs. commit, 3-month spend forecast, vendor renewals.", _p({})),
-    "get_projects": (get_projects, "Project financials (EAC, % complete, earned, billed, unbilled) and project exceptions.",
+    "get_projects": (get_projects, "Project financials: budget, EAC, variance at completion (how far over/under budget "
+                     "a project will finish), % complete, earned, billed, unbilled, and project exceptions.",
                      _p({"project_id": {"type": "string"}})),
     "get_contract_funding": (get_contract_funding,
                              "Contract and CLIN funding used vs. funded, with 75%/90% alerts. The federal contract is "
@@ -505,12 +548,14 @@ TOOLS = {
     "get_ap_review_queue": (get_ap_review_queue, "Vendor bills that need review, with reasons, and AP routing totals.", _p({})),
     "get_reconciliation_status": (get_reconciliation_status, "Every reconciliation check: passing and failing periods.",
                                   _p({"failing_only": {"type": "boolean"}})),
-    "get_forecast": (get_forecast, "18-month driver-based forecast (P&L, EBITDA, cash) for a scenario, plus every "
-                     "scenario's summary: next-12-month revenue, runway, cash-out month.", _p({"scenario": SCENARIO})),
+    "get_forecast": (get_forecast, "Rolling 18-month driver-based forecast (P&L, EBITDA, cash) for a scenario (base, "
+                     "upside, downside), plus each scenario's next-12-month revenue, runway and cash-out month. Not "
+                     "budget vs actual: for this year versus budget use get_budget_vs_actual.", _p({"scenario": SCENARIO})),
     "get_forecast_accuracy": (get_forecast_accuracy, "How accurate past forecasts were (error by line and months ahead).", _p({})),
     "get_headcount_plan": (get_headcount_plan, "Headcount plan and loaded payroll by month, and the open/approved roles.",
                            _p({"scenario": SCENARIO})),
-    "get_budget_build": (get_budget_build, "Next fiscal year's budget: bottom-up department asks vs top-down board targets.", _p({})),
+    "get_budget_build": (get_budget_build, "NEXT fiscal year's budget being built: bottom-up department asks vs top-down "
+                         "board targets, with the gap. Not this year's budget vs actual.", _p({})),
     "get_shared_cost_allocation": (get_shared_cost_allocation, "Shared overhead (software, rent, professional fees) "
                                    "allocated to departments by headcount for a month.", _p({"month": MONTH})),
     "get_working_capital": (get_working_capital, "AR, AP, net working capital, DSO, DPO and cash conversion cycle by month.", _p({})),
@@ -524,7 +569,21 @@ TOOLS = {
     "get_pricing_analysis": (get_pricing_analysis, "Price-change simulations (revenue and margin impact) and discount leakage.", _p({})),
     "get_cap_table_and_fundraise": (get_cap_table_and_fundraise, "Cap table and fundraise scenarios: price, dilution, "
                                     "option-pool top-up, and whether cash lasts until the round closes.", _p({})),
-    "get_tax_and_fx": (get_tax_and_fx, "Sales tax/VAT/GST collected and FX gains/losses by currency for a month.", _p({"month": MONTH})),
+    "get_commissions": (get_commissions, "Sales commission statements for a month: credited new/expansion ARR, "
+                        "clawbacks, quota attainment, base and accelerator commission, plus year to date and the "
+                        "customer credits behind them.", _p({"rep_id": {"type": "string"}, "month": MONTH})),
+    "price_deal": (price_deal, "Deal desk pricing check (read-only): revenue, cost and gross margin per product at a "
+                   "discount, the guardrail checks (discount band, margin floor, term, commit) and whether it would "
+                   "auto-approve or need Finance.",
+                   _p({"customer": {"type": "string"},
+                       "lines": {"type": "array", "items": {"type": "object", "additionalProperties": False,
+                                 "properties": {"product_id": {"type": "string", "enum": ["batch_base", "batch_pro", "stream"]},
+                                                "hours_per_month": {"type": "number"}}, "required": ["product_id", "hours_per_month"]}},
+                       "discount_pct": {"type": "number"}, "term_months": {"type": "integer"}, "monthly_commit": {"type": "number"}},
+                      ["customer", "lines"])),
+    "get_tax_and_fx": (get_tax_and_fx, "Sales tax/VAT/GST and FX gains/losses: one month by currency and regime, plus "
+                       "all-time totals by currency and an all_time_total grand total (call once; no need to add months up).",
+                       _p({"month": MONTH})),
 }
 
 

@@ -1,0 +1,3 @@
+run,id,persona,passed,checks,unverified,stopped,steps,tools,prompt_tokens,completion_tokens,latency_s,answer
+1,comp-top-rep,VP Sales,True,value 0.5231=ok; tool get_commissions=ok,,answered,1,get_commissions,6526,69,3.8,"AE-01's quota attainment year to date is 52.3%. This means AE-01 has achieved just over half of their annual quota so far this year.  Sources: marts.fct_commission_statement_monthly, marts.int_sales_credits"
+2,comp-top-rep,VP Sales,True,value 0.5231=ok; tool get_commissions=ok,,answered,1,get_commissions,6526,72,3.5,"AE-01's quota attainment year to date is 52.3%. This means AE-01 has achieved 52.3% of their annual ARR quota so far this year.  Sources: marts.fct_commission_statement_monthly, marts.int_sales_credits"

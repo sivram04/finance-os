@@ -2,7 +2,8 @@
 uses (same accounts, entry types and reference formats), so the warehouse cannot tell live from historical.
 
 What runs on its own, by date:
-  month end      payroll (per department) and vendor accruals (GCP, Nimbus) from this month's GPU job logs and
+  month end      payroll from the line-item register (same code as the history), posting payroll tax and
+                 benefits liabilities that are remitted on the 15th of the next month; vendor accruals (GCP, Nimbus) from this month's GPU job logs and
                  cloud cost lines, priced at contract rates (the generator's own vendor-billing model, no noise)
   5th            vendor bills arrive, as the vendor meters them (metering noise, any price increase): PDF in the
                  AP inbox (read by M16 intake), ERP bill, and a true-up for the difference from the accrual
@@ -22,6 +23,8 @@ from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 
+from finance_os.generator.events.gcp_billing_export import build_gcp_export
+from finance_os.generator.events.payroll import register_lines, summarize
 from finance_os.generator.events.vendor_bills import build_vendor_bills
 from finance_os.paths import SEEDS
 from finance_os.simulator import ap_approvals
@@ -70,6 +73,22 @@ def init_ops(world, src: Path):
     ops["planned_hires"] = [h for h in _rows(SEEDS / "hiring_plan.csv")
                             if h["status"] in ("open", "approved") and date.fromisoformat(h["planned_start"]) > end]
     ops["employee_seq"] = len(_rows(src / "employees.csv"))
+    # year-to-date wages per employee (wage-base caps) and payroll liabilities not yet remitted
+    ops["ytd_wages"] = {}
+    if (src / "pay_register_lines.csv").exists():
+        for r in _rows(src / "pay_register_lines.csv"):
+            if r["code"] == "REG" and r["pay_run_id"][3:7] == str(end.year):
+                k = f"{r['employee_id']}|{end.year}"
+                ops["ytd_wages"][k] = str(Decimal(ops["ytd_wages"].get(k, "0")) + Decimal(r["amount"]))
+    remitted = {e["source_ref"] for e in entries.values() if e["entry_type"] == "payroll_remittance"}
+    owed = {}
+    for l in lines:
+        e = entries[l["entry_id"]]
+        if e["entry_type"] == "payroll" and e["source_ref"] not in remitted and l["account_id"] in ("2100", "2110"):
+            o = owed.setdefault(e["source_ref"], ["0", "0"])
+            i = 0 if l["account_id"] == "2100" else 1
+            o[i] = str(Decimal(o[i]) + Decimal(l["credit"]))
+    ops["payroll_owed"] = owed
     ops["base_headcount"] = len(ops["employees"])
 
     # recurring opex: last month's entries are the template
@@ -184,22 +203,41 @@ class Books:
                              termination_date=None, annual_salary=e["annual_salary"])
 
     def payroll(self):
+        """Month end: the line-item register for everyone on staff, and its journal per department."""
         today = self.day.today
         run = f"PR-{today:%Y%m}"
         self.day.log("pay_runs", pay_run_id=run, period_start=today.replace(day=1), period_end=today, pay_date=today)
-        by_dept = defaultdict(lambda: [Decimal(0)] * 3)
+        ytd = self.w.ops.setdefault("ytd_wages", {})
+        by_dept = defaultdict(lambda: defaultdict(Decimal))
         for e in self.w.ops["employees"]:
             gross = cents(Decimal(e["annual_salary"]) / 12)
-            tax = cents(gross * EMPLOYER_TAX)
+            key = f"{e['employee_id']}|{today.year}"
+            reg = register_lines(gross, Decimal(1), today.year, Decimal(ytd.get(key, "0")))
+            ytd[key] = str(Decimal(ytd.get(key, "0")) + gross)
+            for n, (t, code, amount) in enumerate(reg, 1):
+                self.day.log("pay_register_lines", pay_run_id=run, employee_id=e["employee_id"],
+                             department_id=e["department_id"], line_no=n, line_type=t, code=code, amount=str(amount))
+                by_dept[e["department_id"]][t] += amount
+            g, er_tax, er_ben, *_ = summarize(reg)
             self.day.log("pay_lines", pay_run_id=run, employee_id=e["employee_id"], department_id=e["department_id"],
-                         gross_pay=str(gross), employer_tax=str(tax), benefits=str(BENEFITS))
-            t = by_dept[e["department_id"]]
-            t[0] += gross; t[1] += tax; t[2] += BENEFITS
-        for dept, (gross, tax, ben) in sorted(by_dept.items()):
+                         gross_pay=str(g), employer_tax=str(er_tax), benefits=str(er_ben))
+        owed = self.w.ops.setdefault("payroll_owed", {}).setdefault(run, ["0", "0"])
+        for dept, t in sorted(by_dept.items()):
             dims = {"department_id": dept}
+            taxes, benefits = t["employee_tax"] + t["employer_tax"], t["employee_deduction"] + t["employer_benefit"]
             self.post(today, "payroll", f"Payroll {run} {dept}",
-                      [("6000", gross, 0, dims), ("6010", tax, 0, dims), ("6020", ben, 0, dims),
-                       ("1000", 0, gross + tax + ben, dims)], run)
+                      [("6000", t["earning"], 0, dims), ("6010", t["employer_tax"], 0, dims),
+                       ("6020", t["employer_benefit"], 0, dims), ("1000", 0, t["net_pay"], dims),
+                       ("2100", 0, taxes, dims), ("2110", 0, benefits, dims)], run)
+            owed[0], owed[1] = str(Decimal(owed[0]) + taxes), str(Decimal(owed[1]) + benefits)
+
+    def remit_payroll(self):
+        """15th: pay last month's withheld and employer payroll taxes and benefits to the agencies and plans."""
+        for run, (taxes, benefits) in sorted(self.w.ops.get("payroll_owed", {}).items()):
+            taxes, benefits = Decimal(taxes), Decimal(benefits)
+            self.post(self.day.today, "payroll_remittance", f"Remit payroll taxes and benefits {run}",
+                      [("2100", taxes, 0, {}), ("2110", benefits, 0, {}), ("1000", 0, taxes + benefits, {})], run)
+        self.w.ops["payroll_owed"] = {}
 
     def opex(self):
         ratio = Decimal(len(self.w.ops["employees"])) / Decimal(self.w.ops["base_headcount"])
@@ -279,6 +317,10 @@ class Books:
                 self._post_vendor_cost(today, vendor, true_up, f"{vendor} {acc['month'][:7]} true-up to bill", ref,
                                        Decimal(acc["prod_share"]))
             self._receive(ref, vendor, acc["month"], lines)
+            if vendor == "gcp":
+                bill = {month: {l["line_type"]: l["amount"] for l in lines}}
+                for row in build_gcp_export(bill, cloud, jobs):
+                    self.day.log("gcp_billing_export_v1", **row)
             del self.w.ops["accrued"][ref]
 
     def _invoice_number(self, vendor, layout_prefix):

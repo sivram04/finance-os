@@ -5,20 +5,26 @@
 Same seed → byte-identical output (NFR-2).
 """
 import argparse
+from datetime import date
 import csv
 import json
 import random
 from pathlib import Path
+
+from decimal import Decimal
 
 import yaml
 
 from finance_os.generator.anomalies import build_manifest
 from finance_os.generator.documents.ap_bills import assign_vendor_invoice_numbers, build_ap_truth, render_ap_pdfs
 from finance_os.generator.entities.catalog import build_products, build_volume_tiers
+from finance_os.generator.erp.netsuite import build_netsuite
+from finance_os.generator.seeds import read_seed
 from finance_os.generator.entities.customers import build_customers
 from finance_os.generator.entities.employees import build_employees
 from finance_os.generator.entities.lifecycle import build_lifecycle
 from finance_os.generator.events.budget import build_budgets
+from finance_os.generator.events.gcp_billing_export import build_gcp_export, gcp_bill_lines
 from finance_os.generator.events.infra import build_cloud_costs, build_gpu_jobs
 from finance_os.generator.events.ledger import build_ledger
 from finance_os.generator.events.payroll import build_payroll
@@ -34,6 +40,14 @@ def load_config(scale="S"):
     cfg = yaml.safe_load(CONFIG.read_text(encoding="utf-8"))
     for segment, count in cfg["scales"][scale].items():
         cfg["segments"][segment]["count"] = count
+    people = cfg["people_scale"][scale]
+    for plan in cfg["headcount_plan"]:
+        plan["start"], plan["end"] = plan["start"] * people, plan["end"] * people
+    cfg["terminations"] *= people
+    for o in cfg["opex_monthly"]:
+        o["amount"] = str(Decimal(o["amount"]) * people)
+    for f in cfg["funding"]:  # a company 10x the size raised 10x the capital
+        f["amount"] = str(Decimal(f["amount"]) * people)
     cfg["scale"] = scale
     return cfg
 
@@ -48,13 +62,19 @@ def generate(seed=None, scale="S"):
     cloud_costs = build_cloud_costs(cfg, usage)
     bills, bill_lines = build_vendor_bills(cfg, gpu_jobs, cloud_costs, rng)
     employees = build_employees(cfg, rng)
-    pay_runs, pay_lines = build_payroll(cfg, employees)
+    pay_runs, pay_lines, pay_register = build_payroll(cfg, employees)
     projects = build_projects(cfg, employees, rng)
     assign_vendor_invoice_numbers(cfg, bills, projects["subcontractor_bills"])
     ap_docs, ap_doc_lines = build_ap_truth(cfg, bills, bill_lines, projects["subcontractor_bills"])
-    entries, lines, payments, disputes, billing = build_ledger(cfg, customers, usage, lifecycle, cloud_costs, bills, bill_lines, pay_lines, employees,
+    entries, lines, payments, disputes, billing = build_ledger(cfg, customers, usage, lifecycle, cloud_costs, bills, bill_lines, pay_register, employees,
                                   projects, rng)
+    # the ERP's view of the ledger: a NetSuite data export (raw_netsuite), read by the warehouse's ERP staging
+    vendor_codes = {l["vendor_id"] for l in lines if l["vendor_id"]} | set(cfg["ap_documents"]["layouts"])
+    customer_codes = {c["customer_id"] for c in customers} | {l["customer_id"] for l in lines if l["customer_id"]}
+    netsuite = build_netsuite(read_seed("gl_accounts"), read_seed("departments"), customer_codes, vendor_codes,
+                              entries, lines, cfg["window"]["start"], date(cfg["window"]["end"].year + 1, 12, 31))
     return {
+        **netsuite,
         "products": build_products(cfg),
         "volume_tiers": build_volume_tiers(cfg),
         "customers": customers,
@@ -65,9 +85,11 @@ def generate(seed=None, scale="S"):
         "cloud_costs_daily": cloud_costs,
         "vendor_bills": bills,
         "vendor_bill_lines": bill_lines,
+        "gcp_billing_export_v1": build_gcp_export(gcp_bill_lines(bills, bill_lines), cloud_costs, gpu_jobs),
         "employees": employees,
         "pay_runs": pay_runs,
         "pay_lines": pay_lines,
+        "pay_register_lines": pay_register,
         "journal_entries": entries,
         "journal_lines": lines,
         **build_stripe(cfg, customers, billing),
@@ -82,7 +104,8 @@ def generate(seed=None, scale="S"):
 
 
 def write_csvs(tables, out_dir: Path):
-    """Flat tables as CSV; Stripe objects (nested JSON) as JSON lines in out_dir/stripe/."""
+    """Flat tables as CSV; nested sources as JSON lines: Stripe objects in out_dir/stripe/, the GCP billing
+    export in out_dir/gcp/."""
     out_dir.mkdir(parents=True, exist_ok=True)
     for name, rows in tables.items():
         if name.startswith("stripe_"):
@@ -90,6 +113,12 @@ def write_csvs(tables, out_dir: Path):
             with open(out_dir / "stripe" / f"{name[7:]}.jsonl", "w", encoding="utf-8", newline="\n") as f:
                 for obj in rows:
                     f.write(json.dumps({"id": obj["id"], "data": obj}, separators=(",", ":")) + "\n")
+            continue
+        if name.startswith("gcp_"):
+            (out_dir / "gcp").mkdir(exist_ok=True)
+            with open(out_dir / "gcp" / f"{name}.jsonl", "w", encoding="utf-8", newline="\n") as f:
+                for row in rows:
+                    f.write(json.dumps(row, separators=(",", ":")) + "\n")
             continue
         with open(out_dir / f"{name}.csv", "w", newline="", encoding="utf-8") as f:
             w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))

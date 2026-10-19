@@ -2,6 +2,8 @@ account_id,account_name,account_type,statement,rollup
 1000,Cash - operating,asset,balance_sheet,Cash
 1200,Accounts receivable,asset,balance_sheet,Accounts receivable
 2000,Accounts payable,liability,balance_sheet,Accounts payable
+2100,Payroll taxes payable,liability,balance_sheet,Payroll liabilities
+2110,Benefits and deductions payable,liability,balance_sheet,Payroll liabilities
 3000,Equity - preferred stock,equity,balance_sheet,Equity
 4000,Usage revenue,revenue,income_statement,Revenue
 4010,Refunds and credits,revenue,income_statement,Revenue

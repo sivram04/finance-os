@@ -129,3 +129,19 @@ def test_stripe_objects_tie_to_the_ledger():
     lines_total = sum(sum(l["amount"] for l in i["lines"]["data"]) for i in t["stripe_invoices"])
     assert lines_total == stripe_revenue
     assert all(c["status"] == "failed" for c in t["stripe_charges"] if c["balance_transaction"] is None)
+
+
+def test_gcp_billing_export_ties_to_the_gcp_invoice_and_has_googles_shape():
+    from collections import defaultdict
+    from decimal import Decimal
+    t = generate()
+    rows = t["gcp_billing_export_v1"]
+    net = defaultdict(Decimal)
+    for r in rows:
+        net[r["invoice"]["month"]] += Decimal(str(r["cost"])) + sum(Decimal(str(c["amount"])) for c in r["credits"])
+    bills = {b["service_month"].strftime("%Y%m"): b["total_amount"] for b in t["vendor_bills"] if b["vendor_id"] == "gcp"}
+    assert bills and all(net[m].quantize(Decimal("0.01")) == amount for m, amount in bills.items())
+    r = rows[0]
+    assert set(r["service"]) == {"id", "description"} and {"key", "value"} <= set((r["labels"] or [{}])[0] or {"key", "value"})
+    assert any(c["type"] == "SUSTAINED_USAGE_DISCOUNT" for x in rows for c in x["credits"])
+    assert any(not x["labels"] for x in rows)  # untagged resources carry no labels

@@ -1,0 +1,12 @@
+version: 2
+
+models:
+  - name: stg_gcp__billing_export
+    description: "Grain: project × service × SKU × hour, from Google's billing export. net_cost = cost + credits."
+    columns:
+      - name: usage_start_time
+        data_tests: [not_null]
+      - name: invoice_month
+        data_tests: [not_null]
+      - name: net_cost
+        data_tests: [not_null]

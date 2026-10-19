@@ -9,3 +9,5 @@ sources:
       - name: employees
       - name: pay_runs
       - name: pay_lines
+      - name: pay_register_lines
+        description: Line-item payroll register (earnings, employee and employer taxes, deductions, benefits, net pay).

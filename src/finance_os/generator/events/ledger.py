@@ -9,7 +9,9 @@ Postings:
 - payment_fee    on collection: Dr payment processing / Cr cash (fee schedule seed)
 - vendor_bill    service month end: Dr GPU / cloud COGS or R&D cloud / Cr AP
 - vendor_payment bill date + N days: Dr AP / Cr cash
-- payroll        month end, per department: Dr salaries, taxes, benefits / Cr cash
+- payroll        month end, per department, from the line-item register: Dr salaries, employer taxes,
+                 employer benefits / Cr cash (net pay), payroll taxes payable, benefits payable; the
+                 liabilities are remitted on the 15th of the next month (payroll_remittance)
 - opex           15th: Dr expense / Cr cash, scaled with headcount
 - refund         a few paid self-serve invoices are refunded later: Dr refunds and credits (4010) / Cr cash
 - one_off        on the date: Dr expense / Cr cash (e.g. unbudgeted legal fees)
@@ -76,7 +78,31 @@ def rate_usage(cfg, customers, usage):
     return {k: sum(l[3] for l in v) for k, v in rate_usage_lines(cfg, customers, usage).items()}
 
 
-def build_ledger(cfg, customers, usage, lifecycle, cloud_costs, bills, bill_lines, pay_lines, employees,
+def post_payroll(gl, pay_register, end):
+    """Payroll journal per run × department from the register, and the remittance of what it owes."""
+    by_run_dept = defaultdict(lambda: defaultdict(Decimal))
+    for r in pay_register:
+        by_run_dept[(r["pay_run_id"], r["department_id"])][r["line_type"]] += r["amount"]
+    owed = defaultdict(lambda: [Decimal(0), Decimal(0)])  # run -> [taxes payable, benefits payable]
+    for (run, dept), t in sorted(by_run_dept.items()):
+        y, m = int(run[3:7]), int(run[7:9])
+        dims = {"department_id": dept}
+        taxes = t["employee_tax"] + t["employer_tax"]
+        benefits = t["employee_deduction"] + t["employer_benefit"]
+        gl.post(_month_end(date(y, m, 1)), "payroll", f"Payroll {run} {dept}",
+                [("6000", t["earning"], 0, dims), ("6010", t["employer_tax"], 0, dims), ("6020", t["employer_benefit"], 0, dims),
+                 ("1000", 0, t["net_pay"], dims), ("2100", 0, taxes, dims), ("2110", 0, benefits, dims)], run)
+        owed[run][0] += taxes
+        owed[run][1] += benefits
+    for run, (taxes, benefits) in sorted(owed.items()):
+        y, m = int(run[3:7]), int(run[7:9])
+        pay = date(y + (m == 12), m % 12 + 1, 15)
+        if pay <= end:
+            gl.post(pay, "payroll_remittance", f"Remit payroll taxes and benefits {run}",
+                    [("2100", taxes, 0, {}), ("2110", benefits, 0, {}), ("1000", 0, taxes + benefits, {})], run)
+
+
+def build_ledger(cfg, customers, usage, lifecycle, cloud_costs, bills, bill_lines, pay_register, employees,
                  projects, rng):
     end = cfg["window"]["end"]
     gl = Ledger()
@@ -169,16 +195,7 @@ def build_ledger(cfg, customers, usage, lifecycle, cloud_costs, bills, bill_line
                     [("2000", b["total_amount"], 0, dims), ("1000", 0, b["total_amount"], dims)], b["bill_id"])
 
     # Payroll, per department per pay run.
-    by_run_dept = defaultdict(lambda: [Decimal(0), Decimal(0), Decimal(0)])
-    for p in pay_lines:
-        t = by_run_dept[(p["pay_run_id"], p["department_id"])]
-        t[0] += p["gross_pay"]; t[1] += p["employer_tax"]; t[2] += p["benefits"]
-    for (run, dept), (gross, tax, ben) in sorted(by_run_dept.items()):
-        y, m = int(run[3:7]), int(run[7:9])
-        dims = {"department_id": dept}
-        gl.post(_month_end(date(y, m, 1)), "payroll", f"Payroll {run} {dept}",
-                [("6000", gross, 0, dims), ("6010", tax, 0, dims), ("6020", ben, 0, dims),
-                 ("1000", 0, gross + tax + ben, dims)], run)
+    post_payroll(gl, pay_register, end)
 
     # Opex scaled by headcount relative to the first month.
     def headcount(d):

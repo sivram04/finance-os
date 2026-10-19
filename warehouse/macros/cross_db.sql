@@ -137,3 +137,22 @@
 {% macro fdiv(a, b) %}{{ return(adapter.dispatch('fdiv')(a, b)) }}{% endmacro %}
 {% macro default__fdiv(a, b) %}cast(cast({{ a }} as double) / cast({{ b }} as double) as decimal(38, 9)){% endmacro %}
 {% macro bigquery__fdiv(a, b) %}(cast({{ a }} as numeric) / cast({{ b }} as numeric)){% endmacro %}
+
+{#- ---- GCP billing export helpers (nested key/value labels, repeated credits) ---- -#}
+{% macro kv_value(arr, key) %}{{ return(adapter.dispatch('kv_value')(arr, key)) }}{% endmacro %}
+{% macro default__kv_value(arr, key) %}list_extract(list_transform(list_filter({{ arr }}, x -> x.key = '{{ key }}'), x -> x.value), 1){% endmacro %}
+{% macro bigquery__kv_value(arr, key) %}(select l.value from unnest({{ arr }}) as l where l.key = '{{ key }}' limit 1){% endmacro %}
+
+{% macro sum_credits(arr) %}{{ return(adapter.dispatch('sum_credits')(arr)) }}{% endmacro %}
+{% macro default__sum_credits(arr) %}coalesce(list_sum(list_transform({{ arr }}, c -> cast(c.amount as decimal(18, 6)))), 0){% endmacro %}
+{% macro bigquery__sum_credits(arr) %}coalesce((select sum(round(cast(c.amount as numeric), 6)) from unnest({{ arr }}) as c), 0){% endmacro %}
+
+{#- 'YYYYMM' -> first day of that month -#}
+{% macro yyyymm_to_date(s) %}{{ return(adapter.dispatch('yyyymm_to_date')(s)) }}{% endmacro %}
+{% macro default__yyyymm_to_date(s) %}cast(strptime({{ s }} || '01', '%Y%m%d') as date){% endmacro %}
+{% macro bigquery__yyyymm_to_date(s) %}parse_date('%Y%m%d', {{ s }} || '01'){% endmacro %}
+
+{#- Whole hours from a timestamp to now -#}
+{% macro hours_since(ts) %}{{ return(adapter.dispatch('hours_since')(ts)) }}{% endmacro %}
+{% macro default__hours_since(ts) %}date_diff('hour', cast({{ ts }} as timestamp), cast(current_timestamp as timestamp)){% endmacro %}
+{% macro bigquery__hours_since(ts) %}timestamp_diff(current_timestamp(), cast({{ ts }} as timestamp), hour){% endmacro %}

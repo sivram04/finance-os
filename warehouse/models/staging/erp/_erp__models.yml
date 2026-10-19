@@ -11,6 +11,7 @@ models:
         data_tests:
           - relationships:
               arguments: {to: ref('vendor_contracts'), field: vendor_id}
+              config: {severity: warn}   # bills from vendors without a contract (one-offs, new vendors) are flagged, not fatal
 
   - name: stg_erp__vendor_bill_lines
     description: "Grain: one row per invoice line."
@@ -23,7 +24,7 @@ models:
       - name: line_type
         data_tests:
           - accepted_values:
-              arguments: {values: [gpu_usage, commit_shortfall, cloud_services]}
+              arguments: {values: [gpu_usage, commit_shortfall, cloud_services, services]}
 
   - name: stg_erp__journal_entries
     description: "Grain: one row per journal entry."
@@ -33,7 +34,7 @@ models:
       - name: entry_type
         data_tests:
           - accepted_values:
-              arguments: {values: [revenue, collection, payment_fee, vendor_bill, vendor_payment, payroll, opex, one_off, funding, refund, project_invoice, project_collection, subcontractor_bill, subcontractor_payment, project_odc]}
+              arguments: {values: [revenue, collection, payment_fee, vendor_bill, vendor_payment, payroll, opex, one_off, funding, refund, project_invoice, project_collection, subcontractor_bill, subcontractor_payment, project_odc, payroll_remittance]}
 
   - name: stg_erp__journal_lines
     description: "Grain: one row per journal line. amount = debit − credit."

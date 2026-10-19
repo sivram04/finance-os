@@ -6,7 +6,7 @@ The S company (history + every live day) is built locally first; this mirrors it
 (s_raw_erp, s_raw_stripe, ...) so dbt can build the same models there and the two engines can be compared
 to the cent. Tables are exported as Parquet (Stripe's JSON objects as newline-delimited JSON, landing in a
 JSON column) and replaced in full, except raw_usage.api_requests, which only appends days BigQuery doesn't
-have yet (it is tens of millions of rows). Load jobs are free; nothing here scans data except one small
+have yet (it is tens of millions of rows); --full replaces it too, after a backfill or a live-company reset. Load jobs are free; nothing here scans data except one small
 max(date) query.
 """
 import argparse
@@ -28,7 +28,7 @@ def _dataset(client, project, name, location):
     client.create_dataset(ds, exists_ok=True)
 
 
-def copy(db: Path, project: str, prefix: str, location="US", log=print):
+def copy(db: Path, project: str, prefix: str, location="US", log=print, full=False):
     con = duckdb.connect(str(db), read_only=True)
     client = bigquery.Client(project=project, location=location)
     tables = con.execute("select table_schema, table_name from information_schema.tables "
@@ -40,7 +40,7 @@ def copy(db: Path, project: str, prefix: str, location="US", log=print):
         dest = f"{project}.{prefix}{schema}.{table}"
         where, mode = "", bigquery.WriteDisposition.WRITE_TRUNCATE
         col = INCREMENTAL.get((schema, table))
-        if col:
+        if col and not full:
             try:
                 last = list(client.query(f"select max(date({col})) d from `{dest}`").result())[0].d
             except Exception:  # noqa: BLE001 - first copy: table doesn't exist yet
@@ -84,8 +84,10 @@ def main():
     p.add_argument("--db", default=str(ROOT / "data" / "finance_os.duckdb"))
     p.add_argument("--project", default="finance-os-sivaram")
     p.add_argument("--prefix", default="s_")
+    p.add_argument("--full", action="store_true",
+                   help="replace the events table too (after a backfill or a reset of the live company)")
     a = p.parse_args()
-    copy(Path(a.db), a.project, a.prefix)
+    copy(Path(a.db), a.project, a.prefix, full=a.full)
 
 
 if __name__ == "__main__":

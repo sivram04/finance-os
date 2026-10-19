@@ -1,0 +1,15 @@
+rule_id,description,severity,recipients,page
+OVERSPEND,Department x account unfavorable by more than 10% and $5K in the month,high,Department owner; VP Finance,budget
+MARGIN-FLOOR,Customer gross margin below its floor two months running,high,VP Finance; Sales lead,revenue
+UNTAGGED,Untagged cloud spend above 5% of the month,medium,Head of Infra,spend
+FUNDING-75,Federal contract funding used crossed 75% (Limitation of Funds notice),high,PM; Controller,projects
+FUNDING-90,Federal contract funding used crossed 90%,high,PM; Controller,projects
+TM-CAP-85,T&M project earned value crossed 85% of its cap,medium,PM,projects
+UNBILLED,Billable work unbilled for more than 15 days,high,Billing specialist,billing
+AR-60,Customer invoice more than 60 days past due,medium,Billing specialist; Controller,ar
+RECON-FAIL,A reconciliation check failed for a closed month,high,Controller,trust
+SOURCE-STALE,A source has not loaded for more than 26 hours,medium,Data engineer,trust
+COVENANT,A lender covenant or treasury policy is breached (actuals) or will be (forecast),high,VP Finance; CEO,cash
+MIN-CASH-13W,Cash falls below the minimum within the 13-week forecast,high,VP Finance; CEO,cash
+FUNDRAISE-LATE,Cash runs out before a planned round closes,high,CEO; VP Finance,capital
+AP-REVIEW,Vendor bill waiting for AP review (not paid until cleared),medium,AP specialist,ap

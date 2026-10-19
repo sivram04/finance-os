@@ -1,6 +1,6 @@
 -- Allocate each pool to customer × product by the driver chosen in seeds/allocation_rules.csv
 -- for var('allocation_scenario'). Pools with driver 'none' (untagged cloud) are left unallocated.
--- Shares are ratios rounded to 6 dp; assert_allocations_complete checks the totals.
+-- Shares are rounded to 6 dp with largest-remainder; assert_allocations_complete checks the totals.
 with rules as (
     select pool, driver, scope
     from {{ ref('allocation_rules') }}
@@ -25,8 +25,18 @@ matched as (
         on d.driver = r.driver
         and d.month = p.month
         and (r.scope = 'all' or d.product_id = p.product_id)
+),
+
+rounded as (
+    select
+        *,
+        {{ dec("round(pool_amount * " ~ fdiv("driver_value", "nullif(driver_total, 0)") ~ ", 6)", 18, 6) }} as share,
+        row_number() over (partition by month, pool, pool_product_id order by driver_value desc, customer_id, product_id) as rank_in_pool
+    from matched
 )
 
+-- Largest remainder: shares are rounded to 6 places, and the rounding residue goes to the row with the biggest
+-- driver, so every pool allocates exactly (thousands of customers would otherwise drift by cents).
 select
     month,
     pool,
@@ -37,5 +47,7 @@ select
     pool_amount,
     driver_value,
     driver_total,
-    {{ dec("round(pool_amount * " ~ fdiv("driver_value", "nullif(driver_total, 0)") ~ ", 6)", 18, 6) }} as allocated_amount
-from matched
+    share + case when rank_in_pool = 1
+                 then {{ dec("pool_amount", 18, 6) }} - sum(share) over (partition by month, pool, pool_product_id)
+                 else 0 end as allocated_amount
+from rounded

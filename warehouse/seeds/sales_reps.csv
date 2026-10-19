@@ -1,0 +1,4 @@
+rep_id,rep_name,segment_focus,annual_quota_arr,base_rate,accelerator_rate,clawback_days
+AE-01,Account Executive 01,enterprise,1200000,0.1000,0.1500,90
+AE-02,Account Executive 02,mid_market,300000,0.1000,0.1500,90
+AE-03,Account Executive 03,mid_market,300000,0.1000,0.1500,90

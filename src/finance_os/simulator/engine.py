@@ -262,6 +262,7 @@ class Day:
             self.books.receive_cloud_bills(*self.month_infra((self.today.replace(day=1) - timedelta(days=1)).replace(day=1)))
         if self.today.day == 15:
             self.books.opex()
+            self.books.remit_payroll()
         self.collect()
         if self.today.weekday() == 3:
             self.books.payment_run(self.approvals)

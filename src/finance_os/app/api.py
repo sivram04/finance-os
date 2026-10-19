@@ -14,6 +14,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from finance_os.app import tools
+from finance_os.paths import ROOT
 import base64
 
 from fastapi.responses import FileResponse
@@ -129,6 +130,52 @@ def create_app(state: AppState | None = None, wh: tools.Warehouse | None = None,
     @app.get("/api/audit")
     def audit():
         return state.audit()
+
+    class DealBody(BaseModel):
+        customer: str
+        lines: list[dict]
+        discount_pct: float = 0
+        term_months: int = 12
+        monthly_commit: float = 0
+
+    @app.post("/api/deals/evaluate")
+    def evaluate_deal(body: DealBody):
+        from finance_os import dealdesk
+        return dealdesk.evaluate(wh, body.model_dump())
+
+    @app.post("/api/deals")
+    def submit_deal(body: DealBody):
+        from finance_os.app.actions import submit_deal as submit
+        return submit(wh, state, None, **body.model_dump())
+
+    @app.get("/api/deals")
+    def list_deals():
+        return [{k: (v.isoformat() if hasattr(v, "isoformat") else v) for k, v in d.items()} for d in state.deals()]
+
+    @app.get("/api/deals/{did}/quote.pdf")
+    def deal_quote(did: str):
+        from finance_os import dealdesk
+        d = state.deal(did)
+        if not d:
+            raise HTTPException(404, "deal not found")
+        path = dealdesk.quote_pdf(did, d["evaluation"], ROOT / "data" / "quotes")
+        return FileResponse(path, media_type="application/pdf", filename=f"{did}.pdf")
+
+    class AckBody(BaseModel):
+        alert_key: str
+        who: str | None = None
+
+    @app.get("/api/alerts")
+    def alerts(status: str | None = None):
+        from finance_os import alerts as alert_log
+        return [{k: (v.isoformat() if hasattr(v, "isoformat") else v) for k, v in a.items()} for a in alert_log.list_alerts(status)]
+
+    @app.post("/api/alerts/ack")
+    def ack_alert(body: AckBody):
+        from finance_os import alerts as alert_log
+        if not alert_log.acknowledge(body.alert_key, body.who or "finance"):
+            raise HTTPException(409, "alert is not open (already acknowledged or resolved)")
+        return {"acknowledged": body.alert_key}
 
     @app.post("/api/data/{tool}")
     def data(tool: str, args: dict | None = None):

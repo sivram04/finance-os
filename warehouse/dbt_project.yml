@@ -61,6 +61,12 @@ seeds:
       +column_types: {pre_money: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,2)' }}", raise_amount: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,2)' }}", option_pool_target_pct: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}", close_month: date}
     customer_billing_profile:
       +column_types: {tax_rate: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}"}
+    deal_guardrails:
+      +column_types: {max_discount_pct: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}"}
+    deal_policy:
+      +column_types: {value: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,4)' }}"}
+    sales_reps:
+      +column_types: {annual_quota_arr: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,2)' }}", base_rate: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}", accelerator_rate: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}", clawback_days: integer}
     fx_rates:
       +column_types: {month: date, usd_per_unit: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,6)' }}"}
     payment_fee_schedule:

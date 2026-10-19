@@ -34,7 +34,7 @@ def load(src: Path, project: str, location="US"):
         client.create_dataset(ds, exists_ok=True)
     total_scanned = 0
     for (schema, table), cols in SCHEMAS.items():
-        path = src / f"{table}.csv"
+        path = src / (f"netsuite_{table}.csv" if schema == "raw_netsuite" else f"{table}.csv")
         if not path.exists():
             continue
         tmp = f"{project}.{schema}._load_{table}"
@@ -70,7 +70,39 @@ def load(src: Path, project: str, location="US"):
         client.delete_table(tmp)
         total_scanned += job.total_bytes_processed or 0
         print(f"raw_stripe.{obj}: {client.get_table(f'{project}.raw_stripe.{obj}').num_rows:,} rows")
+    path = src / "gcp" / "gcp_billing_export_v1.jsonl"
+    if path.exists():  # nested, so an explicit schema (Google's own column types)
+        ds = bigquery.Dataset(f"{project}.raw_gcp")
+        ds.location = location
+        client.create_dataset(ds, exists_ok=True)
+        cfg = bigquery.LoadJobConfig(source_format=bigquery.SourceFormat.NEWLINE_DELIMITED_JSON,
+                                     write_disposition="WRITE_TRUNCATE", schema=gcp_export_schema())
+        with open(path, "rb") as f:
+            client.load_table_from_file(f, f"{project}.raw_gcp.gcp_billing_export_v1", job_config=cfg).result()
+        print(f"raw_gcp.gcp_billing_export_v1: {client.get_table(f'{project}.raw_gcp.gcp_billing_export_v1').num_rows:,} rows")
     print(f"done; scanned {total_scanned / 1e6:.0f} MB to stamp _loaded_at")
+
+
+def gcp_export_schema():
+    F = bigquery.SchemaField
+    kv = lambda name: F(name, "RECORD", mode="REPEATED", fields=[F("key", "STRING"), F("value", "STRING")])  # noqa: E731
+    return [F("billing_account_id", "STRING"),
+            F("service", "RECORD", fields=[F("id", "STRING"), F("description", "STRING")]),
+            F("sku", "RECORD", fields=[F("id", "STRING"), F("description", "STRING")]),
+            F("usage_start_time", "TIMESTAMP"), F("usage_end_time", "TIMESTAMP"),
+            F("project", "RECORD", fields=[F("id", "STRING"), F("number", "STRING"), F("name", "STRING"), kv("labels"),
+                                           F("ancestry_numbers", "STRING")]),
+            kv("labels"), kv("system_labels"),
+            F("location", "RECORD", fields=[F("location", "STRING"), F("country", "STRING"), F("region", "STRING"),
+                                            F("zone", "STRING")]),
+            F("export_time", "TIMESTAMP"), F("cost", "FLOAT"), F("currency", "STRING"),
+            F("currency_conversion_rate", "FLOAT"),
+            F("usage", "RECORD", fields=[F("amount", "FLOAT"), F("unit", "STRING"), F("amount_in_pricing_units", "FLOAT"),
+                                         F("pricing_unit", "STRING")]),
+            F("credits", "RECORD", mode="REPEATED", fields=[F("name", "STRING"), F("amount", "FLOAT"), F("full_name", "STRING"),
+                                                             F("id", "STRING"), F("type", "STRING")]),
+            F("invoice", "RECORD", fields=[F("month", "STRING"), F("publisher_type", "STRING")]),
+            F("cost_type", "STRING"), F("transaction_type", "STRING"), F("seller_name", "STRING")]
 
 
 def main():

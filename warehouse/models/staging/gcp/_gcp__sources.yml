@@ -1,0 +1,8 @@
+version: 2
+
+sources:
+  - name: gcp
+    schema: "{{ var('dataset_prefix', '') }}raw_gcp"
+    description: Google Cloud detailed billing export (standard usage cost export schema, nested).
+    tables:
+      - name: gcp_billing_export_v1
