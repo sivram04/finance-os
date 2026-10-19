@@ -199,6 +199,28 @@ def create_app(state: AppState | None = None, wh: tools.Warehouse | None = None,
                             "decided_by": a.get("decided_by"), "audit": state.audit(a["id"])})
         return out[::-1]
 
+    @app.get("/api/control-queue")
+    def control_queue():
+        """The control queue with resolution status from the workspace: a budget variance is resolved once the CFO has
+        recorded a decision; AP bills, reminders and cash fixes once their approval card is decided."""
+        token = tools.FULL_ROWS.set(True)
+        try:
+            q = tools.get_control_queue(wh)
+        finally:
+            tools.FULL_ROWS.reset(token)
+        decided = {}
+        for a in state.actions():
+            if a["status"] in ("approved", "rejected"):
+                payload = json.loads(a["payload"]) if isinstance(a["payload"], str) else a["payload"]
+                note = payload.get("decision") or a["status"]
+                decided[a["target_id"]] = {"resolution": note, "resolved_at": str(a["decided_at"])[:16]}
+        for item in q["rows"]:
+            d = decided.get(item["reference"])
+            item["status"] = "resolved" if d else "open"
+            item["resolution"] = d["resolution"] if d else None
+        q["resolved"] = sum(1 for i in q["rows"] if i["status"] == "resolved")
+        return q
+
     @app.get("/api/audit")
     def audit():
         return state.audit()

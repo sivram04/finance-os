@@ -16,6 +16,10 @@ Generated from `warehouse/metrics/kpis.yml` by `finance_os.reports.build_metric_
 - **Owner:** Controller
 - **Status:** MEASURED
 - **Tolerance / caveats:** Usage must equal rated usage (recon_gl_revenue); services must equal project invoices (recon_project_billing_gl).
+- **Threshold:** variance vs budget; higher is better; amber at -0.05, red at -0.15
+- **Decision at amber:** VP Finance explains the gap and re-forecasts the year
+- **Decision at red:** CFO decides: accept and re-forecast, fund a corrective plan, or cut spend
+- **Proved by reconciliation checks:** gl_revenue_vs_rated_usage, stripe_invoices_vs_gl_revenue, project_billing_vs_gl
 
 ## Cost of revenue (`cogs`)
 
@@ -31,6 +35,10 @@ Generated from `warehouse/metrics/kpis.yml` by `finance_os.reports.build_metric_
 - **Owner:** Controller
 - **Status:** MEASURED
 - **Tolerance / caveats:** Vendor invoices reconcile to modeled cost within 1% (recon_vendor_invoices).
+- **Threshold:** variance vs budget; lower is better; amber at -0.05, red at -0.15
+- **Decision at amber:** Head of Infra explains cost per hour vs plan
+- **Decision at red:** CFO approves a cost-to-serve plan (commit renegotiation, routing, idle-pool cut)
+- **Proved by reconciliation checks:** vendor_invoice_vs_modeled, vendor_bill_vs_gl_ap, gcp_export_vs_bill
 
 ## Operating expenses (`opex`)
 
@@ -46,6 +54,10 @@ Generated from `warehouse/metrics/kpis.yml` by `finance_os.reports.build_metric_
 - **Owner:** Controller
 - **Status:** MEASURED
 - **Tolerance / caveats:** Payroll accounts equal the payroll register exactly (recon_payroll_gl).
+- **Threshold:** variance vs budget; lower is better; amber at -0.05, red at -0.1
+- **Decision at amber:** Department owners explain overspend in commentary
+- **Decision at red:** CFO decides: re-budget, freeze discretionary spend or approve the overrun
+- **Proved by reconciliation checks:** payroll_register_vs_gl
 
 ## Gross margin % (`gross_margin_pct`)
 
@@ -61,6 +73,10 @@ Generated from `warehouse/metrics/kpis.yml` by `finance_os.reports.build_metric_
 - **Owner:** VP Finance
 - **Status:** MEASURED
 - **Tolerance / caveats:** GL-based; differs from fct_unit_economics_monthly, which allocates modeled cost and excludes payment fees.
+- **Threshold:** value; higher is better; amber at 0.62, red at 0.55
+- **Decision at amber:** Review customers below the margin floor
+- **Decision at red:** Reprice below-floor customers and cut cost per hour; pause discounting
+- **Proved by reconciliation checks:** gl_revenue_vs_rated_usage, vendor_invoice_vs_modeled
 
 ## Gross burn (`gross_burn`)
 
@@ -76,6 +92,10 @@ Generated from `warehouse/metrics/kpis.yml` by `finance_os.reports.build_metric_
 - **Owner:** VP Finance
 - **Status:** MEASURED
 - **Tolerance / caveats:** Closing cash must never be negative.
+- **Threshold:** month-over-month change; lower is better; amber at 0.05, red at 0.15
+- **Decision at amber:** Explain the step-up in spend
+- **Decision at red:** Spend review with each department head
+- **Proved by reconciliation checks:** stripe_balance_vs_gl_cash, payroll_register_vs_gl
 
 ## Net burn (`net_burn`)
 
@@ -91,6 +111,10 @@ Generated from `warehouse/metrics/kpis.yml` by `finance_os.reports.build_metric_
 - **Owner:** VP Finance
 - **Status:** MEASURED
 - **Tolerance / caveats:** None beyond GL balance.
+- **Threshold:** month-over-month change; lower is better; amber at 0.1, red at 0.3
+- **Decision at amber:** Explain the burn increase (burn bridge)
+- **Decision at red:** CFO sets a burn ceiling and reviews hiring
+- **Proved by reconciliation checks:** stripe_balance_vs_gl_cash
 
 ## Cash balance (`closing_cash`)
 
@@ -106,6 +130,10 @@ Generated from `warehouse/metrics/kpis.yml` by `finance_os.reports.build_metric_
 - **Owner:** VP Finance
 - **Status:** MEASURED
 - **Tolerance / caveats:** Will reconcile to Stripe payouts and bank statements in M12.
+- **Threshold:** value; higher is better; amber at 9000000, red at 6000000
+- **Decision at amber:** Re-run the 13-week cash forecast
+- **Decision at red:** Start the financing plan; draw the venture facility if needed
+- **Proved by reconciliation checks:** stripe_balance_vs_gl_cash
 
 ## Runway (`runway_months`)
 
@@ -121,6 +149,10 @@ Generated from `warehouse/metrics/kpis.yml` by `finance_os.reports.build_metric_
 - **Owner:** VP Finance
 - **Status:** MEASURED
 - **Tolerance / caveats:** Assumes the trailing burn rate continues; not a forecast.
+- **Threshold:** value; higher is better; amber at 24, red at 15
+- **Decision at amber:** Board update on runway and the funding plan
+- **Decision at red:** Raise now or cut burn to reach 24 months
+- **Proved by reconciliation checks:** stripe_balance_vs_gl_cash
 
 ## Run-rate ARR (`arr`)
 
@@ -136,6 +168,10 @@ Generated from `warehouse/metrics/kpis.yml` by `finance_os.reports.build_metric_
 - **Owner:** VP Finance
 - **Status:** MEASURED
 - **Tolerance / caveats:** Usage-based ARR moves with seasonality; read with NRR.
+- **Threshold:** month-over-month change; higher is better; amber at 0.0, red at -0.02
+- **Decision at amber:** Explain the ARR movement (ARR waterfall)
+- **Decision at red:** Retention and pipeline plan from the CRO
+- **Proved by reconciliation checks:** gl_revenue_vs_rated_usage
 
 ## Headcount (`headcount`)
 
@@ -151,6 +187,10 @@ Generated from `warehouse/metrics/kpis.yml` by `finance_os.reports.build_metric_
 - **Owner:** VP Finance
 - **Status:** MEASURED
 - **Tolerance / caveats:** Employees with pay in the month must reconcile to headcount ± hires and leavers.
+- **Threshold:** variance vs plan; lower is better; amber at 0.02, red at 0.05
+- **Decision at amber:** Reconcile hires to the approved plan
+- **Decision at red:** Freeze unapproved requisitions
+- **Proved by reconciliation checks:** payroll_register_vs_gl
 
 ## ARR per employee (`arr_per_employee`)
 
@@ -166,6 +206,10 @@ Generated from `warehouse/metrics/kpis.yml` by `finance_os.reports.build_metric_
 - **Owner:** VP Finance
 - **Status:** MEASURED
 - **Tolerance / caveats:** None.
+- **Threshold:** value; higher is better; amber at 250000, red at 180000
+- **Decision at amber:** Check hiring is ahead of revenue
+- **Decision at red:** Slow hiring until ARR per employee recovers
+- **Proved by reconciliation checks:** none (derived metric)
 
 ## Net revenue retention (`nrr`)
 
@@ -181,6 +225,10 @@ Generated from `warehouse/metrics/kpis.yml` by `finance_os.reports.build_metric_
 - **Owner:** VP Finance
 - **Status:** MEASURED
 - **Tolerance / caveats:** Starts once 12 months plus a 3-month window of history exist.
+- **Threshold:** value; higher is better; amber at 1.1, red at 1.0
+- **Decision at amber:** Review contraction and churn drivers
+- **Decision at red:** Retention program and expansion targets for CS and Sales
+- **Proved by reconciliation checks:** gl_revenue_vs_rated_usage
 
 ## Gross revenue retention (`grr`)
 
@@ -196,6 +244,10 @@ Generated from `warehouse/metrics/kpis.yml` by `finance_os.reports.build_metric_
 - **Owner:** VP Finance
 - **Status:** MEASURED
 - **Tolerance / caveats:** Always ≤ NRR and ≤ 1.
+- **Threshold:** value; higher is better; amber at 0.9, red at 0.85
+- **Decision at amber:** Review accounts that contracted or churned
+- **Decision at red:** Save plan for at-risk accounts; review product fit
+- **Proved by reconciliation checks:** gl_revenue_vs_rated_usage
 
 ## Active customers (`active_customers`)
 
@@ -211,6 +263,10 @@ Generated from `warehouse/metrics/kpis.yml` by `finance_os.reports.build_metric_
 - **Owner:** VP Finance
 - **Status:** MEASURED
 - **Tolerance / caveats:** Equals opening + new + reactivated − churned (assert_mrr_bridge_balances).
+- **Threshold:** month-over-month change; higher is better; amber at 0.0, red at -0.03
+- **Decision at amber:** Explain the drop
+- **Decision at red:** Acquisition and retention plan
+- **Proved by reconciliation checks:** none (derived metric)
 
 ## New customers (`new_customers`)
 
@@ -226,6 +282,10 @@ Generated from `warehouse/metrics/kpis.yml` by `finance_os.reports.build_metric_
 - **Owner:** VP Finance
 - **Status:** MEASURED
 - **Tolerance / caveats:** None.
+- **Threshold:** value; higher is better; amber at 3, red at 1
+- **Decision at amber:** Check pipeline conversion
+- **Decision at red:** Marketing and sales capacity review
+- **Proved by reconciliation checks:** none (derived metric)
 
 ## Churned customers (`churned_customers`)
 
@@ -241,6 +301,10 @@ Generated from `warehouse/metrics/kpis.yml` by `finance_os.reports.build_metric_
 - **Owner:** VP Finance
 - **Status:** MEASURED
 - **Tolerance / caveats:** Measured from revenue; a customer that pauses for a month counts as churned, then reactivated.
+- **Threshold:** value; lower is better; amber at 2, red at 4
+- **Decision at amber:** Review each churn reason
+- **Decision at red:** Retention program; executive sponsor for top accounts
+- **Proved by reconciliation checks:** none (derived metric)
 
 ## Logo churn rate (`logo_churn_rate`)
 
@@ -256,6 +320,10 @@ Generated from `warehouse/metrics/kpis.yml` by `finance_os.reports.build_metric_
 - **Owner:** VP Finance
 - **Status:** MEASURED
 - **Tolerance / caveats:** Dominated by self-serve; read alongside gross MRR churn.
+- **Threshold:** value; lower is better; amber at 0.03, red at 0.05
+- **Decision at amber:** Review churn reasons by segment
+- **Decision at red:** Retention program for the worst segment
+- **Proved by reconciliation checks:** none (derived metric)
 
 ## Gross MRR churn rate (`gross_mrr_churn_rate`)
 
@@ -271,6 +339,10 @@ Generated from `warehouse/metrics/kpis.yml` by `finance_os.reports.build_metric_
 - **Owner:** VP Finance
 - **Status:** MEASURED
 - **Tolerance / caveats:** Usage noise makes every month show some contraction; trend matters more than level.
+- **Threshold:** value; lower is better; amber at 0.02, red at 0.04
+- **Decision at amber:** Review revenue lost to contraction and churn
+- **Decision at red:** Save plan for the largest losses
+- **Proved by reconciliation checks:** gl_revenue_vs_rated_usage
 
 ## DSO (`dso_days`)
 
@@ -286,6 +358,10 @@ Generated from `warehouse/metrics/kpis.yml` by `finance_os.reports.build_metric_
 - **Owner:** Controller
 - **Status:** MEASURED
 - **Tolerance / caveats:** AR subledger must equal the GL control account (assert_ar_ties_to_gl). Month-end billing makes it swing.
+- **Threshold:** value; lower is better; amber at 50, red at 65
+- **Decision at amber:** Collections push on the oldest invoices
+- **Decision at red:** Tighten terms; escalate top overdue accounts to the CFO
+- **Proved by reconciliation checks:** stripe_invoices_vs_gl_revenue
 
 ## Collection effectiveness index (`cei`)
 
@@ -301,6 +377,10 @@ Generated from `warehouse/metrics/kpis.yml` by `finance_os.reports.build_metric_
 - **Owner:** Controller
 - **Status:** MEASURED
 - **Tolerance / caveats:** 1.0 means everything collectible was collected.
+- **Threshold:** value; higher is better; amber at 0.85, red at 0.75
+- **Decision at amber:** Review the collections queue
+- **Decision at red:** Add collections capacity or change terms
+- **Proved by reconciliation checks:** none (derived metric)
 
 ## AR over 60 days (`ar_over_60`)
 
@@ -316,6 +396,10 @@ Generated from `warehouse/metrics/kpis.yml` by `finance_os.reports.build_metric_
 - **Owner:** Controller
 - **Status:** MEASURED
 - **Tolerance / caveats:** Includes failed-payment self-serve balances that should be reviewed for write-off.
+- **Threshold:** value; lower is better; amber at 25000, red at 100000
+- **Decision at amber:** Escalate invoices over 60 days
+- **Decision at red:** Credit hold and executive escalation; consider a reserve
+- **Proved by reconciliation checks:** stripe_invoices_vs_gl_revenue
 
 ## Net new run-rate ARR (`net_new_arr`)
 
@@ -331,6 +415,10 @@ Generated from `warehouse/metrics/kpis.yml` by `finance_os.reports.build_metric_
 - **Owner:** VP Finance
 - **Status:** MEASURED
 - **Tolerance / caveats:** Recomputed from governed marts; parity-tested on two engines.
+- **Threshold:** value; higher is better; amber at 500000, red at 0
+- **Decision at amber:** Explain the bookings shortfall
+- **Decision at red:** Pipeline and capacity plan
+- **Proved by reconciliation checks:** none (derived metric)
 
 ## SaaS quick ratio (`quick_ratio`)
 
@@ -346,6 +434,10 @@ Generated from `warehouse/metrics/kpis.yml` by `finance_os.reports.build_metric_
 - **Owner:** VP Finance
 - **Status:** MEASURED
 - **Tolerance / caveats:** Recomputed from governed marts; parity-tested on two engines.
+- **Threshold:** value; higher is better; amber at 4, red at 2
+- **Decision at amber:** Growth is leaking: review losses
+- **Decision at red:** Fix retention before adding acquisition spend
+- **Proved by reconciliation checks:** none (derived metric)
 
 ## Burn multiple (`burn_multiple`)
 
@@ -361,6 +453,10 @@ Generated from `warehouse/metrics/kpis.yml` by `finance_os.reports.build_metric_
 - **Owner:** CFO
 - **Status:** MEASURED
 - **Tolerance / caveats:** Recomputed from governed marts; parity-tested on two engines.
+- **Threshold:** value; lower is better; amber at 1.5, red at 2.0
+- **Decision at amber:** Explain burn per net new ARR
+- **Decision at red:** Cut inefficient spend until below 1.5x
+- **Proved by reconciliation checks:** stripe_balance_vs_gl_cash
 
 ## Rule of 40 (`rule_of_40`)
 
@@ -376,6 +472,10 @@ Generated from `warehouse/metrics/kpis.yml` by `finance_os.reports.build_metric_
 - **Owner:** CFO
 - **Status:** MEASURED
 - **Tolerance / caveats:** Recomputed from governed marts; parity-tested on two engines.
+- **Threshold:** value; higher is better; amber at 0.4, red at 0.2
+- **Decision at amber:** Balance growth and margin
+- **Decision at red:** Board discussion: growth vs profitability plan
+- **Proved by reconciliation checks:** none (derived metric)
 
 ## CAC (S&M only) (`cac`)
 
@@ -391,6 +491,10 @@ Generated from `warehouse/metrics/kpis.yml` by `finance_os.reports.build_metric_
 - **Owner:** VP Finance
 - **Status:** MEASURED
 - **Tolerance / caveats:** Recomputed from governed marts; parity-tested on two engines.
+- **Threshold:** month-over-month change; lower is better; amber at 0.1, red at 0.25
+- **Decision at amber:** Explain the CAC rise
+- **Decision at red:** Review channel spend
+- **Proved by reconciliation checks:** none (derived metric)
 
 ## CAC (fully burdened) (`cac_burdened`)
 
@@ -406,6 +510,10 @@ Generated from `warehouse/metrics/kpis.yml` by `finance_os.reports.build_metric_
 - **Owner:** VP Finance
 - **Status:** MEASURED
 - **Tolerance / caveats:** Recomputed from governed marts; parity-tested on two engines.
+- **Threshold:** month-over-month change; lower is better; amber at 0.1, red at 0.25
+- **Decision at amber:** Explain the CAC rise (with overhead)
+- **Decision at red:** Review sales and marketing headcount
+- **Proved by reconciliation checks:** none (derived metric)
 
 ## LTV : CAC (fully burdened) (`ltv_to_cac_burdened`)
 
@@ -421,6 +529,10 @@ Generated from `warehouse/metrics/kpis.yml` by `finance_os.reports.build_metric_
 - **Owner:** VP Finance
 - **Status:** MEASURED
 - **Tolerance / caveats:** Recomputed from governed marts; parity-tested on two engines.
+- **Threshold:** value; higher is better; amber at 3.0, red at 1.5
+- **Decision at amber:** Review unit economics by segment
+- **Decision at red:** Shift spend to the segments above 3x
+- **Proved by reconciliation checks:** none (derived metric)
 
 ## CAC payback (fully burdened) (`cac_payback_burdened_months`)
 
@@ -436,6 +548,10 @@ Generated from `warehouse/metrics/kpis.yml` by `finance_os.reports.build_metric_
 - **Owner:** VP Finance
 - **Status:** MEASURED
 - **Tolerance / caveats:** Recomputed from governed marts; parity-tested on two engines.
+- **Threshold:** value; lower is better; amber at 12, red at 18
+- **Decision at amber:** Review payback by segment
+- **Decision at red:** Stop spend in segments above 18 months
+- **Proved by reconciliation checks:** none (derived metric)
 
 ## Magic number (`magic_number`)
 
@@ -451,6 +567,10 @@ Generated from `warehouse/metrics/kpis.yml` by `finance_os.reports.build_metric_
 - **Owner:** VP Finance
 - **Status:** MEASURED
 - **Tolerance / caveats:** Recomputed from governed marts; parity-tested on two engines.
+- **Threshold:** value; higher is better; amber at 0.75, red at 0.5
+- **Decision at amber:** Review sales efficiency
+- **Decision at red:** Hold S&M spend flat until above 0.75
+- **Proved by reconciliation checks:** none (derived metric)
 
 ## Contracted ARR (`contracted_arr`)
 
@@ -466,6 +586,10 @@ Generated from `warehouse/metrics/kpis.yml` by `finance_os.reports.build_metric_
 - **Owner:** VP Finance
 - **Status:** MEASURED
 - **Tolerance / caveats:** Recomputed from governed marts; parity-tested on two engines.
+- **Threshold:** vs run-rate ARR; higher is better; amber at -0.1, red at -0.25
+- **Decision at amber:** Re-paper usage above commitments
+- **Decision at red:** Renewal strategy: convert overage to commitment
+- **Proved by reconciliation checks:** none (derived metric)
 
 ## Remaining performance obligations (`rpo`)
 
@@ -481,6 +605,10 @@ Generated from `warehouse/metrics/kpis.yml` by `finance_os.reports.build_metric_
 - **Owner:** Controller
 - **Status:** MEASURED
 - **Tolerance / caveats:** Recomputed from governed marts; parity-tested on two engines.
+- **Threshold:** month-over-month change; higher is better; amber at 0.0, red at -0.1
+- **Decision at amber:** Explain the drop in contracted backlog
+- **Decision at red:** Renewal push on contracts in their last 180 days
+- **Proved by reconciliation checks:** none (derived metric)
 
 ## Current RPO (`crpo`)
 
@@ -496,3 +624,7 @@ Generated from `warehouse/metrics/kpis.yml` by `finance_os.reports.build_metric_
 - **Owner:** Controller
 - **Status:** MEASURED
 - **Tolerance / caveats:** Recomputed from governed marts; parity-tested on two engines.
+- **Threshold:** month-over-month change; higher is better; amber at 0.0, red at -0.1
+- **Decision at amber:** Explain the drop in next-12-month backlog
+- **Decision at red:** Renewal and expansion targets for the quarter
+- **Proved by reconciliation checks:** none (derived metric)

@@ -17,7 +17,7 @@ SEED = SEEDS / "metric_catalog.csv"
 DOC = DOCS / "METRIC_CATALOG.md"
 FIELDS = ["name", "label", "unit", "purpose", "formula", "grain", "source_model", "owner", "status", "tolerance",
           "numerator", "denominator", "inclusions", "exclusions", "currency_treatment", "period_logic", "refresh",
-          "version", "effective_from", "restatement_policy"]
+          "version", "effective_from", "restatement_policy", "threshold_rule", "decision_amber", "decision_red", "recon_checks"]
 CHANGELOG = SEEDS / "metric_changelog.csv"
 
 
@@ -29,12 +29,24 @@ def load_changelog():
     return yaml.safe_load(SOURCE.read_text(encoding="utf-8")).get("changelog") or []
 
 
+def threshold_rule(m):
+    t = m.get("threshold") or {}
+    basis = {"value": "value", "mom": "month-over-month change", "vs_budget": "variance vs budget", "vs_plan": "variance vs plan",
+             "vs_run_rate": "vs run-rate ARR"}.get(t.get("basis"), t.get("basis"))
+    return f"{basis}; {t.get('better')} is better; amber at {t.get('amber')}, red at {t.get('red')}"
+
+
+def _row(m):
+    return {**m, "threshold_rule": threshold_rule(m), "recon_checks": ", ".join(m.get("recon_checks") or [])}
+
+
 def render_seed(metrics):
     buf = io.StringIO()
     w = csv.DictWriter(buf, fieldnames=["metric_name"] + FIELDS[1:], lineterminator="\n")
     w.writeheader()
     for m in metrics:
-        w.writerow({"metric_name": m["name"], **{f: m[f] for f in FIELDS[1:]}})
+        r = _row(m)
+        w.writerow({"metric_name": m["name"], **{f: r[f] for f in FIELDS[1:]}})
     return buf.getvalue()
 
 
@@ -54,7 +66,11 @@ def render_doc(metrics):
                 f"- **Source model:** `{m['source_model']}`",
                 f"- **Owner:** {m['owner']}",
                 f"- **Status:** {m['status']}",
-                f"- **Tolerance / caveats:** {m['tolerance']}", ""]
+                f"- **Tolerance / caveats:** {m['tolerance']}",
+                f"- **Threshold:** {threshold_rule(m)}",
+                f"- **Decision at amber:** {m.get('decision_amber')}",
+                f"- **Decision at red:** {m.get('decision_red')}",
+                f"- **Proved by reconciliation checks:** {', '.join(m.get('recon_checks') or []) or 'none (derived metric)'}", ""]
     return "\n".join(out)
 
 

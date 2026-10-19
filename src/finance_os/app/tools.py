@@ -2791,6 +2791,260 @@ def finance_calculator(wh, kind, inputs):
     rows = out.pop("rows", [])
     return {"source": f"finance_os.corpfin.{fn}", "row_count": len(rows), "rows": rows, "kind": kind, "inputs": args, "result": out}
 
+_LINEAGE = {}
+
+
+def metric_lineage(model):
+    """Upstream lineage of a mart from dbt's manifest: the raw sources and seeds it is built from, and the models
+    in between (source → staging → intermediate → mart)."""
+    if model in _LINEAGE:
+        return _LINEAGE[model]
+    import json
+    path = Path(__file__).resolve().parents[3] / "warehouse" / "target" / "manifest.json"
+    if not path.exists():
+        return {"sources": [], "seeds": [], "models": []}
+    man = json.loads(path.read_text(encoding="utf-8"))
+    nodes = {**man["nodes"], **man["sources"]}
+    start = next((k for k in man["nodes"] if k.startswith("model.") and k.endswith("." + model)), None)
+    seen, todo, out = set(), [start] if start else [], {"sources": set(), "seeds": set(), "models": set()}
+    while todo:
+        k = todo.pop()
+        if k in seen or k not in nodes:
+            continue
+        seen.add(k)
+        n = nodes[k]
+        if k.startswith("source."):
+            out["sources"].add(f"{n['source_name']}.{n['name']}")
+            continue
+        if k.startswith("seed."):
+            out["seeds"].add(n["name"])
+            continue
+        if k.startswith("model.") and k != start:
+            out["models"].add(n["name"])
+        todo += n.get("depends_on", {}).get("nodes", [])
+    res = {key: sorted(v) for key, v in out.items()}
+    _LINEAGE[model] = res
+    return res
+
+
+def _status(x, better, amber, red):
+    if x is None:
+        return "grey"
+    if better == "higher":
+        return "red" if x <= red else "amber" if x <= amber else "green"
+    return "red" if x >= red else "amber" if x >= amber else "green"
+
+
+def get_decision_kpis(wh, month=None):
+    """Every governed metric as a decision: its value, the comparison its threshold uses (value, month-over-month,
+    vs budget / plan / run rate), green / amber / red status, the decision that status triggers, and its purpose,
+    formula, owner, source model, lineage back to raw sources, the reconciliation checks that prove it (with this
+    month's result) and data freshness. Answers 'which numbers need a decision this month and why'."""
+    import yaml
+    m = _month(month, wh)
+    spec = {x["name"]: x for x in yaml.safe_load((Path(__file__).resolve().parents[3] / "warehouse" / "metrics" / "kpis.yml")
+                                                  .read_text(encoding="utf-8"))["metrics"]}
+    vals = {r["metric_name"]: float(r["value"]) for r in wh.query(
+        "select metric_name, value from marts.fct_metric_values_monthly where month = ?::date", [m])}
+    prev = {r["metric_name"]: float(r["value"]) for r in wh.query(
+        "select metric_name, value from marts.fct_metric_values_monthly where month = ?::date - interval 1 month", [m])}
+    bva = {r["account_type"]: r for r in wh.query("""select account_type, sum(actual) as actual, sum(budget) as budget
+                                                    from marts.fct_bva_monthly where month = ?::date group by 1""", [m])}
+    pay = wh.query("""select sum(actual) as actual, sum(budget) as budget from marts.fct_bva_monthly
+                      where month = ?::date and account_id in ('6000', '6010', '6020')""", [m])[0]
+    recon = {}
+    for r in wh.query("select check_name, status, explanation from recon.recon_status where period = ?::date", [m]):
+        recon.setdefault(r["check_name"], []).append(r)
+    live = wh.query("select max(entry_date) as d from staging.stg_erp__journal_entries")[0]["d"]
+    out = []
+    for name, sp in spec.items():
+        v = vals.get(name)
+        t = sp.get("threshold") or {}
+        basis = t.get("basis", "value")
+        if basis == "mom":
+            x = None if v is None or not prev.get(name) else (v - prev[name]) / abs(prev[name])
+            shown = "month-over-month"
+        elif basis == "vs_budget":
+            b = bva.get(name if name != "revenue" else "revenue") if name in ("revenue", "cogs", "opex") else None
+            if b and float(b["budget"] or 0):
+                act, bud = float(b["actual"]), float(b["budget"])
+                x = (act - bud) / bud if name == "revenue" else (bud - act) / bud  # favorable +
+            else:
+                x = None
+            shown = "vs budget (favorable +)"
+        elif basis == "vs_plan":
+            x = (float(pay["actual"]) - float(pay["budget"])) / float(pay["budget"]) if pay["budget"] else None
+            shown = "payroll vs budget (overrun +)"
+        elif basis == "vs_run_rate":
+            x = (v - vals["arr"]) / vals["arr"] if v is not None and vals.get("arr") else None
+            shown = "vs run-rate ARR"
+        else:
+            x, shown = v, "value"
+        better = "higher" if basis == "vs_budget" else t.get("better")  # budget variances are favorable-positive
+        st = _status(x, better, t.get("amber"), t.get("red"))
+        checks = sp.get("recon_checks") or []
+        res = [r for c in checks for r in recon.get(c, [])]
+        recon_status = "not applicable" if not checks else ("pass" if res and all(r["status"] == "pass" for r in res)
+                                                            else "fail" if any(r["status"] != "pass" for r in res) else "no result")
+        lin = metric_lineage(sp["source_model"])
+        out.append({"metric": name, "label": sp["label"], "unit": sp["unit"], "value": v, "prior": prev.get(name),
+                    "compare_basis": shown, "compare_value": None if x is None else round(x, 4),
+                    "status": st, "threshold": {k: t.get(k) for k in ("basis", "better", "amber", "red")},
+                    "decision": sp.get("decision_red") if st == "red" else sp.get("decision_amber") if st == "amber" else "No action: within threshold",
+                    "purpose": sp["purpose"], "formula": sp["formula"], "owner": sp["owner"], "source_model": sp["source_model"],
+                    "lineage_sources": lin["sources"], "lineage_seeds": lin["seeds"], "lineage_models": lin["models"],
+                    "recon_checks": checks, "recon_status": recon_status, "version": sp.get("version"),
+                    "freshness": {"closed_through": m[:7], "live_through": str(live)[:10]}})
+    order = {"red": 0, "amber": 1, "green": 2, "grey": 3}
+    out.sort(key=lambda r: (order[r["status"]], r["label"]))
+    counts = {k: sum(1 for r in out if r["status"] == k) for k in order}
+    return _result(out, "warehouse/metrics/kpis.yml (thresholds, decisions), marts.fct_metric_values_monthly, fct_bva_monthly, "
+                        "recon.recon_status, dbt manifest (lineage)", month=m[:7], counts=counts,
+                   trust={"recon_checks_failing": sum(1 for v in recon.values() for r in v if r["status"] != "pass"),
+                          "recon_checks_run": sum(len(v) for v in recon.values()), "live_through": str(live)[:10]},
+                   note="Every number carries its purpose, definition, owner, source, lineage, reconciliation status, threshold "
+                        "and the decision its status triggers.")
+
+
+COST_PARTS = [("direct_gpu_cost", "GPU compute per hour"), ("shared_gpu_cost", "Shared GPU pool per hour"),
+              ("gpu_commit_shortfall_cost", "Unused GPU commitment per hour"), ("cloud_overhead_cost", "Cloud overhead per hour"),
+              ("payment_fees", "Payment fees per hour"), ("support_cost", "Support per hour"), ("success_cost", "Customer success per hour")]
+
+
+def get_contribution_bridge(wh, month=None):
+    """Contribution-margin variance bridge, this month vs last: usage contribution margin = revenue - cost of revenue
+    - payment fees - support - success. The change splits into volume (more audio hours at last month's margin per
+    hour), mix (which products the hours were in), price (revenue per hour by product), and each cost-to-serve
+    component per hour (GPU, shared pool, unused commitment, cloud, fees, support, success). Also the customers and
+    workloads that moved contribution most. The steps add up exactly."""
+    m = _month(month, wh)
+    rows = wh.query(f"""select month, product_id, sum(audio_hours) as h, sum(revenue) as rev, sum(contribution_margin) as cm,
+                               {', '.join(f'sum({c}) as {c}' for c, _ in COST_PARTS)}
+                        from marts.fct_unit_economics_monthly where month in (?::date, ?::date - interval 1 month)
+                        group by 1, 2""", [m, m])
+    cur = {r["product_id"]: r for r in rows if str(r["month"])[:10] == m}
+    pre = {r["product_id"]: r for r in rows if str(r["month"])[:10] != m}
+    f = lambda r, k: float(r.get(k) or 0) if r else 0.0  # noqa: E731
+    H1, H0 = sum(f(r, "h") for r in cur.values()), sum(f(r, "h") for r in pre.values())
+    CM1, CM0 = sum(f(r, "cm") for r in cur.values()), sum(f(r, "cm") for r in pre.values())
+    cmh0 = {p: f(pre.get(p), "cm") / f(pre.get(p), "h") if f(pre.get(p), "h") else 0.0 for p in set(cur) | set(pre)}
+    avg0 = CM0 / H0 if H0 else 0.0
+    volume = (H1 - H0) * avg0
+    mix = sum(f(cur.get(p), "h") * cmh0[p] for p in cmh0) - H1 * avg0
+    price = sum(f(cur.get(p), "h") * ((f(cur.get(p), "rev") / f(cur.get(p), "h") if f(cur.get(p), "h") else 0)
+                                       - (f(pre.get(p), "rev") / f(pre.get(p), "h") if f(pre.get(p), "h") else 0)) for p in cur)
+    steps = [{"step": "Volume (audio hours)", "amount": round(volume, 2)}, {"step": "Product mix", "amount": round(mix, 2)},
+             {"step": "Price (revenue per hour)", "amount": round(price, 2)}]
+    for c, label in COST_PARTS:
+        d = sum(f(cur.get(p), "h") * ((f(cur.get(p), c) / f(cur.get(p), "h") if f(cur.get(p), "h") else 0)
+                                       - (f(pre.get(p), c) / f(pre.get(p), "h") if f(pre.get(p), "h") else 0)) for p in cur)
+        steps.append({"step": label, "amount": round(-d, 2)})
+    resid = CM1 - CM0 - sum(x["amount"] for x in steps)
+    if abs(resid) >= 0.01:
+        steps.append({"step": "New and discontinued products", "amount": round(resid, 2)})
+    movers = wh.query("""with a as (select customer_id, workload, sum(contribution_margin) as cm, sum(revenue) as rev, sum(audio_hours) as h
+                                    from marts.fct_unit_economics_monthly where month = ?::date group by 1, 2),
+                              b as (select customer_id, workload, sum(contribution_margin) as cm
+                                    from marts.fct_unit_economics_monthly where month = ?::date - interval 1 month group by 1, 2)
+                         select coalesce(a.customer_id, b.customer_id) as customer_id, coalesce(a.workload, b.workload) as workload,
+                                coalesce(a.cm, 0) as contribution_margin, coalesce(b.cm, 0) as prior, coalesce(a.cm, 0) - coalesce(b.cm, 0) as change,
+                                a.cm / nullif(a.rev, 0) as contribution_margin_pct, a.cm / nullif(a.h, 0) as cm_per_hour
+                         from a full join b on a.customer_id = b.customer_id and a.workload = b.workload
+                         order by abs(coalesce(a.cm, 0) - coalesce(b.cm, 0)) desc limit 12""", [m, m])
+    return _result(steps, "marts.fct_unit_economics_monthly", month=m[:7],
+                   start={"label": "Last month contribution", "amount": round(CM0, 2)}, end={"label": "This month contribution", "amount": round(CM1, 2)},
+                   hours={"this": round(H1, 2), "prior": round(H0, 2)}, margin_pct={"this": round(CM1 / sum(f(r, "rev") for r in cur.values()), 4) if cur else None,
+                                                                                    "prior": round(CM0 / sum(f(r, "rev") for r in pre.values()), 4) if pre else None},
+                   movers=movers, note="Usage business only (services are project-billed). Steps add up to the change exactly.")
+
+
+def get_margin_sensitivity(wh):
+    """Contribution margin sensitivity: next-12-month usage contribution margin (and %) on the latest month's run rate
+    for each combination of price change (rows) and cost-to-serve-per-hour change (columns), plus a volume table.
+    Pairs with get_runway_sensitivity for cash."""
+    m = _month(None, wh)
+    r = wh.query("""select sum(revenue) as rev, sum(revenue - contribution_margin) as cost, sum(audio_hours) as h
+                    from marts.fct_unit_economics_monthly where month = ?::date""", [m])[0]
+    rev, cost = float(r["rev"]) * 12, float(r["cost"]) * 12
+    grid = []
+    for pr in (-0.15, -0.10, -0.05, 0.0, 0.05):
+        row = {"price_change": pr}
+        for cc in (-0.10, 0.0, 0.10, 0.20, 0.35):
+            rv, cs = rev * (1 + pr), cost * (1 + cc)
+            row[f"cost {cc:+.0%}"] = round((rv - cs) / rv, 4)
+        grid.append(row)
+    vol = [{"volume_change": v, "contribution_margin": round((rev - cost) * (1 + v), 2)} for v in (-0.2, -0.1, 0.0, 0.1, 0.2)]
+    return _result(grid, "marts.fct_unit_economics_monthly (latest month x 12)", month=m[:7],
+                   base={"annual_revenue": round(rev, 2), "annual_cost_to_serve": round(cost, 2),
+                         "contribution_margin_pct": round((rev - cost) / rev, 4) if rev else None},
+                   volume=vol, note="Cells are contribution margin % (price changes revenue per hour; cost changes cost to serve per hour).")
+
+
+def get_control_queue(wh):
+    """One queue of everything unresolved that needs an owner's action: budget variances to explain, failing
+    reconciliations, open close tasks, AP bills to review, cash-application and billing exceptions, overdue
+    receivables, cost anomalies, renewals burning below commitment, and KPIs at red. Each item has an owner, an
+    amount, its age, the threshold it broke, the action and the page that resolves it."""
+    m = _month(None, wh)
+    end = wh.query("select max(entry_date) as d from staging.stg_erp__journal_entries")[0]["d"]
+    items = []
+
+    def add(kind, ref, desc, owner, amount, since, threshold, action, page, severity="medium"):
+        age = None
+        if since:
+            from datetime import date
+            try:
+                age = (date.fromisoformat(str(end)[:10]) - date.fromisoformat(str(since)[:10])).days
+            except ValueError:
+                age = None
+        items.append({"type": kind, "reference": ref, "description": desc, "owner": owner, "amount": amount, "age_days": age,
+                      "threshold": threshold, "action": action, "page": page, "severity": severity})
+
+    for a in wh.query("""select alert_id, message, route_to, variance, month, commentary_status from marts.fct_bva_alerts
+                         where month = ?::date order by abs(variance) desc""", [m]):
+        add("Budget variance", a["alert_id"], a["message"], a["route_to"], abs(float(a["variance"])), a["month"],
+            "Materiality: $25K and 10%", "Root cause, commentary and a CFO decision (variance case)", "budget",
+            "high" if abs(float(a["variance"])) > 100000 else "medium")
+    for r in wh.query("select check_name, period, entity_id, variance, explanation from recon.recon_status where status <> 'pass'"):
+        add("Reconciliation break", f"{r['check_name']} {str(r['period'])[:7]}", r["explanation"] or r["check_name"], "Controller",
+            abs(float(r["variance"] or 0)), r["period"], "Must tie within tolerance", "Investigate and post the correcting entry", "trust", "high")
+    for t in wh.query("""select task_id, task, owner, due_date, open_items from marts.fct_close_status
+                         where month = ?::date and status <> 'complete'""", [m]):
+        add("Close task", t["task_id"], t["task"], t["owner"], None, t["due_date"], "Due by close workday",
+            "Complete with evidence and sign off", "close", "high")
+    for b in wh.query("select doc_file, vendor_id, total, reason, detail from marts.fct_ap_review_queue"):
+        add("AP bill to review", b["doc_file"], f"{b['vendor_id']}: {b['reason']}", "AP specialist", float(b["total"] or 0), None,
+            "Matched to PO and contract", "Approve or reject (approval card)", "ap")
+    for e in wh.query("select exception_type, customer_id, reference_id, exception_date, amount, detail from marts.fct_cash_application_exceptions"):
+        add("Cash application", e["reference_id"], f"{e['customer_id']}: {e['detail']}", "AR specialist", float(e["amount"] or 0),
+            e["exception_date"], "Payments applied to the right invoice", "Re-apply the payment (approval card)", "ar", "high")
+    for e in wh.query("select exception_type, project_id, invoice_id, amount_at_risk, detail from marts.fct_billing_exceptions"):
+        add("Billing exception", e["invoice_id"], f"{e['project_id']}: {e['detail']}", "Billing specialist", float(e["amount_at_risk"] or 0),
+            None, "Invoice matches contract rates", "Correct the invoice before sending", "billing")
+    for i in wh.query("""select invoice_ref, customer_id, balance, days_past_due, due_date from marts.fct_ar_invoices
+                         where balance > 0 and days_past_due > 60 order by balance desc"""):
+        add("Overdue receivable", i["invoice_ref"], f"{i['customer_id']} {i['days_past_due']} days past due", "Controller",
+            float(i["balance"]), i["due_date"], "Over 60 days", "Escalate; consider credit hold and a reserve", "ar", "high")
+    for a in wh.query("""select spend_date, vendor_id, service, team, deviation from marts.fct_cost_anomalies
+                         where spend_date > (select max(spend_date) from marts.fct_tech_spend_daily) - interval 30 day"""):
+        add("Cost anomaly", f"{a['vendor_id']} {a['service']}", f"{a['service']} spend spike ({a['team']})", a["team"] or "Head of Infra",
+            abs(float(a["deviation"])), a["spend_date"], "3 standard deviations and $500", "Find the cause; stop it or accept it", "spend")
+    for c in [r for r in get_contracts(wh)["rows"] if r["in_renewal_window"] and (r["burn_pace"] or 0) < 0.9]:
+        add("Renewal at risk", c["contract_id"], f"{c['customer_id']} at {c['burn_pace']:.0%} of commitment pace, renews in {c['days_to_renewal']} days",
+            "CRO", float(c["current_commitment"]), None, "Burn pace below 90% inside 180 days of renewal", "Save plan before renewal", "contracts", "high")
+    for k in [r for r in get_decision_kpis(wh)["rows"] if r["status"] == "red"]:
+        add("KPI at red", k["metric"], f"{k['label']} {k['compare_basis']}", k["owner"], None, None,
+            f"{k['threshold']['basis']}: red at {k['threshold']['red']}", k["decision"], "kpis", "high")
+    sev = {"high": 0, "medium": 1}
+    items.sort(key=lambda x: (sev.get(x["severity"], 2), -(x["amount"] or 0)))
+    by_type = {}
+    for x in items:
+        by_type[x["type"]] = by_type.get(x["type"], 0) + 1
+    return _result(items, "fct_bva_alerts, recon.recon_status, fct_close_status, fct_ap_review_queue, fct_cash_application_exceptions, "
+                          "fct_billing_exceptions, fct_ar_invoices, fct_cost_anomalies, get_contracts, get_decision_kpis",
+                   month=m[:7], counts=by_type, open_items=len(items),
+                   note="Variances count as resolved once a CFO decision is recorded (the workspace marks them).")
+
 def get_treasury_sweep(wh):
     """Simulated cash sweeps over the 13-week forecast. Each week the operating account takes the net flow, then:
     excess above six weeks of outflows sweeps to the money market fund; a shortfall below the four-week policy pulls
@@ -3003,6 +3257,19 @@ TOOLS = {
                            + ", ".join(CALCULATORS) + ". inputs: the named parameters for that kind (rates as decimals).",
                            _p({"kind": {"type": "string", "enum": list(CALCULATORS)}, "inputs": {"type": "object"}}, ["kind", "inputs"])),
     "finance_calculator_specs": (finance_calculator_specs, "List the calculator kinds and their inputs.", _p({})),
+    "get_decision_kpis": (get_decision_kpis, "Every governed KPI as a decision: value, the threshold comparison (value, "
+                          "month-over-month, vs budget, vs plan), green/amber/red status, the decision that status triggers, "
+                          "purpose, formula, owner, source, lineage to raw sources, reconciliation status and freshness. Use "
+                          "for 'which numbers need a decision', 'what is red', 'is this number trustworthy'.", _p({"month": MONTH})),
+    "get_contribution_bridge": (get_contribution_bridge, "Contribution-margin variance bridge vs last month: volume, product mix, "
+                                "price per hour and each cost-to-serve component per hour (GPU, shared pool, unused commitment, "
+                                "cloud, payment fees, support, success), plus the customers and workloads that moved it.",
+                                _p({"month": MONTH})),
+    "get_margin_sensitivity": (get_margin_sensitivity, "Contribution margin % for price change x cost-to-serve change, and "
+                               "contribution by volume change, on the latest month's run rate.", _p({})),
+    "get_control_queue": (get_control_queue, "The unresolved queue: budget variances to explain, reconciliation breaks, open "
+                          "close tasks, AP bills to review, cash-application and billing exceptions, overdue receivables, cost "
+                          "anomalies, renewals at risk and KPIs at red, each with owner, amount, age, threshold and action.", _p({})),
     "get_contracts": (get_contracts, "Committed-use customer contracts: RPO, current RPO (next 12 months), contracted ARR "
                       "vs run-rate ARR, burn pace (usage vs commitment), projected shortfall / overage, renewal base, "
                       "revenue at risk, prepaid credit pools; per contract and as a monthly trend.",

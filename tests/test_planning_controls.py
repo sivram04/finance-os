@@ -149,3 +149,27 @@ def test_variance_case_end_to_end(wh):
     assert r["actions"] and r["decision_options"] and r["owner"]
     other = tools.get_variance_case(wh, "BVA-202609-INF-6600")
     assert other["root_cause"]["classification"].startswith("Planning gap")
+
+
+def test_decision_kpis_carry_the_full_contract(wh):
+    k = tools.get_decision_kpis(wh)
+    assert len(k["rows"]) == 33
+    for r in k["rows"]:
+        assert r["status"] in ("red", "amber", "green", "grey")
+        assert r["purpose"] and r["formula"] and r["owner"] and r["source_model"] and r["decision"]
+        assert r["threshold"]["basis"] and r["recon_status"]
+    rev = next(r for r in k["rows"] if r["metric"] == "revenue")
+    assert rev["lineage_sources"] and rev["recon_status"] == "pass"
+
+
+def test_contribution_bridge_adds_up(wh):
+    b = tools.get_contribution_bridge(wh)
+    assert abs(b["start"]["amount"] + sum(x["amount"] for x in b["rows"]) - b["end"]["amount"]) < 0.02
+
+
+def test_control_queue_items_are_owned(wh):
+    q = tools.get_control_queue(wh)
+    assert q["open_items"] == len(q["rows"]) > 0
+    assert all(i["owner"] and i["action"] and i["threshold"] for i in q["rows"])
+    grid = tools.get_margin_sensitivity(wh)["rows"]
+    assert grid[0]["cost -10%"] > grid[0]["cost +35%"]

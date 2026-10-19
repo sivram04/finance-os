@@ -3,8 +3,11 @@ from finance_os.reports.build_metric_catalog import DOC, FIELDS, SEED, load, ren
 
 def test_every_metric_has_all_fields():
     for m in load():
-        missing = [f for f in FIELDS if not m.get(f)]
+        derived = {"threshold_rule", "recon_checks"}  # built from threshold / recon_checks (a list, may be empty)
+        missing = [f for f in FIELDS if f not in derived and not m.get(f)]
         assert not missing, (m.get("name"), missing)
+        assert {"basis", "better", "amber", "red"} <= set(m["threshold"]), m["name"]
+        assert m["decision_amber"] and m["decision_red"] and "recon_checks" in m, m["name"]
         assert m["status"] in ("MEASURED", "ASSUMED")
 
 

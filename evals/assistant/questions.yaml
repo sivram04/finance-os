@@ -435,3 +435,19 @@ questions:
     persona: CFO
     ask: Take me through the usage revenue variance this month from source data to the decision I need to make.
     expect_tools: ["get_variance_case"]
+  - id: kpis-red
+    persona: CFO
+    ask: Which KPIs are red this month and what decision does each one trigger?
+    expect_tools: [get_decision_kpis]
+  - id: control-queue
+    persona: Controller
+    ask: What is still unresolved in our control queue, and who owns each item?
+    expect_tools: [get_control_queue]
+  - id: contribution-bridge
+    persona: VP Finance
+    ask: Why did contribution margin change this month?
+    expect_tools: ["get_contribution_bridge|get_driver_bridges"]
+  - id: metric-lineage
+    persona: Auditor
+    ask: Where does the revenue number come from, and is it reconciled?
+    expect_tools: ["get_decision_kpis|get_metric_definition|get_reconciliation_status"]

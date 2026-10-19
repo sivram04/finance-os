@@ -150,7 +150,7 @@ export function Budget() {
 
 function BudgetBody() {
   const s = useTool('get_budget_dashboard')
-  const [alert, setAlert] = useState<string | null>(null)
+  const [alert, setAlert] = useState<string | null>(() => new URLSearchParams(location.hash.split('?')[1] ?? '').get('alert'))
   const { ask } = useWorkspace()
   const all = (s.data?.rows ?? []) as Row[]
   const rows = useFiltered(all)
