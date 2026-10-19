@@ -57,6 +57,10 @@ seeds:
       +column_types: {attrition_benchmark: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}", recruiting_fee_pct: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}", equipment_per_hire: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,2)' }}", merit_pct: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}", promotion_rate: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}", promotion_uplift_pct: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}", equity_grant_pct: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}", equity_employer_tax_pct: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}"}
     hire_probability:
       +column_types: {probability: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}", slip_months: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,2)' }}"}
+    capital_market_assumptions:
+      +column_types: {value: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,4)' }}"}
+    corporate_tax_rates:
+      +column_types: {rate: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,4)' }}"}
     scenario_levers:
       +column_types: {value: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}"}
     planning_scenarios:

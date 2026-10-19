@@ -1,0 +1,5 @@
+entity_id,jurisdiction,rate,regime,note
+US01,US federal,0.2100,flat,Federal corporate income tax; losses carry forward indefinitely and offset up to 80% of taxable income
+US01,US state (CA apportioned),0.0600,flat,Blended state rate; deductible for federal tax
+UK01,UK corporation tax,0.2500,uk_bands,19% up to GBP 50k; 25% above GBP 250k; marginal relief between (26.5% marginal)
+IN01,India corporate tax,0.2517,flat,Section 115BAA rate including surcharge and cess

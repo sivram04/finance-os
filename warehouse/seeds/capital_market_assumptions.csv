@@ -1,0 +1,8 @@
+item,value,note
+risk_free_rate,0.0430,10-year US Treasury yield
+market_risk_premium,0.0550,Expected equity return over the risk-free rate (long-run US estimate)
+unlevered_beta,1.35,Median unlevered beta of public AI and infrastructure-software peers
+private_company_premium,0.0300,Size and illiquidity premium for a private venture-backed company
+pre_tax_cost_of_debt,0.1100,Venture debt facility rate if drawn
+target_debt_to_equity,0.0000,No debt today; venture debt is undrawn
+asset_life_years,4,Straight-line life of capitalized equipment (matches depreciation)

@@ -403,3 +403,35 @@ questions:
     persona: VP Finance
     ask: Which operating drivers move together with EBITDA?
     expect_tools: ["get_driver_correlation|get_driver_tree"]
+  - id: corpfin-dupont
+    persona: CFO
+    ask: Break our return on equity down with the DuPont identity.
+    expect_tools: [get_corporate_finance]
+  - id: corpfin-tax
+    persona: Controller
+    ask: Do we owe corporate income tax anywhere even though we lose money, and what are the marginal and average rates?
+    expect_tools: [get_corporate_finance]
+  - id: corpfin-efn
+    persona: VP Finance
+    ask: How much external financing do we need to grow at the base plan, and what is our sustainable growth rate?
+    expect_tools: [get_corporate_finance]
+  - id: corpfin-wacc
+    persona: Investor
+    ask: What is our WACC and how did you get the cost of equity?
+    expect_tools: [get_corporate_finance]
+  - id: corpfin-breakeven
+    persona: CFO
+    ask: What monthly revenue do we need to break even on a cash basis versus an accounting basis?
+    expect_tools: ["get_corporate_finance|get_breakeven"]
+  - id: corpfin-project
+    persona: VP Engineering
+    ask: We would spend $500,000 on GPUs depreciated over 5 years, earning $300,000 a year against $120,000 of costs, with $50,000 salvage. NPV, IRR and discounted payback?
+    expect_tools: [evaluate_project]
+  - id: calc-bond
+    persona: Analyst
+    ask: What is the price of a 10-year bond with a 6% coupon paid semiannually if the yield to maturity is 8%?
+    expect_tools: [finance_calculator]
+  - id: variance-case
+    persona: CFO
+    ask: Take me through the usage revenue variance this month from source data to the decision I need to make.
+    expect_tools: ["get_variance_case"]

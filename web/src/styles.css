@@ -355,3 +355,23 @@ table.cohort td.num, table.cohort th.num { text-align: right; }
 .filter-chip.on { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
 
 .evidence-drill { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 10px 8px; }
+
+table.pairs { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.pairs td { padding: 5px 4px; border-bottom: 1px solid var(--border); vertical-align: top; }
+table.pairs td.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* variance case file */
+.case-step { display: grid; grid-template-columns: 28px 1fr; gap: 12px; padding: 14px 0; border-top: 1px solid var(--border); }
+.case-step:first-of-type { border-top: 0; }
+.case-num { width: 26px; height: 26px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font-weight: 700; display: grid; place-items: center; font-size: 13px; }
+.case-head { display: flex; justify-content: space-between; gap: 12px; align-items: start; margin-bottom: 8px; }
+.case-head h3 { margin: 2px 0 0; font-size: 15px; }
+.case-head p { margin: 2px 0 0; font-size: 12px; }
+.recon-chain { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; margin-bottom: 10px; }
+.recon-node { border: 1px solid var(--border); border-left: 4px solid var(--good); border-radius: 8px; padding: 8px 10px; display: grid; gap: 3px; background: var(--card); }
+.recon-node.fail { border-left-color: var(--bad); }
+.recon-node.no-check { border-left-color: var(--warn); }
+.decision-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; }
+.decision-option { text-align: left; display: grid; gap: 4px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); color: var(--text); cursor: pointer; font: inherit; font-size: 13px; }
+.decision-option span { color: var(--muted); font-size: 12px; }
+.decision-option.on { border-color: var(--accent); background: var(--accent-soft); }

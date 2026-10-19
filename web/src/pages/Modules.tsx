@@ -4,6 +4,7 @@ import { Bars, Bridge, Columns, Dash, Donut, GroupedBars, KpiRow, Trend, useFilt
 import { fmt, type Row } from '../api'
 import { AskButton, Card, Chip, DataTable, Loading, Source, useTool, useWorkspace } from '../components/common'
 import { SpendEfficiency } from './Insights'
+import { VarianceCase } from '../components/VarianceCase'
 
 function Head({ title, sub, ask }: { title: string; sub: string; ask: string }) {
   return (
@@ -150,7 +151,6 @@ export function Budget() {
 function BudgetBody() {
   const s = useTool('get_budget_dashboard')
   const [alert, setAlert] = useState<string | null>(null)
-  const drivers = useTool('get_variance_drivers', { alert_id: alert ?? '' })
   const { ask } = useWorkspace()
   const all = (s.data?.rows ?? []) as Row[]
   const rows = useFiltered(all)
@@ -195,7 +195,8 @@ function BudgetBody() {
           <Trend rows={(s.data.trend ?? []) as Row[]} x="month" series={[{ key: 'revenue_actual', label: 'Actual', color: '#2f9e6b' }, { key: 'revenue_budget', label: 'Budget', color: '#7a8699', dashed: true }]} />
         </Card>
       </div>
-      <Card title="Lines by variance" sub="Largest first · owners are department heads · click a material variance to see the transactions behind it">
+      <Card title="Lines by variance" sub="Largest first · owners are department heads · click a material variance for its full case: source data, reconciliation, root cause, owner, action and the CFO decision"
+        right={<button className="btn small" onClick={() => { const top = [...all].filter((r) => r.alert_id).sort((a, b) => Math.abs(Number(b.fav_variance)) - Math.abs(Number(a.fav_variance)))[0]; if (top) setAlert(String(top.alert_id)) }}>Open the largest variance</button>}>
         <DataTable title="budget_vs_actual" rows={all} onRow={(r) => r.alert_id && setAlert(String(r.alert_id))} columns={[
           { key: 'department' }, { key: 'owner' }, { key: 'account_name' }, { key: 'actual', unit: 'usd' }, { key: 'budget', unit: 'usd' },
           { key: 'fav_variance', label: 'Variance (fav +)', render: (r) => <span style={{ color: (r.fav_variance as number) >= 0 ? 'var(--good)' : 'var(--bad)' }}>{signed(r.fav_variance as number)}</span> },
@@ -203,11 +204,7 @@ function BudgetBody() {
           { key: 'direction', chip: true }, { key: 'is_alert', label: 'To explain', flag: 'bad' }, { key: 'commentary_status', label: 'Commentary', chip: true }]} />
         <Source data={s.data} />
       </Card>
-      {alert && (
-        <Card title={`Transactions behind ${alert}`} right={<button className="btn small" onClick={() => ask(`Explain budget alert ${alert} from its driving transactions and draft the commentary.`)}>Explain this variance</button>}>
-          {drivers.data ? <DataTable rows={drivers.data.rows} columns={[{ key: 'driver_rank', label: '#' }, { key: 'entry_date' }, { key: 'entry_type', chip: true }, { key: 'memo' }, { key: 'amount', unit: 'usd' }, { key: 'share_of_actual', unit: 'ratio' }]} /> : <Loading state={drivers} />}
-        </Card>
-      )}
+      {alert && <VarianceCase alertId={alert} onClose={() => setAlert(null)} />}
     </div>
   )
 }

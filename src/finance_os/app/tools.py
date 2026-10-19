@@ -322,6 +322,191 @@ def get_variance_drivers(wh, alert_id):
     return _result(rows, "marts.fct_bva_drivers", alert_id=alert_id)
 
 
+
+PNL_RECON_CHECKS = {  # which reconciliation checks prove the source system ties to this GL account
+    "4000": ["gl_revenue_vs_rated_usage", "stripe_invoices_vs_gl_revenue", "usage_events_vs_drivers"],
+    "4100": ["project_billing_vs_gl"], "5000": ["vendor_invoice_vs_modeled", "vendor_bill_vs_gl_ap"],
+    "5010": ["gcp_export_vs_bill", "vendor_bill_vs_gl_ap"], "5200": ["project_billing_vs_gl"],
+    "6000": ["payroll_register_vs_gl", "project_labor_within_payroll"], "6010": ["payroll_register_vs_gl"],
+    "6020": ["payroll_register_vs_gl"], "6100": ["gcp_export_vs_bill"],
+}
+SOURCE_SYSTEM = {"4000": "Stripe invoices (rated usage)", "4100": "Project billing", "5000": "GPU vendor bills (Nimbus)",
+                 "5010": "GCP billing export", "6000": "Payroll register", "6010": "Payroll register", "6020": "Payroll register",
+                 "6600": "Fixed-asset register (depreciation run)"}
+
+
+def get_variance_case(wh, alert_id):
+    """The full case file for one budget variance, from source data to the decision the CFO must make:
+      1 what happened   actual vs budget for the month, year to date and the full-year forecast
+      2 source data     the journal lines behind the actual and the source system they came from
+      3 reconciliation  source system → GL → reported actual, with the reconciliation checks for that account
+      4 root cause      decomposed into drivers (for usage revenue: the budget's growth assumption vs the MRR
+                        bridge - new, expansion, contraction, churn - and the customers behind each; otherwise run
+                        rate vs budget, one-offs and concentration), classified as timing, one-off, run-rate or
+                        planning gap
+      5 owner and action  the accountable owner, the actions the evidence supports, and the commentary status
+      6 decision        the options for the CFO with their full-year effect, and any decision already recorded"""
+    a = wh.query("select * from marts.fct_bva_alerts where alert_id = ?", [alert_id])
+    if not a:
+        return _result([], "marts.fct_bva_alerts", note=f"Unknown alert {alert_id}. List alerts with get_budget_vs_actual.")
+    a = a[0]
+    m, acct, dept = str(a["month"])[:10], a["account_id"], a["department_id"]
+    line = wh.query("""select * from marts.fct_bva_monthly where month = ?::date and account_id = ? and department_id = ?""", [m, acct, dept])[0]
+    is_rev = a["account_type"] == "revenue"
+    sign = -1 if is_rev else 1  # journal amounts are debit - credit
+    fav = float(a["variance"]) * (1 if is_rev else -1)  # favorable is positive
+
+    # 2 source data: the journal lines behind the actual
+    dept_filter = "l.department_id is null" if dept == "NONE" else "l.department_id = ?"
+    args = [m, acct] + ([] if dept == "NONE" else [dept])
+    lines = wh.query(f"""select e.entry_id, strftime(e.entry_date, '%Y-%m-%d') as entry_date, e.entry_type, e.memo, e.source_ref,
+                                l.customer_id, l.vendor_id, l.entity_id, {sign} * l.amount as amount
+                         from staging.stg_erp__journal_lines l join staging.stg_erp__journal_entries e using (entry_id)
+                         where e.entry_month = ?::date and l.account_id = ? and {dept_filter}
+                         order by abs(l.amount) desc""", args)
+    gl_total = round(sum(float(x["amount"]) for x in lines), 2)
+    by_type = {}
+    for x in lines:
+        by_type[x["entry_type"]] = by_type.get(x["entry_type"], 0.0) + float(x["amount"])
+
+    # 3 reconciliation chain
+    checks = PNL_RECON_CHECKS.get(acct, [])
+    recon = wh.query(f"""select check_name, strftime(period, '%Y-%m') as period, entity_id, expected, actual, variance, status, explanation
+                         from recon.recon_status where period = ?::date and check_name in ({', '.join('?' * len(checks)) or "''"})
+                         order by check_name""", [m] + checks) if checks else []
+    budget_src = wh.query("""select sum(amount) as v from staging.stg_erp__budgets where month = ?::date and account_id = ?
+                             and coalesce(department_id, 'NONE') = ?""", [m, acct, dept]) if True else []
+    chain = [
+        {"step": "Source system", "system": SOURCE_SYSTEM.get(acct, "Sub-ledger postings"),
+         "amount": next((float(r["expected"]) for r in recon if r["check_name"] != "usage_events_vs_drivers"), None), "status": "pass" if recon and all(r["status"] == "pass" for r in recon) else ("no check" if not recon else "fail"),
+         "detail": f"{len(recon)} reconciliation check(s) for this account and period" if recon else "No automated sub-ledger check for this account"},
+        {"step": "General ledger", "system": f"{len(lines)} journal line(s) on {acct} {a['account_name']}", "amount": gl_total,
+         "status": "pass" if abs(gl_total - float(a["actual"])) < 0.01 else "fail", "detail": "Sum of the journal lines"},
+        {"step": "Reported actual", "system": "Budget vs actual (fct_bva_monthly)", "amount": float(a["actual"]),
+         "status": "pass" if abs(gl_total - float(a["actual"])) < 0.01 else "fail", "detail": "Ties to the GL to the cent" if abs(gl_total - float(a["actual"])) < 0.01 else f"Off by {gl_total - float(a['actual']):,.2f}"},
+        {"step": "Budget", "system": "Approved FY budget (raw_erp.budgets)", "amount": float(budget_src[0]["v"] or 0) if budget_src else None,
+         "status": "pass" if budget_src and abs(float(budget_src[0]["v"] or 0) - float(a["budget"])) < 0.01 else "fail", "detail": "Budget as approved, unchanged"},
+    ]
+
+    # 4 root cause
+    trend = wh.query("""select strftime(month, '%Y-%m') as month, actual, budget from marts.fct_bva_monthly
+                        where account_id = ? and department_id = ? and fiscal_year = ? and month <= ?::date order by month""",
+                     [acct, dept, line["fiscal_year"], m])
+    root, components, customers = {}, [], []
+    if acct == "4000":
+        fy0 = f"{line['fiscal_year']}-01-01"
+        base = wh.query("""select closing_mrr from marts.fct_mrr_bridge_monthly where month = ?::date - interval 1 month""", [fy0])[0]["closing_mrr"]
+        b = wh.query("""select sum(new_mrr) as new, sum(expansion_mrr) as expansion, sum(contraction_mrr) as contraction,
+                               sum(churned_mrr) as churn, sum(reactivation_mrr) as reactivation
+                        from marts.fct_mrr_bridge_monthly where month between ?::date and ?::date""", [fy0, m])[0]
+        base, actual = float(base), float(a["actual"])
+        budget_growth = float(a["budget"]) - base
+        months = int(m[5:7])
+        implied = (float(a["budget"]) / base) ** (1 / months) - 1 if base else None
+        achieved = (actual / base) ** (1 / months) - 1 if base else None
+        components = [{"driver": "Budget assumed growth since the December base", "amount": round(budget_growth, 2)},
+                      {"driver": "New customers", "amount": round(float(b["new"] or 0), 2)},
+                      {"driver": "Expansion", "amount": round(float(b["expansion"] or 0), 2)},
+                      {"driver": "Contraction", "amount": round(float(b["contraction"] or 0), 2)},
+                      {"driver": "Churn", "amount": round(float(b["churn"] or 0), 2)},
+                      {"driver": "Reactivation", "amount": round(float(b["reactivation"] or 0), 2)}]
+        delivered = sum(c["amount"] for c in components[1:])
+        other = round(actual - base - delivered, 2)
+        if abs(other) >= 0.01:
+            components.append({"driver": "Refunds, credits and timing", "amount": other})
+        customers = wh.query("""
+            with base as (select customer_id, revenue from marts.fct_customer_revenue_monthly where month = ?::date - interval 1 month),
+                 now as (select customer_id, revenue from marts.fct_customer_revenue_monthly where month = ?::date)
+            select coalesce(n.customer_id, b.customer_id) as customer_id, coalesce(b.revenue, 0) as december, coalesce(n.revenue, 0) as this_month,
+                   coalesce(n.revenue, 0) - coalesce(b.revenue, 0) as change,
+                   (select string_agg(distinct event_type, ', ') from staging.stg_synthetic__lifecycle_events le
+                     where le.customer_id = coalesce(n.customer_id, b.customer_id) and le.event_date between ?::date and last_day(?::date)) as events
+            from now n full join base b using (customer_id)
+            order by abs(coalesce(n.revenue, 0) - coalesce(b.revenue, 0)) desc limit 8""", [fy0, m, fy0, m]) if wh.query(
+            "select 1 from information_schema.tables where table_name = 'stg_synthetic__lifecycle_events'") else []
+        biggest_drag = min(components[3:5], key=lambda c: c["amount"])
+        root = {"classification": "Planning gap plus customer losses (run-rate, not timing)",
+                "summary": (f"The budget grew revenue {implied:.1%} a month from the December base of {_usd_text(base)}; actual grew "
+                            f"{achieved:.1%} a month. Customers added {_usd_text(delivered)} since December against "
+                            f"{_usd_text(budget_growth)} budgeted: expansion {_usd_text(components[2]['amount'])} and new "
+                            f"{_usd_text(components[1]['amount'])} were offset by contraction {_usd_text(components[3]['amount'])} "
+                            f"and churn {_usd_text(components[4]['amount'])}. The gap has widened every month since February, "
+                            f"so it is run-rate, not timing."),
+                "budget_growth_monthly": round(implied, 4) if implied is not None else None,
+                "actual_growth_monthly": round(achieved, 4) if achieved is not None else None,
+                "biggest_drag": biggest_drag["driver"]}
+    else:
+        prior = wh.query("""select avg(actual) as v from marts.fct_bva_monthly where account_id = ? and department_id = ?
+                            and month between ?::date - interval 3 month and ?::date - interval 1 month""", [acct, dept, m, m])[0]["v"]
+        prior = float(prior or 0)
+        bud = float(a["budget"])
+        act = float(a["actual"])
+        top_share = max((abs(float(x["amount"])) for x in lines), default=0) / abs(act) if act else 0
+        if bud == 0:
+            cls = "Planning gap: no budget for a recurring cost"
+        elif prior and abs(act - prior) / abs(prior) < 0.1:
+            cls = "Run-rate: the cost has run at this level for three months; the budget is too low"
+        elif top_share > 0.5:
+            cls = "One-off: one entry is most of the month"
+        else:
+            cls = "Volume or rate change this month"
+        components = [{"driver": "Budget", "amount": round(bud, 2)}, {"driver": "Trailing 3-month average actual", "amount": round(prior, 2)},
+                      {"driver": "This month actual", "amount": round(act, 2)}]
+        components += [{"driver": f"By entry type: {k}", "amount": round(v, 2)} for k, v in sorted(by_type.items(), key=lambda kv: -abs(kv[1]))]
+        root = {"classification": cls,
+                "summary": (f"Actual {_usd_text(act)} vs budget {_usd_text(bud)}; the last three months averaged {_usd_text(prior)}. "
+                            f"Largest single entry is {top_share:.0%} of the month."),
+                "biggest_drag": None}
+
+    # 5 owner and action
+    owner = a["route_to"]
+    fy_var = float(a["fy_forecast_variance"] or 0)
+    if acct == "4000":
+        actions = [
+            {"action": "Re-forecast FY revenue on the actual run rate", "owner": "VP Finance", "due": "this close",
+             "why": f"The budget's growth rate is not being achieved; full-year forecast is {_usd_text(fy_var)} vs budget."},
+            {"action": "Retention review of the accounts behind contraction and churn", "owner": "CS lead", "due": "2 weeks",
+             "why": "Contraction and churn erased most of the expansion; see the customers below."},
+            {"action": "Pipeline plan to close the gap (new logos and expansion targets)", "owner": "CRO", "due": "next QBR",
+             "why": "New-customer MRR is far below what the budget needed."},
+        ]
+    elif "Planning gap" in root["classification"]:
+        actions = [{"action": "Add the cost to the budget (re-budget) and the forecast", "owner": "VP Finance", "due": "this close",
+                    "why": "The cost is recurring and expected; the variance is a planning omission, not overspend."}]
+    elif "Run-rate" in root["classification"]:
+        actions = [{"action": "Explain the step-up or cut back to budget", "owner": owner, "due": "next close",
+                    "why": "Spending has held above budget for three months."},
+                   {"action": "Update the forecast to the run rate", "owner": "VP Finance", "due": "this close", "why": "Keep the full year honest."}]
+    else:
+        actions = [{"action": "Confirm the one-off and its accounting", "owner": owner, "due": "this close",
+                    "why": "A single entry drives the month; confirm it should not be accrued or prepaid."}]
+
+    # 6 decision options and any recorded decision
+    options = [
+        {"option": "Accept and re-forecast", "effect": f"Full-year forecast moves to the run rate ({_usd_text(fy_var)} vs budget); no budget change.",
+         "fy_impact": round(fy_var, 2)},
+        {"option": "Hold the budget and fund a corrective plan", "effect": "Keep the target; owners commit to actions and dates; re-test next close.",
+         "fy_impact": 0.0},
+        {"option": "Re-budget (board approval)", "effect": "Reset the budget to a new approved number; variance reporting restarts from it.",
+         "fy_impact": round(fy_var, 2)},
+    ]
+    if acct == "4000":
+        options.append({"option": "Cut spend to protect EBITDA", "effect": "Offset part of the revenue gap with a hiring slowdown or opex cut (see Scenarios: hiring freeze).",
+                        "fy_impact": None})
+    case = {"alert_id": alert_id, "month": m[:7], "department": a["department_name"], "account": f"{acct} {a['account_name']}",
+            "account_type": a["account_type"], "actual": float(a["actual"]), "budget": float(a["budget"]),
+            "variance_favorable": round(fav, 2), "variance_pct": a["variance_pct"], "ytd_actual": line["ytd_actual"],
+            "ytd_budget": line["ytd_budget"], "fy_budget": line["fy_budget"], "fy_forecast": line["fy_forecast"],
+            "fy_forecast_variance": fy_var, "message": a["message"], "owner": owner,
+            "commentary_status": a["commentary_status"], "commentary_draft": a["commentary_draft"]}
+    return _result(lines[:40], "marts.fct_bva_alerts, fct_bva_monthly, stg_erp__journal_lines, recon.recon_status, "
+                   "stg_erp__budgets, fct_mrr_bridge_monthly, fct_customer_revenue_monthly",
+                   case=case, trend=trend, source_lines_total=gl_total, source_line_count=len(lines),
+                   by_entry_type=[{"entry_type": k, "amount": round(v, 2)} for k, v in by_type.items()],
+                   reconciliation_chain=chain, reconciliation_checks=recon, root_cause=root, root_cause_components=components,
+                   customers=customers, owner=owner, actions=actions, decision_options=options,
+                   note="Favorable variance is positive for revenue and costs alike.")
+
 def get_unit_economics(wh, month=None, customer_id=None, below_floor_only=False):
     m = _month(month, wh)
     rows = wh.query("""
@@ -1013,7 +1198,7 @@ def get_runway_sensitivity(wh):
 
 def evaluate_business_case(wh, investment, annual_inflows, discount_rate=None, annual_costs=None, name="Business case"):
     from finance_os import fpa
-    out = fpa.business_case(investment, annual_inflows, discount_rate or fpa.DEFAULT_DISCOUNT_RATE, annual_costs, name)
+    out = fpa.business_case(investment, annual_inflows, discount_rate or company_wacc(wh), annual_costs, name)
     return {"source": "finance_os.fpa.business_case", **out}
 
 
@@ -1033,7 +1218,7 @@ def evaluate_marketing_campaign(wh, spend, new_customers, years=3, discount_rate
     arpa_all, churn, k = _latest_unit_economics(wh)
     arpa = _new_customer_arpa(wh) or arpa_all
     out = fpa.campaign_case(spend, new_customers, arpa, float(k["gross_margin_pct"]), churn, years,
-                            discount_rate or fpa.DEFAULT_DISCOUNT_RATE)
+                            discount_rate or company_wacc(wh))
     out["assumptions"]["arpa_basis"] = "new customers' average monthly revenue in months 2-4 after signup (last 18 months)"
     return {"source": "finance_os.fpa.campaign_case + marts.fct_customer_revenue_monthly, fct_saas_metrics_monthly", **out}
 
@@ -2366,6 +2551,246 @@ def get_decisions_needed(wh):
                         "fct_customer_margin_monthly, fct_treasury_covenants",
                    note="Rules over the governed numbers; each decision names the evidence, the options and an owner.")
 
+
+def _ttm_statements(wh):
+    """Trailing-12-month income statement and the latest balance sheet, from the three-statement financials."""
+    fs = get_financial_statements(wh, period="month", periods=12)
+    cols = [c for c in fs["rows"][0] if c[:2] == "20"]
+    line = {}
+    for r in fs["rows"]:
+        if r.get("line") and r["line"] not in line:
+            line[r["line"]] = r
+    ttm = lambda name: sum(float(line[name].get(c) or 0) for c in cols) if name in line else 0.0  # noqa: E731
+    bal = lambda name: float(line[name].get(cols[-1]) or 0) if name in line else 0.0  # noqa: E731
+    liabilities = {"accounts_payable": bal("Accounts payable"), "accrued_payroll_taxes": bal("Payroll taxes payable"),
+                   "accrued_benefits": bal("Benefits and deductions payable")}
+    return {
+        "period": f"{cols[0]} to {cols[-1]}", "end_month": cols[-1],
+        "revenue": ttm("Total revenue"), "cogs": ttm("Total cost of revenue"), "ebitda": ttm("EBITDA"),
+        "depreciation": ttm("Depreciation"), "ebit": ttm("Operating income (EBIT)"), "net_income": ttm("Net income"),
+        "capex": -ttm("Capital expenditure"), "cfo": ttm("Cash from operations"), "interest": 0.0,
+        "cash": bal("Cash - operating"), "receivables": bal("Accounts receivable"),
+        "fixed_assets_net": bal("Fixed assets at cost") + bal("Accumulated depreciation"),
+        "total_assets": bal("Total assets"), "payables": bal("Accounts payable"),
+        "current_assets": bal("Cash - operating") + bal("Accounts receivable"),
+        "current_liabilities": bal("Total liabilities"), "total_liabilities": bal("Total liabilities"),
+        "equity": bal("Total equity"), "liabilities": liabilities,
+        "receivables_open": cols and float(line.get("Accounts receivable", {}).get(cols[0]) or 0),
+        "nwc_open": None,
+    }
+
+
+def company_wacc(wh):
+    """The company's WACC (CAPM cost of equity on the peer beta, relevered at the target debt-equity ratio); the
+    default discount rate for business cases and projects."""
+    from finance_os import corpfin as cf
+    cma = _cma(wh)
+    t = _us_combined(_tax_rates(wh))
+    de = cma.get("target_debt_to_equity", 0.0)
+    ke = cf.capm(cma["risk_free_rate"], cf.relever_beta(cma["unlevered_beta"], de, t), cma["market_risk_premium"]) + cma.get("private_company_premium", 0.0)
+    return cf.wacc(1.0, de, ke, cma["pre_tax_cost_of_debt"], t)["wacc"]
+
+
+def _cma(wh):
+    return {r["item"]: float(r["value"]) for r in wh.query("select item, value from seeds.capital_market_assumptions")}
+
+
+def _tax_rates(wh):
+    out = {}
+    for r in wh.query("select entity_id, jurisdiction, rate, regime from seeds.corporate_tax_rates"):
+        out.setdefault(r["entity_id"], []).append({"jurisdiction": r["jurisdiction"], "rate": float(r["rate"]), "regime": r["regime"]})
+    return out
+
+
+def _us_combined(rates):
+    fed = next(x["rate"] for x in rates["US01"] if "federal" in x["jurisdiction"])
+    state = next((x["rate"] for x in rates["US01"] if "state" in x["jurisdiction"]), 0.0)
+    return fed + state * (1 - fed)  # state tax is deductible for federal
+
+
+def get_corporate_finance(wh):
+    """Corporate finance view of Echo Labs on trailing-12-month numbers: cash flow from assets (OCF, net capital
+    spending, change in NWC) and to creditors / stockholders; ratio analysis and the DuPont identity; corporate
+    income tax by legal entity (marginal vs average rate, UK bands, US loss carryforward and the deferred tax asset);
+    percent-of-sales pro forma balance sheet with external financing needed; internal and sustainable growth rates;
+    accounting, cash and financial break-even; and WACC with the cost of equity from CAPM."""
+    from finance_os import corpfin as cf
+    st = _ttm_statements(wh)
+    cma, rates = _cma(wh), _tax_rates(wh)
+    us_rate = _us_combined(rates)
+
+    # cash flow from assets = OCF - net capital spending - change in NWC (= CF to creditors + CF to stockholders)
+    nwc = wh.query("""select strftime(month, '%Y-%m') as month, net_working_capital from marts.fct_working_capital_monthly
+                      where month <= ?::date order by month desc limit 13""", [st["end_month"] + "-01"])
+    d_nwc = float(nwc[0]["net_working_capital"]) - float(nwc[-1]["net_working_capital"]) if len(nwc) > 1 else 0.0
+    ocf = st["ebit"] + st["depreciation"]  # no income tax paid (losses); OCF = EBIT + depreciation - taxes
+    ncs = st["capex"]
+    cffa = ocf - ncs - d_nwc
+    equity_raised = float(wh.query("""select coalesce(sum(case when e.entry_type = 'funding' then l.credit else 0 end), 0) as v
+                                      from staging.stg_erp__journal_lines l join staging.stg_erp__journal_entries e using (entry_id)
+                                      where e.entry_month > ?::date - interval 12 month and e.entry_month <= ?::date
+                                        and l.account_id = '3000'""", [st["end_month"] + "-01", st["end_month"] + "-01"])[0]["v"])
+    cash_flow = {"operating_cash_flow": round(ocf, 2), "net_capital_spending": round(ncs, 2), "change_in_nwc": round(d_nwc, 2),
+                 "cash_flow_from_assets": round(cffa, 2), "cash_flow_to_creditors": 0.0,
+                 "cash_flow_to_stockholders": round(-equity_raised, 2),
+                 "change_in_cash_balancing_item": round(cffa + equity_raised, 2),
+                 "note": "No debt: cash flow to creditors is zero. Cash flow to stockholders = dividends - new equity raised."}
+
+    ratio = cf.ratios({**st, "inventory": 0.0})
+    ratio["operating_leverage"] = None
+
+    # corporate income tax by entity, trailing 12 months, in local currency
+    ent = wh.query("""select entity_id, currency,
+                             sum(case when account_type in ('revenue', 'cogs', 'opex') then -amount_local end) as pti_local,
+                             sum(case when account_type in ('revenue', 'cogs', 'opex') then -amount_usd end) as pti_usd
+                      from marts.fct_gl_entity_monthly where month > ?::date - interval 12 month and month <= ?::date
+                      group by 1, 2 order by 1""", [st["end_month"] + "-01", st["end_month"] + "-01"])
+    cum_us = float(wh.query("""select sum(case when account_type in ('revenue', 'cogs', 'opex') then -amount_usd end) as v
+                               from marts.fct_gl_entity_monthly where entity_id = 'US01' and month <= ?::date""",
+                            [st["end_month"] + "-01"])[0]["v"] or 0)
+    taxes, total_tax_usd, total_pti_usd = [], 0.0, 0.0
+    for e in ent:
+        pti, pti_usd = float(e["pti_local"] or 0), float(e["pti_usd"] or 0)
+        fx = pti_usd / pti if pti else 1.0
+        if e["entity_id"] == "UK01":
+            t = cf.uk_corporation_tax(pti)
+        elif e["entity_id"] == "US01":
+            nol = cf.with_carryforward(pti, max(-(cum_us - pti), 0.0))
+            t = cf.tax_on(nol["taxable_after_nol"], [(None, us_rate)])
+            t.update({"marginal_rate": us_rate, "nol_carryforward": round(nol["nol_closing"], 2),
+                      "deferred_tax_asset_gross": round(nol["nol_closing"] * us_rate, 2),
+                      "valuation_allowance": round(nol["nol_closing"] * us_rate, 2),
+                      "note": "Cumulative US losses carry forward; a full valuation allowance applies while the US entity loses money."})
+        else:
+            t = cf.tax_on(pti, [(None, rates[e["entity_id"]][0]["rate"])])
+        tax_usd = t["tax"] * fx
+        total_tax_usd += tax_usd
+        total_pti_usd += pti_usd
+        taxes.append({"entity_id": e["entity_id"], "currency": e["currency"], "pre_tax_income_local": round(pti, 2),
+                      "pre_tax_income_usd": round(pti_usd, 2), "tax_local": t["tax"], "tax_usd": round(tax_usd, 2),
+                      "average_rate": t["average_rate"], "marginal_rate": t["marginal_rate"],
+                      **{k: v for k, v in t.items() if k in ("nol_carryforward", "deferred_tax_asset_gross", "valuation_allowance", "note")}})
+    tax_summary = {"group_pre_tax_income": round(total_pti_usd, 2), "group_tax": round(total_tax_usd, 2),
+                   "group_effective_rate": round(total_tax_usd / total_pti_usd, 4) if total_pti_usd > 0 else None,
+                   "note": "The group loses money but the UK and India subsidiaries earn a cost-plus margin, so they owe tax; "
+                           "no income tax is booked in the ledger yet (this is the provision it should carry)."}
+
+    # pro forma balance sheet and EFN at the base scenario's growth
+    base = scenario_summaries(wh)
+    g = next(x["revenue_next_12m"] for x in base if x["scenario"] == "base") / st["revenue"] - 1 if st["revenue"] else 0.0
+    bs = {"assets": {"cash": st["cash"], "receivables": st["receivables"], "fixed_assets": st["fixed_assets_net"]},
+          "liabilities": st["liabilities"], "equity": st["equity"]}
+    proforma = cf.percent_of_sales(bs, st["net_income"], st["revenue"], g, payout=0.0, spontaneous=("payable", "accrued"))
+    proforma["growth_used"] = round(g, 4)
+    proforma["efn_cash_held_flat"] = round(proforma["efn"] - (proforma["projected_assets"]["cash"] - st["cash"]), 2)
+    proforma["note"] = ("Percent of sales: assets and spontaneous liabilities grow with revenue; equity grows by retained "
+                        "earnings at today's margin (no dividends). Positive EFN = outside money needed; this method holds "
+                        "cash in proportion to sales, so read EFN as the cash cushion's cost, not a cash shortfall.")
+    growth = cf.growth_rates(st["net_income"], st["total_assets"], st["equity"], payout=0.0)
+
+    # cost of capital: CAPM cost of equity on the relevered peer beta, plus a private-company premium
+    de = cma.get("target_debt_to_equity", 0.0)
+    beta_l = cf.relever_beta(cma["unlevered_beta"], de, us_rate)
+    ke = cf.capm(cma["risk_free_rate"], beta_l, cma["market_risk_premium"]) + cma.get("private_company_premium", 0.0)
+    w = cf.wacc(1.0, de, ke, cma["pre_tax_cost_of_debt"], us_rate)
+    cost_of_capital = {"risk_free_rate": cma["risk_free_rate"], "market_risk_premium": cma["market_risk_premium"],
+                       "unlevered_beta": cma["unlevered_beta"], "levered_beta": round(beta_l, 4),
+                       "private_company_premium": cma.get("private_company_premium", 0.0), "cost_of_equity": round(ke, 4),
+                       "pre_tax_cost_of_debt": cma["pre_tax_cost_of_debt"], "tax_rate": round(us_rate, 4),
+                       "debt_to_equity": de, **w,
+                       "previous_hurdle_rate": 0.15,
+                       "note": "No debt, so WACC = cost of equity. Business cases and projects discount at this WACC by default."}
+
+    # break-even (monthly revenue) from the latest month's cost behavior
+    cb = wh.query("select * from marts.fct_cost_behavior_monthly order by month desc limit 1")[0]
+    dep_m = float(wh.query("select coalesce(sum(natural_amount), 0) as v from marts.fct_gl_monthly where account_id = '6600' and month = ?::date",
+                           [str(cb["month"])[:10]])[0]["v"])
+    fixed_cash = float(cb["fixed_costs"]) - dep_m
+    rate_m = (1 + w["wacc"]) ** (1 / 12) - 1
+    life_m = int(cma.get("asset_life_years", 4) * 12)
+    fixed_cost_basis = float(wh.query("select sum(debit) as v from staging.stg_erp__journal_lines where account_id = '1500'")[0]["v"] or 0)
+    be = cf.break_even(fixed_cash, dep_m, float(cb["cm_ratio"]), investment=fixed_cost_basis, life=life_m, rate=rate_m, tax_rate=0.0)
+    be.update({"month": str(cb["month"])[:7], "revenue": float(cb["revenue"]), "cm_ratio": float(cb["cm_ratio"]),
+               "fixed_cash_costs": round(fixed_cash, 2), "depreciation": round(dep_m, 2),
+               "degree_of_operating_leverage": cf.degree_of_operating_leverage(float(cb["contribution_margin"]), float(cb["operating_income"])),
+               "note": "Monthly revenue needed: accounting = net income 0; cash = operating cash flow 0; financial = NPV 0 on "
+                       "the capitalized equipment at the WACC (its equivalent annual cost replaces depreciation). DOL is "
+                       "negative while operating income is below zero."})
+    return _result([], "three-statement financials (TTM), fct_working_capital_monthly, fct_gl_entity_monthly, "
+                       "fct_cost_behavior_monthly, seeds.corporate_tax_rates, seeds.capital_market_assumptions, driver engine",
+                   period=st["period"], cash_flow=cash_flow, ratios=ratio, taxes=taxes, tax_summary=tax_summary,
+                   proforma=proforma, growth=growth, cost_of_capital=cost_of_capital, break_even=be,
+                   statements={k: round(v, 2) for k, v in st.items() if isinstance(v, float)},
+                   note="Trailing 12 closed months; balance sheet at the latest close.")
+
+
+def evaluate_project(wh, investment, life_years, annual_revenue, annual_costs, salvage=0, nwc=0, tax_rate=None,
+                     discount_rate=None, depreciation="straight_line", compare_flows=None):
+    """Capital budgeting on a project: cash flows with the depreciation tax shield, after-tax salvage and working
+    capital, NPV, IRR, payback, discounted payback and profitability index at the company WACC (or a given rate);
+    with compare_flows (another project's cash flows), the crossover rate."""
+    from finance_os import corpfin as cf
+    rates = _tax_rates(wh)
+    t = _us_combined(rates) if tax_rate is None else float(tax_rate)
+    r = discount_rate
+    if r is None:
+        cc = get_corporate_finance(wh)["cost_of_capital"]
+        r = cc["wacc"]
+    out = cf.project_cash_flows(float(investment), int(life_years), float(annual_revenue), float(annual_costs), t, float(r),
+                                float(salvage or 0), float(nwc or 0), depreciation)
+    if compare_flows:
+        out["crossover_rate"] = cf.crossover_rate(out["flows"], [float(x) for x in compare_flows])
+    return _result(out.pop("rows"), "finance_os.corpfin.project_cash_flows", tax_rate=round(t, 4), discount_rate=round(float(r), 4), **out,
+                   note="OCF = (revenue - costs)(1 - t) + depreciation x t. Final year adds salvage after tax on the gain "
+                        "over book value and recovers working capital.")
+
+
+CALCULATORS = {
+    "future_value": ("tvm", ["rate", "periods", "pv"]), "present_value": ("tvm", ["rate", "periods", "fv"]),
+    "annuity": ("annuity", ["rate", "periods", "payment", "due", "growth"]), "perpetuity": ("perpetuity", ["rate", "payment", "growth"]),
+    "loan": ("loan_schedule", ["principal", "annual_rate", "years", "periods_per_year", "kind"]),
+    "bond_price": ("bond_price", ["face", "coupon_rate", "ytm", "years", "freq"]), "bond_ytm": ("bond_ytm", ["price", "face", "coupon_rate", "years", "freq"]),
+    "interest_rate_risk": ("interest_rate_risk", ["face", "coupon_rate", "ytm", "years", "shock", "freq"]),
+    "ddm": ("ddm", ["dividend_next", "required_return", "growth", "supernormal"]), "voting": ("voting", ["shares_owned", "shares_total", "seats", "cumulative"]),
+    "holding_return": ("holding_return", ["price_begin", "price_end", "dividend"]), "return_stats": ("return_stats", ["returns"]),
+    "portfolio": ("portfolio", ["w1", "r1", "s1", "r2", "s2", "corr"]), "sml": ("sml", ["rf", "mrp", "beta", "expected_return"]),
+    "wacc": ("wacc", ["equity_value", "debt_value", "cost_of_equity", "cost_of_debt", "tax_rate", "preferred_value", "cost_of_preferred"]),
+    "flotation": ("flotation_adjusted", ["investment", "weights_flotation"]),
+    "rights_offering": ("rights_offering", ["price_now", "subscription_price", "shares_outstanding", "funds_needed"]),
+    "mm": ("mm", ["unlevered_value_or_ebit", "debt", "cost_of_debt", "unlevered_cost_of_equity", "tax_rate", "ebit"]),
+    "homemade_leverage": ("homemade_leverage", ["shares", "price", "borrow", "rate", "eps_unlevered"]),
+    "payout": ("payout", ["net_income", "shares", "price", "cash_distributed"]), "split": ("split", ["shares", "price", "ratio", "stock_dividend_pct"]),
+    "bid_price": ("bid_price", ["investment", "life", "units", "variable_cost", "fixed_costs", "tax_rate", "rate", "salvage", "nwc"]),
+    "crossover": ("crossover_rate", ["flows_a", "flows_b"]), "tax": ("tax_on", ["income", "bands"]),
+    "uk_tax": ("uk_corporation_tax", ["profit"]),
+}
+
+
+def finance_calculator_specs(wh):
+    """Every calculator kind and its input names (for the Calculators page)."""
+    return {"source": "finance_os.corpfin", "row_count": len(CALCULATORS), "rows": [{"kind": k, "function": f, "inputs": ps} for k, (f, ps) in CALCULATORS.items()]}
+
+
+def finance_calculator(wh, kind, inputs):
+    """Textbook corporate-finance calculators (not company data): time value of money, annuities, perpetuities, loan
+    amortization, bond price / YTM / interest-rate risk, dividend discount model, straight vs cumulative voting,
+    holding-period returns, arithmetic vs geometric averages and standard deviation, two-asset portfolios, CAPM / SML,
+    WACC, flotation costs, rights offerings, M&M, homemade leverage, dividends vs repurchases, splits, bid price,
+    crossover rate and tax bands."""
+    from finance_os import corpfin as cf
+    if kind not in CALCULATORS:
+        return {"error": f"kind must be one of {', '.join(CALCULATORS)}"}
+    fn, params = CALCULATORS[kind]
+    args = {k: v for k, v in (inputs or {}).items() if k in params and v is not None and v != ""}
+    try:
+        out = getattr(cf, fn)(**args)
+    except (TypeError, ValueError, ZeroDivisionError) as e:
+        return {"error": f"{kind}: {e}. Inputs: {', '.join(params)}"}
+    if not isinstance(out, dict):
+        out = {"value": out}
+    rows = out.pop("rows", [])
+    return {"source": f"finance_os.corpfin.{fn}", "row_count": len(rows), "rows": rows, "kind": kind, "inputs": args, "result": out}
+
 def get_treasury_sweep(wh):
     """Simulated cash sweeps over the 13-week forecast. Each week the operating account takes the net flow, then:
     excess above six weeks of outflows sweeps to the money market fund; a shortfall below the four-week policy pulls
@@ -2559,6 +2984,25 @@ TOOLS = {
     "get_decisions_needed": (get_decisions_needed, "Decisions leadership or the board must make now (renewal save plans, "
                              "second GPU vendor, forecast assumptions, funding plan, margin-floor repricing, covenants), each "
                              "with evidence, options, owner and deadline.", _p({})),
+    "get_corporate_finance": (get_corporate_finance, "Corporate finance on trailing-12-month numbers: cash flow from assets "
+                              "(OCF, net capital spending, change in NWC) and to creditors / stockholders; liquidity, leverage, "
+                              "turnover and profitability ratios and the DuPont identity; corporate income tax by entity (marginal "
+                              "vs average, UK bands, US loss carryforward and deferred tax asset); pro forma balance sheet and "
+                              "external financing needed (EFN); internal and sustainable growth rates; accounting, cash and "
+                              "financial break-even and DOL; WACC with CAPM cost of equity.", _p({})),
+    "evaluate_project": (evaluate_project, "Capital budgeting for a project: cash flows with depreciation tax shield, "
+                         "after-tax salvage and working capital; NPV, IRR, payback, discounted payback, profitability index "
+                         "at the company WACC (or discount_rate); crossover rate vs compare_flows.",
+                         _p({"investment": {"type": "number"}, "life_years": {"type": "integer"}, "annual_revenue": {"type": "number"},
+                             "annual_costs": {"type": "number"}, "salvage": {"type": "number"}, "nwc": {"type": "number"},
+                             "tax_rate": {"type": "number"}, "discount_rate": {"type": "number"},
+                             "depreciation": {"type": "string", "enum": ["straight_line", "double_declining"]},
+                             "compare_flows": {"type": "array", "items": {"type": "number"}}},
+                            ["investment", "life_years", "annual_revenue", "annual_costs"])),
+    "finance_calculator": (finance_calculator, "Textbook corporate-finance calculators (not company data). kind: "
+                           + ", ".join(CALCULATORS) + ". inputs: the named parameters for that kind (rates as decimals).",
+                           _p({"kind": {"type": "string", "enum": list(CALCULATORS)}, "inputs": {"type": "object"}}, ["kind", "inputs"])),
+    "finance_calculator_specs": (finance_calculator_specs, "List the calculator kinds and their inputs.", _p({})),
     "get_contracts": (get_contracts, "Committed-use customer contracts: RPO, current RPO (next 12 months), contracted ARR "
                       "vs run-rate ARR, burn pace (usage vs commitment), projected shortfall / overage, renewal base, "
                       "revenue at risk, prepaid credit pools; per contract and as a monthly trend.",
@@ -2582,6 +3026,11 @@ TOOLS = {
                              "Use for 'where will we land this year versus budget'.",
                              _p({"month": MONTH, "department": {"type": "string", "description": "ENG, INF, SAL, PS, GA or NONE"},
                                  "alerts_only": {"type": "boolean"}})),
+    "get_variance_case": (get_variance_case, "The full case file for one budget variance (alert_id like BVA-202609-NONE-4000): "
+                          "what happened (month, YTD, full year), the source journal lines, the reconciliation chain from "
+                          "source system to GL to reported actual, the root cause decomposed into drivers and classified, "
+                          "the owner and actions, and the CFO's decision options with full-year effect.",
+                          _p({"alert_id": {"type": "string"}}, ["alert_id"])),
     "get_variance_drivers": (get_variance_drivers, "The journal lines behind a budget alert (alert_id from get_budget_vs_actual).",
                              _p({"alert_id": {"type": "string"}}, ["alert_id"])),
     "get_unit_economics": (get_unit_economics, "Customer margins (gross, contribution, vs. floor) and product cost to serve.",

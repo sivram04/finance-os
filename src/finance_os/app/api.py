@@ -163,6 +163,42 @@ def create_app(state: AppState | None = None, wh: tools.Warehouse | None = None,
                         "decided_by": a.get("decided_by")})
         return out[::-1]
 
+    class VarianceDecision(BaseModel):
+        alert_id: str
+        decision: str
+        note: str = ""
+        actions: list[dict] = []
+
+    @app.post("/api/variance-decisions")
+    def record_variance_decision(body: VarianceDecision):
+        """The CFO's decision on a variance: recorded as an action decided by the CFO, with the evidence summary and the
+        owner actions it commits to, in the audit log. A later decision on the same variance supersedes it."""
+        case = tools.get_variance_case(wh, body.alert_id)
+        if not case.get("case"):
+            raise HTTPException(404, "unknown variance")
+        c = case["case"]
+        preview = (f"CFO decision on {c['message']} ({c['month']}): {body.decision}."
+                   + (f" {body.note}" if body.note else "")
+                   + (f" Actions: {'; '.join(a.get('action', '') + ' (' + a.get('owner', '') + ')' for a in body.actions)}." if body.actions else ""))
+        payload = {"alert_id": body.alert_id, "decision": body.decision, "note": body.note, "actions": body.actions,
+                   "evidence": {"actual": c["actual"], "budget": c["budget"], "variance_favorable": c["variance_favorable"],
+                                "fy_forecast_variance": c["fy_forecast_variance"], "root_cause": case["root_cause"].get("summary"),
+                                "reconciled": all(x["status"] in ("pass", "no check") for x in case["reconciliation_chain"])}}
+        aid = state.propose(None, "variance_decision", body.alert_id, payload, preview)
+        state.decide(aid, "approved", f"Decided: {body.decision}")
+        return {"action_id": aid, "preview": preview}
+
+    @app.get("/api/variance-decisions/{alert_id}")
+    def variance_decisions(alert_id: str):
+        out = []
+        for a in state.actions():
+            if a["kind"] == "variance_decision" and a["target_id"] == alert_id:
+                payload = json.loads(a["payload"]) if isinstance(a["payload"], str) else a["payload"]
+                out.append({"id": a["id"], "decision": payload["decision"], "note": payload.get("note"), "actions": payload.get("actions", []),
+                            "decided_at": a["decided_at"].isoformat() if hasattr(a["decided_at"], "isoformat") else a["decided_at"],
+                            "decided_by": a.get("decided_by"), "audit": state.audit(a["id"])})
+        return out[::-1]
+
     @app.get("/api/audit")
     def audit():
         return state.audit()

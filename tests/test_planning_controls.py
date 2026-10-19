@@ -135,3 +135,17 @@ def test_decisions_and_evidence_drill(wh):
     assert d and all(x["owner"] and x["options"] for x in d)
     ev = tools.answer_evidence(wh, "Revenue rose", [("get_customer_detail", {"customer_id": "EN-001"}, {})], [])
     assert any(x["args"].get("customer_id") == "EN-001" for x in ev["drill"])
+
+
+def test_variance_case_end_to_end(wh):
+    r = tools.get_variance_case(wh, "BVA-202609-NONE-4000")
+    c = r["case"]
+    assert abs(r["source_lines_total"] - c["actual"]) < 0.01  # source lines tie to the reported actual
+    assert all(s["status"] == "pass" for s in r["reconciliation_chain"])
+    comps = {x["driver"]: x["amount"] for x in r["root_cause_components"]}
+    budget_growth = comps.pop("Budget assumed growth since the December base")
+    # the bridge closes: budget - growth not delivered + delivered growth = actual
+    assert abs(c["budget"] - budget_growth + sum(comps.values()) - c["actual"]) < 1
+    assert r["actions"] and r["decision_options"] and r["owner"]
+    other = tools.get_variance_case(wh, "BVA-202609-INF-6600")
+    assert other["root_cause"]["classification"].startswith("Planning gap")

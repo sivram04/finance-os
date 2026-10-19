@@ -10,11 +10,12 @@ import { Alerts, Analysis, Entities, Scenarios, Financials, Reports, Capital, Ca
 import { AP, AR, Billing, Budget, Projects, Revenue, Spend, Trust } from './pages/Modules'
 import { CeoOnePager, Contracts, Drivers } from './pages/Insights'
 import { Explore } from './pages/Explore'
+import { Calculators, CorporateFinance } from './pages/CorpFin'
 
 // pages grouped into sections: the top row picks a section, the second row its pages
 const SECTIONS: { name: string; pages: [Page, string][] }[] = [
   { name: 'Overview', pages: [['home', 'Home'], ['ceo', 'CEO one-pager'], ['explore', 'Explore'], ['financials', 'Financials'], ['alerts', 'Alerts'], ['reports', 'Reports']] },
-  { name: 'Plan & cash', pages: [['plan', 'Plan'], ['analysis', 'Analysis'], ['scenarios', 'Scenarios'], ['drivers', 'Drivers'], ['cash', 'Cash'], ['capital', 'Capital'], ['pricing', 'Pricing']] },
+  { name: 'Plan & cash', pages: [['plan', 'Plan'], ['analysis', 'Analysis'], ['scenarios', 'Scenarios'], ['drivers', 'Drivers'], ['corpfin', 'Corporate finance'], ['calculators', 'Calculators'], ['cash', 'Cash'], ['capital', 'Capital'], ['pricing', 'Pricing']] },
   { name: 'Revenue', pages: [['revenue', 'Revenue'], ['growth', 'Growth'], ['pipeline', 'Pipeline'], ['contracts', 'Contracts'], ['deals', 'Deal desk'], ['comp', 'Commissions'], ['billing', 'Billing'], ['ar', 'Receivables']] },
   { name: 'Spend', pages: [['spend', 'Tech spend'], ['ap', 'AP inbox'], ['budget', 'Budget'], ['projects', 'Projects']] },
   { name: 'Close & control', pages: [['close', 'Close'], ['entities', 'Entities'], ['tax', 'Tax & FX'], ['trust', 'Trust']] },
@@ -99,6 +100,8 @@ export default function App() {
               {page === 'drivers' && <Drivers />}
               {page === 'ceo' && <CeoOnePager />}
               {page === 'explore' && <Explore />}
+              {page === 'corpfin' && <CorporateFinance />}
+              {page === 'calculators' && <Calculators />}
               {page === 'growth' && <Growth />}
               {page === 'pipeline' && <Pipeline />}
               {page === 'deals' && <DealDesk />}

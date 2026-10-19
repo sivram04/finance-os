@@ -193,11 +193,13 @@ def test_every_read_tool_runs_against_the_warehouse():
     from finance_os.app.tools import TOOLS, run_tool
     wh = Warehouse()
     needs = {"get_kpi_trend": {"metric": "revenue"}, "get_metric_definition": {"metric": "arr"},
-             "get_variance_drivers": {"alert_id": "none"}, "get_customer_detail": {"customer_id": "EN-001"},
+             "get_variance_drivers": {"alert_id": "none"}, "get_variance_case": {"alert_id": "none"}, "get_customer_detail": {"customer_id": "EN-001"},
              "get_vendor_detail": {"vendor_id": "gcp"}, "get_project_detail": {"project_id": "P-101"},
              "price_deal": {"customer": "Test", "lines": [{"product_id": "stream", "hours_per_month": 1000}]},
              "evaluate_business_case": {"investment": 500000, "annual_inflows": [200000, 250000, 250000]},
-             "evaluate_marketing_campaign": {"spend": 500000, "new_customers": 40}}
+             "evaluate_marketing_campaign": {"spend": 500000, "new_customers": 40},
+             "evaluate_project": {"investment": 500000, "life_years": 5, "annual_revenue": 300000, "annual_costs": 120000},
+             "finance_calculator": {"kind": "bond_price", "inputs": {"face": 1000, "coupon_rate": 0.06, "ytm": 0.08, "years": 10}}}
     for name in TOOLS:
         result = run_tool(wh, name, needs.get(name, {}))
         assert "source" in result, name
@@ -216,3 +218,14 @@ def test_commission_dispute_raise_and_resolve(tmp_path):
     client.post(f"/api/actions/{aid}/approve", json={"note": "Upheld: plan says 75%"})
     d = client.get("/api/commission-disputes").json()[0]
     assert d["status"] == "approved" and d["resolution"] == "Upheld: plan says 75%"
+
+
+@needs_warehouse
+def test_variance_decision_recorded_and_audited(tmp_path):
+    client = TestClient(create_app(AppState(tmp_path / "app.duckdb"), Warehouse()))
+    r = client.post("/api/variance-decisions", json={"alert_id": "BVA-202609-NONE-4000", "decision": "Accept and re-forecast",
+                                                     "note": "run rate", "actions": [{"action": "Re-forecast", "owner": "VP Finance"}]})
+    assert r.status_code == 200
+    d = client.get("/api/variance-decisions/BVA-202609-NONE-4000").json()[0]
+    assert d["decision"] == "Accept and re-forecast" and d["actions"][0]["owner"] == "VP Finance"
+    assert [e["event"] for e in d["audit"]] == ["proposed", "approved"]
