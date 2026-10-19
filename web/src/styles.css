@@ -261,3 +261,17 @@ table.sheet tr.s-ratio td, table.sheet tr.s-check td { color: var(--faint); font
 
 .form-row { display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-end; }
 .form-row label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--faint); }
+
+/* Cards side by side are the same height: a row stretches to its tallest card, capped, and a card's content
+   scrolls inside it rather than stretching the page. The header stays put while the body scrolls. */
+.grid.cols-2 > section.card, .grid.cols-3 > section.card { display: flex; flex-direction: column; max-height: 620px; }
+.grid.cols-2 > section.card > .card-body, .grid.cols-3 > section.card > .card-body { flex: 1; min-height: 0; overflow-y: auto; }
+.card-body { min-width: 0; }
+/* KPI tiles in a row share one height, with the value at the same baseline */
+.grid > .card.kpi { display: flex; flex-direction: column; justify-content: flex-start; }
+/* Home: "Needs you" matches the column beside it (approvals + module tiles) and scrolls inside */
+.grid.cols-2.match-column > section.card { max-height: none; contain: size; }  /* sized by the other column */
+@media (max-width: 800px) {
+  /* one column: nothing beside "Needs you" to size it, so it uses the normal cap */
+  .grid.cols-2.match-column > section.card { contain: none; max-height: 620px; }
+}

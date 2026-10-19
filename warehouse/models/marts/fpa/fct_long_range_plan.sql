@@ -15,7 +15,7 @@ start_cash as (
 a as (
     select
         l.*,
-        exp(sum(ln(1 + cast(l.revenue_growth as {{ dbt.type_float() }}))) over (order by l.year)) as growth_index
+        exp(sum(ln(1 + cast(l.revenue_growth as {{ 'float64' if target.type == 'bigquery' else 'double' }}))) over (order by l.year)) as growth_index
     from {{ ref('lrp_assumptions') }} l
 ),
 

@@ -85,7 +85,7 @@ export function Plan() {
         {f.data ? <DataTable rows={f.data.rows} columns={[{ key: 'month' }, { key: 'revenue', unit: 'usd' }, { key: 'gross_margin_pct', unit: 'ratio' }, { key: 'payroll', unit: 'usd' }, { key: 'other_opex', unit: 'usd' }, { key: 'ebitda', unit: 'usd' }, { key: 'closing_cash', unit: 'usd' }]} /> : <Loading state={f} />}
         <Source data={f.data} />
       </Card>
-      <div className="grid cols-2" style={{ alignItems: 'start' }}>
+      <div className="grid cols-2">
         <Card title="Forecast accuracy" sub="Past base forecasts vs what actually closed · positive = forecast too high">
           {acc.data ? <DataTable rows={acc.data.rows} columns={[{ key: 'line' }, { key: 'months_ahead', label: 'Months ahead' }, { key: 'n', label: 'Versions' }, { key: 'avg_error_pct', label: 'Avg error (bias)', unit: 'ratio' }, { key: 'avg_abs_error_pct', label: 'Avg abs error', unit: 'ratio' }]} /> : <Loading state={acc} />}
         </Card>
@@ -93,7 +93,7 @@ export function Plan() {
           {hc.data ? <DataTable rows={hc.data.planned_roles as Row[]} empty="No roles in this scenario." columns={[{ key: 'role_id' }, { key: 'department_id', label: 'Dept' }, { key: 'title' }, { key: 'start_month' }, { key: 'status', chip: true }, { key: 'monthly_loaded_cost', label: 'Loaded / month', unit: 'usd' }]} /> : <Loading state={hc} />}
         </Card>
       </div>
-      <div className="grid cols-2" style={{ alignItems: 'start' }}>
+      <div className="grid cols-2">
         <Card title="Next year's budget" sub="Bottom-up (department asks) vs top-down (board targets)">
           {bb.data ? <DataTable rows={bb.data.rows} columns={[{ key: 'line' }, { key: 'department_id', label: 'Dept' }, { key: 'bottom_up', unit: 'usd' }, { key: 'top_down', unit: 'usd' }, { key: 'gap', unit: 'usd' }, { key: 'gap_pct', unit: 'ratio' }]} /> : <Loading state={bb} />}
           <Source data={bb.data} />
@@ -148,7 +148,7 @@ export function Cash() {
         {c.data ? <DataTable rows={weeks} columns={[{ key: 'week' }, { key: 'week_start' }, { key: 'opening_cash', unit: 'usd' }, { key: 'inflows', unit: 'usd' }, { key: 'payroll', unit: 'usd' }, { key: 'vendors', unit: 'usd' }, { key: 'other_opex', unit: 'usd' }, { key: 'closing_cash', unit: 'usd' }, { key: 'is_below_min_cash', label: 'Below minimum', flag: 'bad' }]} /> : <Loading state={c} />}
         <Source data={c.data} />
       </Card>
-      <div className="grid cols-2" style={{ alignItems: 'start' }}>
+      <div className="grid cols-2">
         <Card title="Covenants and policies" sub="First month each is breached (actuals, then base forecast)">
           {c.data ? <DataTable rows={breaches} empty="All covenants pass." onRow={(r) => ask(`Explain covenant ${r.rule_id} and what it would take to stay compliant.`)}
             columns={[{ key: 'rule_id' }, { key: 'description' }, { key: 'first_breach_month' }, { key: 'breached_in_actuals', label: 'Already breached', flag: 'bad' }]} /> : <Loading state={c} />}
@@ -190,7 +190,7 @@ export function Close() {
           columns={[{ key: 'task_id', label: '#' }, { key: 'due_date' }, { key: 'owner' }, { key: 'task' }, { key: 'status', render: (r) => <Chip value={String(r.status)} kind={r.status === 'complete' ? 'good' : r.status === 'exceptions' || r.status === 'blocked' ? 'bad' : r.status === 'not_applicable' ? undefined : 'warn'} /> }, { key: 'open_items', unit: 'count' }]} /> : <Loading state={cs} />}
         <Source data={cs.data} />
       </Card>
-      <div className="grid cols-2" style={{ alignItems: 'start' }}>
+      <div className="grid cols-2">
         <Card title="Accruals" sub="Costs booked before the invoice arrived">
           {cs.data ? <DataTable rows={cs.data.accruals as Row[]} empty="No accruals this month." columns={[{ key: 'vendor_id' }, { key: 'bill_id' }, { key: 'accrued_amount', unit: 'usd' }, { key: 'true_up', unit: 'usd' }]} /> : <Loading state={cs} />}
         </Card>
@@ -363,7 +363,7 @@ export function DealDesk() {
             <Kpi label="Contract value" value={usd(ev.contract_value)} note={`${ev.term_months} months`} />
             <Kpi label="Routing" value={ev.route === 'auto_approve' ? 'Auto-approve' : 'Finance review'} tone={ev.route === 'auto_approve' ? 'good' : 'bad'} />
           </div>
-          <div className="grid cols-2" style={{ alignItems: 'start' }}>
+          <div className="grid cols-2">
             <Card title="Guardrails">
               <DataTable rows={checks} columns={[{ key: 'rule' }, { key: 'passed', render: (r) => <Chip value={r.passed ? 'pass' : 'fail'} /> }, { key: 'detail' }]} />
             </Card>
@@ -431,7 +431,7 @@ export function Reports() {
         {data ? <DataTable rows={data.schedule} columns={[{ key: 'name' }, { key: 'cadence', chip: true }, { key: 'recipients' }, { key: 'description' },
           { key: 'run', label: '', render: (r) => <button className="btn small" disabled={busy === r.report_id} onClick={() => runNow(String(r.report_id))}>{busy === r.report_id ? 'Running…' : 'Run now'}</button> }]} /> : <div className="muted">Loading…</div>}
       </Card>
-      <div className="grid cols-2" style={{ alignItems: 'start' }}>
+      <div className="grid cols-2">
         <Card title="Sent reports" sub="Click one to read it">
           {data ? <DataTable rows={data.saved} empty="Nothing sent yet." onRow={setOpen} columns={[{ key: 'name' }, { key: 'period' }, { key: 'saved_at', label: 'Saved' }]} /> : null}
         </Card>
@@ -469,7 +469,7 @@ export function Financials() {
   const selRow = sel ? rows[sel.r] : undefined
   const selVal = sel && selRow ? (sel.c === 0 ? String(selRow.line) : selRow[periods[sel.c - 1]]) : undefined
   const shown = selVal == null ? '' : typeof selVal === 'number'
-    ? (selRow?.unit === 'ratio' ? `${(selVal * 100).toFixed(2)}%` : selVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
+    ? (selRow?.unit === 'ratio' ? `${(selVal * 100).toFixed(2)}%` : (Math.abs(selVal) < 0.005 ? 0 : selVal).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
     : String(selVal)
   return (
     <div className="page">
@@ -540,7 +540,7 @@ function BusinessCase() {
   useEffect(run, [])  // eslint-disable-line react-hooks/exhaustive-deps
   const num = (v: number, set: (n: number) => void, step = 1000) => <input type="number" className="table-search" style={{ width: 130 }} step={step} value={v} onChange={(e) => set(Number(e.target.value))} />
   return (
-    <Card title="Business case" sub="NPV, IRR and payback at the hurdle rate. A campaign uses today's ARPA, gross margin and churn."
+    <Card title="Business case" sub="NPV, IRR and payback at the hurdle rate. A campaign uses what recently won customers pay, today's gross margin and churn."
       right={<div className="segmented"><button className={mode === 'campaign' ? 'on' : ''} onClick={() => setMode('campaign')}>Marketing campaign</button><button className={mode === 'investment' ? 'on' : ''} onClick={() => setMode('investment')}>Investment</button></div>}>
       <div className="form-row">
         <label>{mode === 'campaign' ? 'Spend' : 'Investment today'} ($){num(spend, setSpend)}</label>
@@ -591,7 +591,7 @@ export function Analysis() {
         {saas.data ? <DataTable title="saas_metrics" rows={[...saas.data.rows].reverse()} columns={[{ key: 'month' }, { key: 'arr', unit: 'usd' }, { key: 'new_customers', label: 'New' }, { key: 'cac', label: 'CAC', unit: 'usd' }, { key: 'arpa', label: 'ARPA', unit: 'usd' }, { key: 'ltv', label: 'LTV', unit: 'usd' }, { key: 'ltv_to_cac', label: 'LTV:CAC' }, { key: 'cac_payback_months', label: 'Payback (mo)' }, { key: 'revenue_growth_yoy', label: 'Growth YoY', unit: 'ratio' }, { key: 'rule_of_40', label: 'Rule of 40', unit: 'ratio' }, { key: 'free_cash_flow', label: 'Free cash flow', unit: 'usd' }]} /> : <Loading state={saas} />}
       </Card>
 
-      <div className="grid cols-2" style={{ alignItems: 'start' }}>
+      <div className="grid cols-2">
         <Card title="Cost structure and breakeven" sub="Fixed vs variable (seeds/cost_behavior.csv), contribution margin, operating leverage">
           {cost.data ? (
             <>

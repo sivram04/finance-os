@@ -19,7 +19,7 @@ from finance_os.paths import ROOT
 SCHEMAS = ("staging", "intermediate", "marts", "recon")
 # outputs of floating-point growth math: allowed one cent (or 1e-6 for 6-place rates) of rounding per row
 MODELED = {"fct_forecast_monthly", "fct_forecast_accuracy", "fct_scenario_summary", "fct_budget_build",
-           "fct_treasury_covenants", "fct_unit_economics_monthly"}
+           "fct_treasury_covenants", "fct_unit_economics_monthly", "fct_fundraise_scenarios", "fct_long_range_plan"}
 NUMERIC = {"DECIMAL", "INTEGER", "BIGINT", "HUGEINT", "DOUBLE", "FLOAT", "SMALLINT", "TINYINT", "UBIGINT"}
 
 

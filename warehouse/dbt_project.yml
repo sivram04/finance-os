@@ -21,6 +21,10 @@ seeds:
       +column_types: {start_date: date, end_date: date, committed_gpu_hours_month: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,4)' }}", renewal_notice_days: integer}
     gl_accounts:
       +column_types: {account_id: "{{ 'string' if target.type == 'bigquery' else 'varchar' }}"}
+    cost_behavior:
+      +column_types: {account_id: "{{ 'string' if target.type == 'bigquery' else 'varchar' }}", variable_share: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}"}
+    lrp_assumptions:
+      +column_types: {revenue_growth: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}", gross_margin_pct: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}", sm_pct_revenue: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}", rd_pct_revenue: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}", ga_pct_revenue: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}", capex_pct_revenue: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}"}
     variance_thresholds:
       +column_types: {min_variance_pct: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(6,4)' }}", min_variance_abs: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,2)' }}"}
     labor_cost_policy:

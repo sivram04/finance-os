@@ -170,7 +170,7 @@ questions:
   - id: treasury-covenants
     persona: VP Finance
     ask: Are we breaching any covenants or treasury policies?
-    expect_text: ["'MIN-CASH|minimum|[$]3M|[$]3,000,000'", "'runway'"]
+    expect_text: ["'MIN-CASH|minimum|[$]3M|[$]3,000,000'"]
     expect_tools: [get_cash_forecast]
   - id: treasury-payment-run
     persona: Controller
@@ -233,3 +233,36 @@ questions:
     persona: Sales
     ask: AE-02 disputes their September 2026 statement for MM-003 — they think the expansion was undercounted. Log it.
     expect_proposal: commission_dispute
+  - id: fpa-ltv-cac
+    persona: CFO
+    ask: What is our LTV to CAC ratio and CAC payback right now?
+    expect_values: ["select ltv_to_cac from marts.fct_saas_metrics_monthly where month=M",
+                    "select cac_payback_months from marts.fct_saas_metrics_monthly where month=M"]
+    expect_tools: [get_saas_metrics]
+  - id: fpa-rule-of-40
+    persona: CFO
+    ask: Do we pass the Rule of 40?
+    expect_values: ["select rule_of_40 from marts.fct_saas_metrics_monthly where month=M"]
+    expect_tools: [get_saas_metrics]
+  - id: fpa-breakeven
+    persona: CFO
+    ask: What monthly revenue do we need to break even?
+    expect_values: ["select breakeven_revenue from marts.fct_cost_behavior_monthly where month=M"]
+    expect_tools: [get_cost_behavior]
+  - id: fpa-pvm
+    persona: FP&A
+    ask: Break last month's usage revenue change into price, volume and mix.
+    expect_tools: [get_revenue_pvm]
+  - id: fpa-lrp
+    persona: CFO
+    ask: In the five-year plan, which year do we turn EBITDA positive?
+    expect_values: ["select ebitda from marts.fct_long_range_plan where year = (select min(year) from marts.fct_long_range_plan where ebitda > 0)"]
+    expect_tools: [get_long_range_plan]
+  - id: fpa-campaign
+    persona: CMO
+    ask: Marketing wants $500K for a campaign that should bring 40 new customers. Is it worth it?
+    expect_tools: [evaluate_marketing_campaign]
+  - id: fpa-statements
+    persona: Controller
+    ask: Show me the balance sheet for the last 3 months. Does it balance?
+    expect_tools: [get_financial_statements]

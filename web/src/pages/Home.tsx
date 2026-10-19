@@ -92,7 +92,7 @@ function NeedsYou() {
     <Card title="Needs you" sub={s.data ? `${s.data.row_count} open items across ${Object.keys((s.data.counts_by_area as object) ?? {}).length} areas` : undefined}
       right={<button className="btn small" onClick={() => ask('What needs my attention right now? Group it by urgency.')}>Summarize</button>}>
       {s.data ? (
-        <div className="attention scroll-box">
+        <div className="attention">
           {s.data.rows.map((r, i) => (
             <div className="item" key={i}>
               <div><Chip value={r.severity as string} /> </div>
@@ -158,7 +158,7 @@ export function Home({ asOf }: { asOf?: string }) {
         </div>
       )}
       <PositionChart />
-      <div className="grid cols-2" style={{ alignItems: 'start' }}>
+      <div className="grid cols-2 match-column">
         <NeedsYou />
         <div className="grid">
           <PendingApprovals />

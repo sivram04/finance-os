@@ -21,7 +21,7 @@ export function Revenue() {
     <div className="page">
       <Head title="Revenue & margins" sub="Customer margins against product floors, and how MRR moved this month."
         ask="Which customers are below their margin floor and why? What drove MRR this month?" />
-      <div className="grid cols-2" style={{ alignItems: 'start' }}>
+      <div className="grid cols-2">
         <Card title="MRR bridge" sub={mv.data ? String(mv.data.month) : ''}>
           {bridge ? <DataTable rows={['opening_mrr', 'new_mrr', 'expansion_mrr', 'contraction_mrr', 'churned_mrr', 'reactivation_mrr', 'closing_mrr']
             .map((k) => ({ movement: k.replace('_mrr', ''), amount: bridge[k] }))} columns={[{ key: 'movement' }, { key: 'amount', unit: 'usd' }]} /> : <Loading state={mv} />}
@@ -55,7 +55,7 @@ export function Spend() {
       <Head title="Tech spend" sub="GPU and cloud cost, tagging, reserved capacity and the 3-month forecast."
         ask="Summarize tech spend this month: biggest costs, tagging coverage, GPU commitment use and the forecast." />
       <div className="grid cols-4">
-        <div className="card kpi"><div className="label">Total this month</div><div className="value">{ts.data ? `$${((ts.data.rows.reduce((a, r) => a + (r.cost as number), 0)) / 1000).toFixed(1)}K` : '…'}</div></div>
+        <div className="card kpi"><div className="label">Total this month</div><div className="value">{ts.data ? fmt('amount', ts.data.rows.reduce((a, r) => a + (r.cost as number), 0), 'usd') : '…'}</div></div>
         <div className="card kpi"><div className="label">Tagging coverage</div><div className="value">{tag ? `${((tag.tagging_coverage_pct as number) * 100).toFixed(1)}%` : '…'}</div></div>
         <div className="card kpi"><div className="label">Untagged</div><div className="value">{tag ? `$${(tag.untagged_cost as number).toLocaleString()}` : '…'}</div></div>
         <div className="card kpi"><div className="label">Vendor renewals due</div><div className="value">{gpu.data ? (gpu.data.vendor_contracts as Row[]).filter((r) => r.is_renewal_due).length : '…'}</div></div>
@@ -64,7 +64,7 @@ export function Spend() {
         {ts.data ? <DataTable rows={ts.data.rows} columns={[{ key: by }, { key: 'cost', unit: 'usd' }]} /> : <Loading state={ts} />}
         <Source data={ts.data} />
       </Card>
-      <div className="grid cols-2" style={{ alignItems: 'start' }}>
+      <div className="grid cols-2">
         <Card title="Reserved GPU use vs. commit">
           {gpu.data ? <DataTable rows={gpu.data.rows.slice(-8)} columns={[{ key: 'month' }, { key: 'gpu_type' }, { key: 'used_hours', unit: 'count' }, { key: 'committed_hours', unit: 'count' }, { key: 'commit_utilization_pct', unit: 'ratio' }, { key: 'shortfall_cost', unit: 'usd' }]} /> : <Loading state={gpu} />}
         </Card>
@@ -120,7 +120,7 @@ export function Projects() {
           { key: 'billed_to_date', unit: 'usd' }, { key: 'unbilled', unit: 'usd' }, { key: 'is_over_budget', label: 'Over budget', flag: 'bad' }, { key: 'is_cap_alert', label: 'Near cap', flag: 'warn' }]} /> : <Loading state={p} />}
         <Source data={p.data} />
       </Card>
-      <div className="grid cols-2" style={{ alignItems: 'start' }}>
+      <div className="grid cols-2">
         <Card title="Contract funding" sub="Federal contracts get Limitation of Funds alerts at 75% and 90%">
           {f.data ? <DataTable rows={f.data.rows} columns={[{ key: 'contract_id' }, { key: 'clin_id', label: 'CLIN' }, { key: 'funded', unit: 'usd' }, { key: 'billed_to_date', unit: 'usd' }, { key: 'funding_used_pct', unit: 'ratio' }, { key: 'is_funding_alert_75', label: '75% notice', flag: 'warn' }]} /> : <Loading state={f} />}
         </Card>
@@ -141,7 +141,7 @@ export function Billing() {
       <Card title="Billing status">
         {s.data ? <DataTable rows={s.data.rows} columns={[{ key: 'project_id' }, { key: 'billing_status', label: 'Status', chip: true }, { key: 'billed_total', unit: 'usd' }, { key: 'open_ar', unit: 'usd' }, { key: 'ready_to_bill', unit: 'usd' }, { key: 'oldest_unbilled_days', unit: 'count' }, { key: 'has_unbilled_alert', label: 'Unbilled alert', flag: 'bad' }]} /> : <Loading state={s} />}
       </Card>
-      <div className="grid cols-2" style={{ alignItems: 'start' }}>
+      <div className="grid cols-2">
         <Card title="Next billing run (drafts)">
           {s.data ? <DataTable rows={s.data.next_billing_run as Row[]} columns={[{ key: 'project_id' }, { key: 'item_type', chip: true }, { key: 'reference' }, { key: 'amount', unit: 'usd' }, { key: 'days_unbilled', unit: 'count' }, { key: 'validation_status', label: 'Validation', chip: true }]} /> : <Loading state={s} />}
         </Card>
@@ -164,12 +164,12 @@ export function AR() {
       <Head title="Receivables" sub="Aging, DSO and collection effectiveness, the collections queue, and anything on hold."
         ask="Who should we chase for payment first, and is anything on hold that needs fixing first?" />
       <div className="grid cols-4">
-        <div className="card kpi"><div className="label">Ending AR</div><div className="value">{recent ? `$${((recent.ending_ar as number) / 1000).toFixed(1)}K` : '…'}</div></div>
+        <div className="card kpi"><div className="label">Ending AR</div><div className="value">{recent ? fmt('amount', recent.ending_ar as number, 'usd') : '…'}</div></div>
         <div className="card kpi"><div className="label">Over 60 days</div><div className="value">{recent ? `$${(recent.ar_over_60 as number).toLocaleString()}` : '…'}</div></div>
         <div className="card kpi"><div className="label">DSO (days)</div><div className="value">{recent ? String(recent.dso_days) : '…'}</div></div>
         <div className="card kpi"><div className="label">CEI</div><div className="value">{recent ? `${((recent.cei as number) * 100).toFixed(1)}%` : '…'}</div></div>
       </div>
-      <div className="grid cols-2" style={{ alignItems: 'start' }}>
+      <div className="grid cols-2">
         <Card title="Aging">
           {aging.data ? <DataTable rows={aging.data.rows} columns={[{ key: 'aging_bucket', label: 'Bucket', chip: true }, { key: 'invoices', unit: 'count' }, { key: 'balance', unit: 'usd' }]} /> : <Loading state={aging} />}
           <Source data={aging.data} />
@@ -187,7 +187,7 @@ export function AR() {
         {queue.data ? <DataTable rows={queue.data.rows as Row[]} empty="No invoice needs a person to chase right now." onRow={(r) => ask(`Should we chase ${r.invoice_ref}? Review the reminder draft if there is one.`)} columns={[
           { key: 'queue_rank', label: '#' }, { key: 'invoice_ref' }, { key: 'customer_id' }, { key: 'segment', chip: true }, { key: 'balance', unit: 'usd' }, { key: 'days_past_due', unit: 'count' }, { key: 'recommended_action' }]} /> : <Loading state={queue} />}
       </Card>
-      <div className="grid cols-2" style={{ alignItems: 'start' }}>
+      <div className="grid cols-2">
         <Card title="Cash application exceptions">
           {ex.data ? <DataTable rows={ex.data.rows} empty="None." columns={[{ key: 'exception_type', chip: true }, { key: 'customer_id' }, { key: 'detail' }]} /> : <Loading state={ex} />}
         </Card>

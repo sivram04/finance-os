@@ -37,7 +37,7 @@ j as (
         g.cash_change - g.equity_raised as free_cash_flow,
         sum(g.sm_spend) over (order by k.month rows between 2 preceding and current row) as sm_t3m,
         sum(k.new_customers) over (order by k.month rows between 2 preceding and current row) as new_t3m,
-        avg(k.logo_churn_rate) over (order by k.month rows between 2 preceding and current row) as churn_t3m,
+        {{ dec("round(avg(k.logo_churn_rate) over (order by k.month rows between 2 preceding and current row), 6)", 9, 6) }} as churn_t3m,
         lag(k.revenue, 12) over (order by k.month) as revenue_ly
     from kpi k
     join gl g on g.month = k.month
@@ -62,9 +62,9 @@ select
     {{ dec("round(cac, 2)", 18, 2) }} as cac,
     {{ dec("round(arpa, 2)", 18, 2) }} as arpa,
     {{ dec("round(churn_t3m, 4)", 9, 4) }} as monthly_logo_churn,
-    {{ dec("round(" ~ fdiv("arpa * gross_margin_pct", "nullif(churn_t3m, 0)") ~ ", 2)", 18, 2) }} as ltv,
-    {{ dec("round(" ~ fdiv("arpa * gross_margin_pct", "nullif(churn_t3m * cac, 0)") ~ ", 2)", 9, 2) }} as ltv_to_cac,
-    {{ dec("round(" ~ fdiv("cac", "nullif(arpa * gross_margin_pct, 0)") ~ ", 1)", 9, 1) }} as cac_payback_months,
+    {{ dec("round(" ~ fdiv("revenue * gross_margin_pct", "nullif(active_customers * churn_t3m, 0)") ~ ", 2)", 18, 2) }} as ltv,
+    {{ dec("round(" ~ fdiv("revenue * gross_margin_pct * new_t3m", "nullif(active_customers * churn_t3m * sm_t3m, 0)") ~ ", 2)", 9, 2) }} as ltv_to_cac,
+    {{ dec("round(" ~ fdiv("sm_t3m * active_customers", "nullif(new_t3m * revenue * gross_margin_pct, 0)") ~ ", 1)", 9, 1) }} as cac_payback_months,
     {{ dec("round(growth_yoy, 4)", 9, 4) }} as revenue_growth_yoy,
     {{ dec("round(ebitda_margin, 4)", 9, 4) }} as ebitda_margin,
     {{ dec("round(growth_yoy + ebitda_margin, 4)", 9, 4) }} as rule_of_40,

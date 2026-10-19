@@ -125,6 +125,10 @@ def get_financial_statements(wh, period="month", periods=12, end_month=None):
             cols.append((key(m), []))
         cols[-1][1].append(m)
     cols = cols[-int(periods):]
+    # a quarter or year that isn't over yet is labelled to-date, so a 9-month 2026 isn't read as a full year
+    full = {"month": 1, "quarter": 3, "year": 12}[period]
+    to_date = {"year": "YTD", "quarter": "QTD"}.get(period)
+    cols = [(f"{label} {to_date}" if to_date and len(ms) < full else label, ms) for label, ms in cols]
     first = cols[0][1][0] if cols else None
 
     def f(acct, ms):  # flow over months
@@ -541,8 +545,10 @@ def get_cash_forecast(wh):
     covenants = wh.query("""select rule_id, description, strftime(min(month), '%Y-%m') as first_breach_month,
                                    bool_or(not is_forecast) as breached_in_actuals
                             from marts.fct_treasury_covenants where status = 'breach' group by 1, 2 order by 3""")
+    low = min(weeks, key=lambda w: w["closing_cash"]) if weeks else None
     return _result(weeks, "marts.fct_cash_forecast_13w, marts.fct_cash_position, marts.fct_treasury_covenants",
-                   cash_by_account=position, covenant_breaches=covenants)
+                   cash_by_account=position, covenant_breaches=covenants,
+                   lowest_point=low and {"week": low["week"], "week_start": low["week_start"], "closing_cash": low["closing_cash"]})
 
 
 def get_payment_runs(wh):
@@ -669,10 +675,12 @@ def get_vendor_detail(wh, vendor_id):
 def get_project_detail(wh, project_id):
     p = wh.query("select * from marts.dim_project where project_id = ?", [project_id])
     if not p:
-        return _result([], "marts.dim_project", note=f"No project {project_id}.")
+        hint = " That looks like a customer ID: use get_customer_detail." if project_id[:3] in ("SS-", "MM-", "EN-", "FD-") else ""
+        return _result([], "marts.dim_project", note=f"No project {project_id}.{hint}")
     monthly = wh.query("""select strftime(month, '%Y-%m') as month, budget, actual_to_date, eac, pct_complete, earned_to_date,
                                  billed_to_date, unbilled, deferred
-                          from marts.fct_project_financials where project_id = ? order by month""", [project_id])
+                          from marts.fct_project_financials where project_id = ? and month <= ?::date
+                          order by month""", [project_id, str(wh.latest_month())[:10]])  # closed months only
     invoices = wh.query("""select invoice_ref, invoice_date, amount, balance, status, is_disputed from marts.fct_ar_invoices
                            where project_id = ? order by invoice_date desc""", [project_id])
     exceptions = wh.query("select * from marts.fct_project_exceptions where project_id = ?", [project_id])
@@ -750,12 +758,25 @@ def evaluate_business_case(wh, investment, annual_inflows, discount_rate=None, a
     return {"source": "finance_os.fpa.business_case", **out}
 
 
+def _new_customer_arpa(wh):
+    """What a newly won customer actually pays: average monthly revenue in months 2-4 after signup, for customers
+    won in the last 18 months (month 1 is partial). The company-wide ARPA is dominated by a few enterprise accounts
+    and would overstate what a campaign brings in."""
+    r = wh.query("""with n as (select customer_id, month as m0 from marts.fct_customer_revenue_monthly
+                               where movement = 'new' and month > (select max(month) from marts.fct_kpi_monthly) - interval 18 month)
+                    select avg(r.revenue) as arpa from n join marts.fct_customer_revenue_monthly r
+                      on r.customer_id = n.customer_id and r.month between n.m0 + interval 1 month and n.m0 + interval 3 month""")
+    return float(r[0]["arpa"]) if r and r[0]["arpa"] is not None else None
+
+
 def evaluate_marketing_campaign(wh, spend, new_customers, years=3, discount_rate=None):
     from finance_os import fpa
-    arpa, churn, k = _latest_unit_economics(wh)
+    arpa_all, churn, k = _latest_unit_economics(wh)
+    arpa = _new_customer_arpa(wh) or arpa_all
     out = fpa.campaign_case(spend, new_customers, arpa, float(k["gross_margin_pct"]), churn, years,
                             discount_rate or fpa.DEFAULT_DISCOUNT_RATE)
-    return {"source": "finance_os.fpa.campaign_case + marts.fct_saas_metrics_monthly", **out}
+    out["assumptions"]["arpa_basis"] = "new customers' average monthly revenue in months 2-4 after signup (last 18 months)"
+    return {"source": "finance_os.fpa.campaign_case + marts.fct_customer_revenue_monthly, fct_saas_metrics_monthly", **out}
 
 
 def _p(props, required=()):
@@ -807,8 +828,8 @@ TOOLS = {
                                _p({"investment": {"type": "number"}, "annual_inflows": {"type": "array", "items": {"type": "number"}},
                                    "discount_rate": {"type": "number"}, "annual_costs": {"type": "array", "items": {"type": "number"}},
                                    "name": {"type": "string"}}, ["investment", "annual_inflows"])),
-    "evaluate_marketing_campaign": (evaluate_marketing_campaign, "NPV, IRR and payback of a marketing campaign using the "
-                                    "company's current ARPA, gross margin and churn.",
+    "evaluate_marketing_campaign": (evaluate_marketing_campaign, "NPV, IRR and payback of a marketing campaign: revenue per new "
+                                    "customer from recently won customers, current gross margin and churn.",
                                     _p({"spend": {"type": "number"}, "new_customers": {"type": "number"},
                                         "years": {"type": "integer"}, "discount_rate": {"type": "number"}},
                                        ["spend", "new_customers"])),
@@ -824,7 +845,7 @@ TOOLS = {
                            _p({"month": MONTH, "customer_id": {"type": "string"}, "below_floor_only": {"type": "boolean"}})),
     "get_revenue_movements": (get_revenue_movements, "MRR bridge (new, expansion, contraction, churn) for a month, or one customer's history.",
                               _p({"month": MONTH, "customer_id": {"type": "string"}})),
-    "get_tech_spend": (get_tech_spend, "Cloud and GPU spend for a month by vendor, team, category or model, with tagging coverage.",
+    "get_tech_spend": (get_tech_spend, "Cloud and GPU spend (what we spent with GCP / Nimbus) for a month by vendor, team, category or model, with tagging coverage.",
                        _p({"month": MONTH, "group_by": {"type": "string", "enum": ["vendor", "team", "category", "model"]}})),
     "get_gpu_capacity_and_forecast": (get_gpu_capacity_and_forecast, "Reserved GPU use vs. commit, 3-month spend forecast, vendor renewals.", _p({})),
     "get_projects": (get_projects, "Project financials: budget, EAC, variance at completion (how far over/under budget "
@@ -859,7 +880,8 @@ TOOLS = {
     "get_cash_forecast": (get_cash_forecast, "13-week cash forecast, cash by bank account, and covenant/policy breaches "
                           "(minimum cash, runway, liquidity).", _p({})),
     "get_payment_runs": (get_payment_runs, "Proposed vendor payment runs for unpaid bills, with early-pay discounts.", _p({})),
-    "get_close_status": (get_close_status, "Month-end close checklist status, accruals and prepaid amortization for a month.",
+    "get_close_status": (get_close_status, "Month-end close checklist status, accruals and prepaid amortization for a month. Use for "
+                         "'what is blocking the close / sign-off?': open checklist tasks are the blockers.",
                          _p({"month": MONTH})),
     "get_pricing_analysis": (get_pricing_analysis, "Price-change simulations (revenue and margin impact) and discount leakage.", _p({})),
     "get_cap_table_and_fundraise": (get_cap_table_and_fundraise, "Cap table and fundraise scenarios: price, dilution, "
@@ -876,12 +898,13 @@ TOOLS = {
                                                 "hours_per_month": {"type": "number"}}, "required": ["product_id", "hours_per_month"]}},
                        "discount_pct": {"type": "number"}, "term_months": {"type": "integer"}, "monthly_commit": {"type": "number"}},
                       ["customer", "lines"])),
-    "get_customer_detail": (get_customer_detail, "Everything about one customer: monthly revenue and margin, invoices "
+    "get_customer_detail": (get_customer_detail, "Everything about one customer (IDs like SS-001, MM-003, EN-002, FD-001): monthly revenue and margin, invoices "
                             "(open, paid, disputed), payments, lifecycle events, projects and open alerts.",
                             _p({"customer_id": {"type": "string"}}, ["customer_id"])),
     "get_vendor_detail": (get_vendor_detail, "Everything about one vendor: bills, AP postings and payments, bill PDFs "
-                          "and their review status, contract, and what is still owed.", _p({"vendor_id": {"type": "string"}}, ["vendor_id"])),
-    "get_project_detail": (get_project_detail, "Everything about one project: monthly budget, EAC, earned, billed, "
+                          "and their review status, contract, and what is still owed. For how much was SPENT with a vendor "
+                          "in a month, use get_tech_spend.", _p({"vendor_id": {"type": "string"}}, ["vendor_id"])),
+    "get_project_detail": (get_project_detail, "Everything about one project (IDs like P-101; not customers): monthly budget, EAC, earned, billed, "
                            "unbilled and deferred, its invoices and exceptions.", _p({"project_id": {"type": "string"}}, ["project_id"])),
     "get_tax_and_fx": (get_tax_and_fx, "Sales tax/VAT/GST and FX gains/losses: one month by currency and regime, plus "
                        "all-time totals by currency and an all_time_total grand total (call once; no need to add months up).",

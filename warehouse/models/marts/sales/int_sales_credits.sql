@@ -24,7 +24,7 @@ owners as (
     join reps r on r.segment_focus = a.segment and r.slot = mod(a.seq, r.reps_in_segment)
 ),
 
-revenue as (
+rep_revenue as (
     select o.rep_id, o.customer_id, o.signup_date, m.month, m.revenue, m.movement,
            max(m.revenue) over (partition by m.customer_id order by m.month
                                 rows between unbounded preceding and 1 preceding) as prior_peak
@@ -41,7 +41,7 @@ credits as (
         case when coalesce(prior_peak, 0) = 0 and revenue > 0 then revenue * 12
              when revenue > prior_peak then (revenue - prior_peak) * 12
              else 0 end as credited_arr
-    from revenue
+    from rep_revenue
 ),
 
 churned_early as (

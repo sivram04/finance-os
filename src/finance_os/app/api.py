@@ -48,7 +48,10 @@ def create_app(state: AppState | None = None, wh: tools.Warehouse | None = None,
 
     @app.get("/api/health")
     def health():
-        live = wh.query("select max(entry_date) as d from staging.stg_erp__journal_entries")[0]["d"]
+        # the simulator's own date: quiet days post nothing, so the last journal entry can lag behind it
+        world = ROOT / "data" / "live" / "world.json"
+        live = json.loads(world.read_text(encoding="utf-8")).get("as_of") if world.exists() else None
+        live = live or wh.query("select max(entry_date) as d from staging.stg_erp__journal_entries")[0]["d"]
         return {"ok": True, "data_through": wh.latest_month(), "live_through": live}
 
     @app.post("/api/conversations")

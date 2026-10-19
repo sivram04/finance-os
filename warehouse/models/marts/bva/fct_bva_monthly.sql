@@ -69,7 +69,7 @@ select
     {{ dec("s.actual", 18, 2) }} as actual,
     {{ dec("s.budget", 18, 2) }} as budget,
     {{ dec("s.actual - s.budget", 18, 2) }} as variance,
-    {{ dec("round((s.actual - s.budget) / nullif(abs(s.budget), 0), 4)", 9, 4) }} as variance_pct,
+    {{ dec("round(" ~ fdiv("s.actual - s.budget", "nullif(abs(s.budget), 0)") ~ ", 4)", 9, 4) }} as variance_pct,
     s.unfavorable_amount > 0 as is_unfavorable,
     {{ dec("s.ytd_actual", 18, 2) }} as ytd_actual,
     {{ dec("s.ytd_budget", 18, 2) }} as ytd_budget,

@@ -49,7 +49,7 @@ export function Card({ title, sub, right, children, className = '' }:
           {right}
         </div>
       )}
-      {children}
+      <div className="card-body">{children}</div>
     </section>
   )
 }
