@@ -87,6 +87,8 @@ def main():
             alerts.run(log=lambda m: log(f"[alerts] {m}"))
             from finance_os.reports import scheduled
             scheduled.run(log=lambda m: log(f"[reports] {m}"))
+            from finance_os.app import tools
+            log(f"[forecast] snapshot: {tools.save_forecast_snapshot(tools.Warehouse())} row(s)")
         if not a.no_bigquery and not a.skip_dbt:
             sh(log, "bigquery copy", [PY, "-m", "finance_os.ingestion.duckdb_to_bigquery", "--prefix", "s_"])
             sh(log, "bigquery build", [dbt, "build", "--target", "cloud", "--vars", "dataset_prefix: s_",

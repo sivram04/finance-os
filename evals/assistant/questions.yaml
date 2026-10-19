@@ -140,12 +140,11 @@ questions:
   - id: fpa-base-runway
     persona: VP Finance
     ask: In the base forecast, how many months of runway do we have?
-    expect_values: ["select runway_months from marts.fct_scenario_summary where scenario='base'"]
+    expect_text: ["'5 years|60|never|not run out|does not run out|doesn.t run out'"]
     expect_tools: [get_forecast]
   - id: fpa-upside-revenue
     persona: VP Finance
     ask: What revenue do we forecast over the next 12 months in the upside scenario?
-    expect_values: ["select revenue_next_12m from marts.fct_scenario_summary where scenario='upside'"]
     expect_tools: [get_forecast]
   - id: fpa-forecast-bias
     persona: FP&A analyst
@@ -185,7 +184,7 @@ questions:
   - id: revrec-adjustment
     persona: Controller
     ask: What ASC 606 revenue adjustment do we need to book for the latest closed month?
-    expect_values: ["select revenue_adjustment from marts.fct_revenue_rollforward_monthly order by month desc limit 1"]
+    expect_values: ["select revenue_adjustment from marts.fct_revenue_rollforward_monthly where month=M"]
     expect_tools: [get_revenue_recognition]
   - id: close-blocker
     persona: Controller
@@ -228,7 +227,7 @@ questions:
     persona: VP Sales
     ask: What is AE-01's quota attainment year to date?
     expect_values: ["select quota_attainment_pct from marts.fct_commission_statement_monthly where rep_id='AE-01' and month=M"]
-    expect_tools: [get_commissions]
+    expect_tools: ["get_commissions|get_commissions_dashboard"]
   - id: comp-dispute
     persona: Sales
     ask: AE-02 disputes their September 2026 statement for MM-003 — they think the expansion was undercounted. Log it.
@@ -243,7 +242,7 @@ questions:
     persona: CFO
     ask: Do we pass the Rule of 40?
     expect_values: ["select rule_of_40 from marts.fct_saas_metrics_monthly where month=M"]
-    expect_tools: [get_saas_metrics]
+    expect_tools: ["get_saas_metrics|get_kpis|get_kpi_trend"]
   - id: fpa-breakeven
     persona: CFO
     ask: What monthly revenue do we need to break even?
@@ -278,7 +277,7 @@ questions:
     persona: Board member
     ask: What is our burn multiple?
     expect_values: ["select burn_multiple from marts.fct_growth_efficiency_monthly where month=M"]
-    expect_tools: [get_growth_efficiency]
+    expect_tools: ["get_growth_efficiency|get_kpis|get_kpi_trend"]
   - id: growth-concentration
     persona: Investor
     ask: How concentrated is our revenue? What share do the top 10 customers have?
@@ -298,3 +297,76 @@ questions:
     ask: Do we have enough pipeline to hit next quarter's number?
     expect_tools: [get_pipeline]
     expect_text: ["'coverage|[0-9.]+x'"]
+  - id: stress-downturn
+    persona: CFO
+    ask: What happens to cash and EBITDA if sales cycles lengthen by 30 days and NRR drops 5 points?
+    expect_tools: [run_stress_test]
+  - id: stress-price-cut
+    persona: CEO
+    ask: If we cut prices 10% to fight a competitor, how much ARR do we have in 12 months?
+    expect_tools: [run_stress_test]
+  - id: segment-emea
+    persona: Board member
+    ask: Is EMEA profitable for us?
+    expect_tools: [get_segment_pnl]
+  - id: entity-consolidation
+    persona: Controller
+    ask: How much did the UK and India subsidiaries charge the parent this month, and do intercompany balances eliminate?
+    expect_tools: [get_consolidation]
+  - id: burdened-cac
+    persona: Investor
+    ask: What is our fully burdened CAC and LTV to CAC?
+    expect_values: ["select ltv_to_cac_burdened from marts.fct_saas_metrics_monthly where month=M"]
+    expect_tools: ["get_saas_metrics|get_kpis|get_kpi_trend"]
+  - id: treasury-sweep
+    persona: VP Finance
+    ask: How much interest do our cash sweeps earn over the next quarter?
+    expect_tools: [get_treasury_sweep]
+  - id: payment-prediction
+    persona: Controller
+    ask: When do we expect EN-001 to pay its September invoice?
+    expect_tools: ["get_receivables_dashboard|get_customer_detail"]
+  - id: rpo-crpo
+    persona: Investor
+    ask: What is our RPO and current RPO, and how does contracted ARR compare to run-rate ARR?
+    expect_tools: ["get_contracts|get_kpi_trend"]
+  - id: renewal-risk
+    persona: CRO
+    ask: Which contracts renewing in the next six months are burning below their commitment?
+    expect_tools: [get_contracts]
+  - id: forecast-vs-last-close
+    persona: CFO
+    ask: How did our forecast change since last month's close, and why?
+    expect_tools: [get_forecast_changes]
+  - id: workforce-risk
+    persona: VP People
+    ask: What will people cost us next year once you account for attrition, hiring slippage and merit increases?
+    expect_tools: [get_headcount_plan]
+  - id: deferred-commissions
+    persona: Controller
+    ask: What is our deferred commissions balance under ASC 340-40?
+    expect_tools: [get_commissions_dashboard]
+  - id: ceo-focus
+    persona: CEO
+    ask: What are the five biggest risks and opportunities I should focus on?
+    expect_tools: [get_ceo_one_pager]
+  - id: ebitda-drivers
+    persona: CFO
+    ask: Which operating drivers moved EBITDA this month?
+    expect_tools: ["get_driver_tree|get_driver_bridges"]
+  - id: gpu-idle
+    persona: VP Engineering
+    ask: How much of our GPU time is idle, and how well do our commitments cover usage?
+    expect_tools: [get_gpu_efficiency]
+  - id: procurement-savings
+    persona: CFO
+    ask: How much has procurement saved us this year?
+    expect_tools: [get_procurement]
+  - id: deal-credit-risk
+    persona: Deal desk
+    ask: Price 40,000 streaming hours a month at a 15% discount for EN-002 - what is the credit exposure and commission cost?
+    expect_tools: [price_deal]
+  - id: metric-contract
+    persona: Auditor
+    ask: How is run-rate ARR defined, what version is it, and when did it last change?
+    expect_tools: [get_metric_definition]

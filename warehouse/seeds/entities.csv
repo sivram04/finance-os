@@ -1,0 +1,4 @@
+entity_id,entity_name,country,currency,parent_entity_id,role,markup_pct
+US01,"Echo Labs, Inc.",US,USD,,Parent: contracts customers and owns the IP,0
+UK01,Echo Labs UK Ltd,GB,GBP,US01,EMEA sales and customer success (cost plus),0.08
+IN01,Echo Labs India Pvt Ltd,IN,INR,US01,Engineering and support centre (cost plus),0.15

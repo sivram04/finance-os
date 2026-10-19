@@ -35,12 +35,21 @@ export interface UploadedDoc {
   issues: { code: string; detail: string }[]
 }
 
+export interface Evidence {
+  sources: string[]
+  filters: { tool: string; args: Record<string, unknown> }[]
+  metrics: { metric: string; label: string; version: number; effective_from: string; owner: string }[]
+  freshness: { closed_through: string; live_through?: string | null }
+  reconciliation: { failing_checks: number; status: string }
+  numbers_verified: boolean
+}
+
 export type AgentEvent =
   | { type: 'step'; tool: string; args: Record<string, unknown> }
   | { type: 'tool_result'; tool: string; ms: number; source?: string; rows?: number; error?: string | null }
   | { type: 'proposal'; action: Action }
   | { type: 'validator_retry'; reason: string; unverified?: string[] }
-  | { type: 'answer'; text: string; unverified_numbers: string[] }
+  | { type: 'answer'; text: string; unverified_numbers: string[]; evidence?: Evidence }
   | { type: 'error'; message: string }
   | { type: 'done'; steps: number; prompt_tokens: number; completion_tokens: number; stopped: string }
 

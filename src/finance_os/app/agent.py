@@ -33,6 +33,12 @@ How you work:
 - Use tools to get every fact, including definitions (get_metric_definition). Never answer from general knowledge. Plan briefly, call the tools you need (several if useful), then answer.
 - A question naming a metric ("What is ARR?", "What's DSO?") asks for Echo Labs' current value: give the number first, then one line on what it means.
 - For counts, use the count fields tools return; don't count rows yourself.
+- MRR is monthly and ARR is MRR x 12: never label one as the other. ARR means run-rate ARR unless the user asks for \
+contracted ARR (committed minimums).
+- "New MRR" is MRR from brand-new customers only (the MRR bridge in get_revenue_movements: new_mrr); it is not net new ARR (new + expansion - contraction - churn, x12).
+- For LTV to CAC or CAC payback, give both the S&M-only figure and the fully burdened one, each labelled.
+- When the user asks to fix something and the tool result names the fix, call the propose_* tool right away instead \
+of asking them to confirm; the approval card is their confirmation.
 - Every number you write must be copied from a tool result. Never compute, add, subtract, average or estimate a \
 number yourself; if a figure you want isn't returned by a tool, say what the tools do show instead. You may \
 round (e.g. $30.3K, 46.4%).
@@ -111,7 +117,7 @@ class Agent:
         self.state.add_message(cid, {"role": "user", "content": user_text})
         self.state.set_title(cid, user_text.strip().splitlines()[0])
         specs = tools.openai_tool_specs(act.action_specs() + [UPLOAD_SPEC])
-        turn_results = []
+        turn_results, turn_calls = [], []
         retried = False
         grounding_retried = False
         try:
@@ -148,6 +154,7 @@ class Agent:
                         t0 = time.perf_counter()
                         result = self._call(cid, name, args)
                         turn_results.append(result)
+                        turn_calls.append((name, args, result))
                         self.state.add_message(cid, {"role": "tool", "tool_call_id": call["id"],
                                                      "content": json.dumps(result, default=str)})
                         event = {"type": "tool_result", "tool": name, "ms": round((time.perf_counter() - t0) * 1000),
@@ -176,7 +183,8 @@ class Agent:
                         "(call more tools if needed). Do not mention this check.")})
                     yield {"type": "validator_retry", "reason": "unverified_numbers", "unverified": bad}
                     continue
-                yield {"type": "answer", "text": text, "unverified_numbers": bad}
+                yield {"type": "answer", "text": text, "unverified_numbers": bad,
+                       "evidence": tools.answer_evidence(self.wh, text, turn_calls, bad)}
                 break
         except Exception as e:  # surface model/network errors to the UI instead of dying silently
             stopped = "error"

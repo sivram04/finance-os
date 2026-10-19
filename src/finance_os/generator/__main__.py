@@ -31,6 +31,7 @@ from finance_os.generator.events.payroll import build_payroll
 from finance_os.generator.events.pipeline import build_pipeline
 from finance_os.generator.events.projects import build_projects
 from finance_os.generator.events.stripe import build_stripe
+from finance_os.generator.events.contracts import build_contracts
 from finance_os.generator.events.usage import build_usage
 from finance_os.generator.events.vendor_bills import build_vendor_bills
 
@@ -76,6 +77,9 @@ def generate(seed=None, scale="S"):
     customer_codes = {c["customer_id"] for c in customers} | {l["customer_id"] for l in lines if l["customer_id"]}
     netsuite = build_netsuite(read_seed("gl_accounts"), read_seed("departments"), customer_codes, vendor_codes,
                               entries, lines, cfg["window"]["start"], date(cfg["window"]["end"].year + 1, 12, 31))
+    opportunities = build_pipeline(cfg, customers)
+    contracts, contract_schedule = build_contracts(cfg, customers, opportunities, lifecycle,
+                                                    {(b["customer_id"], (b["month"].year, b["month"].month)): b["amount"] for b in billing})
     return {
         **netsuite,
         "products": build_products(cfg),
@@ -101,7 +105,9 @@ def generate(seed=None, scale="S"):
         "budgets": build_budgets(cfg, entries, lines),
         **projects,
         "anomaly_manifest": build_manifest(cfg),
-        "opportunities": build_pipeline(cfg, customers),
+        "opportunities": opportunities,
+        "contracts": contracts,
+        "contract_schedule": contract_schedule,
         "ap_document_truth": ap_docs,
         "ap_document_truth_lines": ap_doc_lines,
     }

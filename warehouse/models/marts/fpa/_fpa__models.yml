@@ -57,3 +57,71 @@ models:
 
   - name: fct_bookings_monthly
     description: Won ARR, lost ARR, win rate (trailing 6 months) and sales cycle by month and segment.
+
+  - name: fct_sales_capacity_monthly
+    description: Ramp-adjusted sales capacity (AEs on payroll plus planned hires) vs actual bookings, 12 months back and ahead.
+    columns:
+      - name: month
+        data_tests: [unique, not_null]
+
+  - name: dim_customer_geo
+    description: Customer country, region group and sales channel for segment reporting.
+    columns:
+      - name: customer_id
+        data_tests: [unique, not_null]
+
+  - name: fct_segment_pnl_monthly
+    description: Segment P&L by region and by channel per closed month, with contribution margin and allocated opex.
+
+  - name: dim_entity
+    description: Legal entities (seeds/entities.csv).
+    columns:
+      - name: entity_id
+        data_tests: [unique, not_null]
+
+  - name: fct_gl_entity_monthly
+    description: Each legal entity's ledger by month, in USD and in its functional currency.
+
+  - name: fct_consolidation_monthly
+    description: Entity balances (P&L for the month, balance sheet cumulative and translated at closing rates), CTA, and intercompany eliminations; entities plus ELIM sum to the consolidated ledger.
+
+  - name: fct_cloud_cost_bridge_monthly
+    description: Cloud and GPU cost change by cause (demand, efficiency, rate, shared, commitment, other cloud), by product and in total.
+
+  - name: fct_margin_burn_bridge_monthly
+    description: Gross margin and net burn bridges, month over month; steps add up exactly to the change.
+
+  - name: fct_headcount_bridge
+    description: Headcount bridge by department (opening, hires, leavers, closing) against the base hiring plan.
+
+  - name: fct_metric_values_monthly
+    description: The governed metric layer, every catalogued metric value by month from whichever mart computes it.
+
+  - name: fct_efficiency_quarterly
+    description: Magic number on a trailing-quarter basis.
+
+  - name: fct_gpu_efficiency_monthly
+    description: GPU idle share, commitment coverage and utilization by GPU type.
+
+  - name: fct_cost_anomalies
+    description: Daily cloud and GPU cost anomalies (3 sigma and 500 USD vs the trailing 28 days) by vendor and service.
+
+  - name: fct_contract_revenue_monthly
+    description: >
+      Committed-use customer contracts by contract x closed month: current-year commitment, usage consumed against it,
+      RPO and current RPO, contracted ARR, burn pace, projected shortfall (true-up or expiring credits) and overage,
+      and days to renewal.
+    data_tests:
+      - dbt_utils_free_unique_combination:
+          arguments: {columns: [month, contract_id]}
+    columns:
+      - name: billing_model
+        data_tests:
+          - accepted_values:
+              arguments: {values: [commit_overage, prepaid_credits]}
+
+  - name: fct_vendor_commitments
+    description: Remaining purchase commitments on vendor contracts.
+
+  - name: fct_procurement_savings_monthly
+    description: Negotiated rate savings and early-payment discounts by month.

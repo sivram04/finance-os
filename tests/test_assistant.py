@@ -69,7 +69,7 @@ def test_agent_calls_tools_and_answers_with_verified_numbers(state):
     kinds = [e["type"] for e in events]
     assert kinds == ["step", "tool_result", "answer", "done"]
     assert events[2]["unverified_numbers"] == []
-    assert events[1]["source"].startswith("marts.fct_kpi_monthly")
+    assert events[1]["source"].startswith("marts.fct_metric_values_monthly")
     assert "Reconciliation: all" in fake.seen[0][0]["content"]  # recon status reaches the system prompt
 
 

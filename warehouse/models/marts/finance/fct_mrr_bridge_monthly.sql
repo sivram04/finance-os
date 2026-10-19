@@ -16,4 +16,5 @@ select
     count(case when movement = 'reactivation' then 1 end) as reactivated_customers,
     count(case when revenue > 0 then 1 end) as closing_customers
 from {{ ref('fct_customer_revenue_monthly') }}
+where month <= {{ closed_through() }}  -- the open month isn't billed yet: every customer would read as churned
 group by month

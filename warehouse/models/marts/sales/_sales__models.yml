@@ -8,3 +8,8 @@ models:
     data_tests:
       - dbt_utils_free_unique_combination:
           arguments: {columns: [rep_id, month]}
+  - name: fct_deferred_commissions_monthly
+    description: ASC 340-40 deferred commissions per rep x month - capitalized, amortized, balance and current portion.
+    data_tests:
+      - dbt_utils_free_unique_combination:
+          arguments: {columns: [rep_id, month]}

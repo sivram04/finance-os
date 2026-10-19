@@ -161,18 +161,19 @@ function Waterfall({ row }: { row: Row }) {
 
 function heat(v: number | null | undefined, kind: string) {
   if (v == null) return 'transparent'
-  const t = Math.max(0, Math.min(1, kind === 'revenue' ? (v - 0.5) / 0.8 : v))  // revenue: 50% → 130% scale
+  const t = Math.max(0, Math.min(1, kind === 'revenue' ? (v - 0.5) / 0.8 : v))  // net revenue: 50% → 130% scale; gross and logos: 0-100%
   return `color-mix(in srgb, var(--accent) ${Math.round(12 + t * 70)}%, transparent)`
 }
 
 function Cohorts() {
-  const [kind, setKind] = useState<'revenue' | 'logo'>('revenue')
+  const [kind, setKind] = useState<'revenue' | 'gross' | 'logo'>('revenue')
   const c = useTool('get_cohort_retention', { kind, max_months: 12 })
   const rows = (c.data?.rows as Row[] | undefined) ?? []
   const cols = Array.from({ length: 13 }, (_, i) => `m${i}`).filter((k) => kind === 'logo' || k !== 'm0')
   return (
-    <Card title="Cohort retention" sub={kind === 'revenue' ? 'Revenue each signup cohort pays vs its first full month (above 100% = it grew)' : 'Share of each signup cohort still paying'}
-      right={<div className="segmented"><button className={kind === 'revenue' ? 'on' : ''} onClick={() => setKind('revenue')}>Revenue</button><button className={kind === 'logo' ? 'on' : ''} onClick={() => setKind('logo')}>Logos</button></div>}>
+    <Card title="Cohort retention" sub={kind === 'revenue' ? 'Net revenue retention by vintage: what each cohort pays vs its first full month (above 100% = it grew)'
+      : kind === 'gross' ? 'Gross revenue retention by vintage: each customer capped at its first-month revenue, so expansion cannot hide churn' : 'Share of each signup cohort still paying'}
+      right={<div className="segmented"><button className={kind === 'revenue' ? 'on' : ''} onClick={() => setKind('revenue')}>Net revenue</button><button className={kind === 'gross' ? 'on' : ''} onClick={() => setKind('gross')}>Gross revenue</button><button className={kind === 'logo' ? 'on' : ''} onClick={() => setKind('logo')}>Logos</button></div>}>
       {c.data ? (
         <div className="sheet-wrap" style={{ maxHeight: 420 }}>
           <table className="cohort">
@@ -213,7 +214,7 @@ export function Growth() {
           .map(([l, v, n]) => <div key={l} className="card kpi"><div className="label">{l}</div><div className="value">{v}</div><div className="note">{n}</div></div>)}
       </div>
       <div className="grid cols-2">
-        <Card title="ARR waterfall" sub={last ? `${String(last.month)}: opening → closing ARR` : ''}>
+        <Card title="ARR waterfall" sub={last ? `${String(last.month)}: opening → closing ARR · no FX step: contracts are priced in USD and billed in local currency at the day's rate, so currency moves land in realized FX (Tax & FX), not ARR` : ''}>
           {last ? <Waterfall row={last} /> : <Loading state={g} />}
         </Card>
         <Card title="Net new ARR by month" sub="Gross added (new + expansion + reactivation) vs lost (contraction + churn)">
@@ -322,7 +323,7 @@ export function Pipeline() {
                     <YAxis tickFormatter={usd} width={70} {...AXIS} />
                     <Tooltip formatter={usd} {...TIP} />
                     <Legend wrapperStyle={{ fontSize: 12 }} />
-                    <Bar dataKey="arr" name="ARR" fill="var(--accent)" fillOpacity={0.35} radius={[3, 3, 0, 0]} />
+                    <Bar dataKey="arr" name="Run-rate ARR" fill="var(--accent)" fillOpacity={0.35} radius={[3, 3, 0, 0]} />
                     <Bar dataKey="weighted_arr" name="Weighted" fill="var(--accent)" radius={[3, 3, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
@@ -342,6 +343,24 @@ export function Pipeline() {
               </div>
             </Card>
           </div>
+          <Card title="Sales capacity vs results" sub="Ramp-adjusted capacity (AEs on payroll and planned hires; quota × ramp × 80% attainment, seeds/sales_capacity_policy.csv) against ARR credited to sales (new + expansion) and new-logo bookings">
+            <div style={{ height: 240 }}>
+              <ResponsiveContainer>
+                <LineChart data={(d.capacity ?? []) as Row[]} margin={{ left: 8, right: 16, top: 8 }}>
+                  <CartesianGrid stroke="var(--border)" vertical={false} />
+                  <XAxis dataKey="month" {...AXIS} />
+                  <YAxis tickFormatter={usd} width={70} {...AXIS} />
+                  <Tooltip formatter={usd} {...TIP} />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  <Line dataKey="capacity_arr" name="Capacity" stroke="#7a8699" strokeDasharray="5 4" strokeWidth={2} dot={false} isAnimationActive={false} />
+                  <Line dataKey="credited_arr" name="Credited ARR (new + expansion)" stroke={TONE.good} strokeWidth={2} dot={false} isAnimationActive={false} />
+                  <Line dataKey="bookings_arr" name="New-logo bookings" stroke="var(--accent)" strokeWidth={2} dot={false} isAnimationActive={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="muted">{(() => { const c = (d.capacity ?? []) as Row[]; const next = c.find((r) => r.is_forecast); const plannedRow = c.at(-1)
+              return next ? `${String(next.account_executives)} AEs now (${String(next.ramped_aes)} fully ramped); ${String(plannedRow?.planned_aes ?? 0)} planned hires take capacity to ${usd(plannedRow?.capacity_arr)} a month by ${String(plannedRow?.month)}.` : '' })()}</div>
+          </Card>
           <Card title="Open deals" sub="Slipped = expected close date has passed · age vs the median won sales cycle">
             <DataTable title="open_pipeline" rows={d.rows} columns={[{ key: 'opportunity_id' }, { key: 'account_name' }, { key: 'segment', chip: true }, { key: 'rep_id' },
               { key: 'stage', chip: true }, { key: 'amount_arr', label: 'ARR', unit: 'usd' }, { key: 'weighted_arr', label: 'Weighted', unit: 'usd' }, { key: 'close_date' },

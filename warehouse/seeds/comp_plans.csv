@@ -1,0 +1,7 @@
+plan_id,rep_id,effective_from,effective_to,annual_quota_arr,base_rate,accelerator_rate,expansion_multiplier,clawback_days,note
+FY25-ENT,AE-01,2025-01-01,2025-12-31,4000000,0.1000,0.1500,1.00,90,FY2025 plan
+FY25-MM,AE-02,2025-01-01,2025-12-31,1200000,0.1000,0.1500,1.00,90,FY2025 plan
+FY25-MM,AE-03,2025-01-01,2025-12-31,1200000,0.1000,0.1500,1.00,90,FY2025 plan
+FY26-ENT,AE-01,2026-01-01,2026-12-31,5000000,0.0900,0.1400,0.50,120,FY2026 plan: higher quota; expansion credited at half; longer clawback
+FY26-MM,AE-02,2026-01-01,2026-12-31,1400000,0.0950,0.1400,0.75,120,FY2026 plan: higher quota; expansion credited at 75%
+FY26-MM,AE-03,2026-01-01,2026-12-31,1400000,0.0950,0.1400,0.75,120,FY2026 plan: higher quota; expansion credited at 75%

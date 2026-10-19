@@ -44,7 +44,7 @@ function PeriodCard({ title, start, end }: { title: string; start: string; end: 
 function PositionChart() {
   const [metric, setMetric] = useState('revenue')
   const s = useTool('get_kpi_trend', { metric })
-  const opts: [string, string][] = [['revenue', 'Revenue'], ['net_burn', 'Net burn'], ['closing_cash', 'Cash'], ['arr', 'ARR']]
+  const opts: [string, string][] = [['revenue', 'Revenue'], ['net_burn', 'Net burn'], ['closing_cash', 'Cash'], ['arr', 'Run-rate ARR']]
   return (
     <Card title="Company position" sub="Monthly, from the general ledger"
       right={<div className="segmented">{opts.map(([k, l]) => <button key={k} className={metric === k ? 'on' : ''} onClick={() => setMetric(k)}>{l}</button>)}</div>}>

@@ -14,3 +14,16 @@ models:
         data_tests:
           - relationships:
               arguments: {to: ref('dim_customer'), field: customer_id}
+
+  - name: stg_crm__contracts
+    description: One row per committed-use customer contract (renewals are new rows pointing at the contract they renew).
+    columns:
+      - name: contract_id
+        data_tests: [unique, not_null]
+      - name: status
+        data_tests:
+          - accepted_values:
+              arguments: {values: [active, renewed, terminated]}
+
+  - name: stg_crm__contract_schedule
+    description: Commitment by contract year.

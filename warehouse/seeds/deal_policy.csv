@@ -2,3 +2,4 @@ rule_id,value,description
 MAX-TERM-MONTHS,36,Longest contract term Sales may sign without Finance
 MIN-COMMIT-PCT,0.50,A discounted deal needs a monthly minimum commit of at least this share of expected revenue
 MARGIN-BUFFER,0.00,Extra margin required above the blended product floor
+CREDIT-LIMIT,1500000,Largest receivable exposure (peak AR on one customer) Sales may take without a credit review

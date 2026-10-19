@@ -1,0 +1,4 @@
+parameter,value,note
+quota_per_ramped_ae_arr,800000,New ARR a fully ramped account executive is expected to close per year
+ramp_months,4,Months to full productivity: 25% / 50% / 75% / 100%
+expected_attainment,0.80,Share of quota a typical rep attains (capacity is quota x attainment)

@@ -1,0 +1,14 @@
+scenario,lever,value,note
+base,opex_growth_monthly,0.010,Non-payroll opex grows 1% a month from today's run rate
+upside,nrr_pts,0.040,Existing customers expand faster: NRR four points higher
+upside,win_rate_pct,0.200,Win 20% more of the pipeline
+upside,services_pct,0.250,Two more federal task orders
+upside,cogs_pts,-0.020,GPU price drop and better utilization
+upside,opex_growth_monthly,0.015,More marketing to support growth
+downside,nrr_pts,-0.050,Competitor price cuts: NRR five points lower
+downside,win_rate_pct,-0.250,Win a quarter less of the pipeline
+downside,cycle_days,30,Deals close a month later
+downside,services_pct,-0.400,Project pipeline slips
+downside,cogs_pts,0.030,GPU commit shortfall grows
+downside,hiring_pct,0.500,Freeze half of open roles
+downside,opex_growth_monthly,0.000,Spend held flat

@@ -1,0 +1,5 @@
+customer_id,rep_id,split_pct,reason
+EN-002,AE-01,0.60,Enterprise account sourced by the mid-market team: 60/40 split
+EN-002,AE-02,0.40,Enterprise account sourced by the mid-market team: 60/40 split
+MM-004,AE-02,0.50,Territory change mid-deal: split evenly
+MM-004,AE-03,0.50,Territory change mid-deal: split evenly

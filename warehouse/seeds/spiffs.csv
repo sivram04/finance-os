@@ -1,0 +1,4 @@
+spiff_id,name,segment,credit_type,start_month,end_month,amount_per_credit
+SPIFF-25Q4-LOGO,Q4 2025 new-logo push,mid_market,new,2025-10-01,2025-12-01,2500
+SPIFF-26H1-LOGO,H1 2026 new-logo SPIFF,mid_market,new,2026-01-01,2026-06-01,3000
+SPIFF-26-ENTEXP,2026 enterprise expansion SPIFF,enterprise,expansion,2026-07-01,2026-12-01,1000

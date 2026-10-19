@@ -29,6 +29,7 @@ from collections import defaultdict
 from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
+from finance_os.generator.entities.legal import PARENT, entity_of, intercompany
 from finance_os.generator.seeds import read_seed
 
 CENTS = Decimal("0.01")
@@ -55,7 +56,8 @@ class Ledger:
         for n, (account, debit, credit, dims) in enumerate(lines, 1):
             self.lines.append({"entry_id": entry_id, "line_no": n, "account_id": account,
                                "department_id": dims.get("department_id"), "customer_id": dims.get("customer_id"),
-                               "vendor_id": dims.get("vendor_id"), "debit": debit, "credit": credit})
+                               "vendor_id": dims.get("vendor_id"), "entity_id": dims.get("entity_id") or PARENT,
+                               "debit": debit, "credit": credit})
 
 
 def rate_usage_lines(cfg, customers, usage):
@@ -99,28 +101,38 @@ def depreciation_for_month(cfg, month):
     return out
 
 
-def post_payroll(gl, pay_register, end):
-    """Payroll journal per run × department from the register, and the remittance of what it owes."""
-    by_run_dept = defaultdict(lambda: defaultdict(Decimal))
+def post_payroll(gl, pay_register, end, employees=()):
+    """Payroll journal per run × department × entity from the register (each employee is paid by their entity, see
+    entities/legal.py), the subsidiaries' month-end intercompany charge to the parent, and the remittance of what
+    each entity owes."""
+    title = {e["employee_id"]: e["title"] for e in employees}
+    by_run = defaultdict(lambda: defaultdict(Decimal))
     for r in pay_register:
-        by_run_dept[(r["pay_run_id"], r["department_id"])][r["line_type"]] += r["amount"]
-    owed = defaultdict(lambda: [Decimal(0), Decimal(0)])  # run -> [taxes payable, benefits payable]
-    for (run, dept), t in sorted(by_run_dept.items()):
+        ent = entity_of(r["employee_id"], title.get(r["employee_id"], ""))
+        by_run[(r["pay_run_id"], r["department_id"], ent)][r["line_type"]] += r["amount"]
+    owed = defaultdict(lambda: [Decimal(0), Decimal(0)])  # (run, entity) -> [taxes payable, benefits payable]
+    costs = defaultdict(lambda: defaultdict(Decimal))  # run -> (entity, dept) -> employer cost
+    for (run, dept, ent), t in sorted(by_run.items()):
         y, m = int(run[3:7]), int(run[7:9])
-        dims = {"department_id": dept}
+        dims = {"department_id": dept, "entity_id": ent}
         taxes = t["employee_tax"] + t["employer_tax"]
         benefits = t["employee_deduction"] + t["employer_benefit"]
-        gl.post(_month_end(date(y, m, 1)), "payroll", f"Payroll {run} {dept}",
+        gl.post(_month_end(date(y, m, 1)), "payroll", f"Payroll {run} {dept}" + ("" if ent == PARENT else f" {ent}"),
                 [("6000", t["earning"], 0, dims), ("6010", t["employer_tax"], 0, dims), ("6020", t["employer_benefit"], 0, dims),
                  ("1000", 0, t["net_pay"], dims), ("2100", 0, taxes, dims), ("2110", 0, benefits, dims)], run)
-        owed[run][0] += taxes
-        owed[run][1] += benefits
-    for run, (taxes, benefits) in sorted(owed.items()):
+        owed[(run, ent)][0] += taxes
+        owed[(run, ent)][1] += benefits
+        costs[run][(ent, dept)] += t["earning"] + t["employer_tax"] + t["employer_benefit"]
+    for run, by_ent in sorted(costs.items()):
+        y, m = int(run[3:7]), int(run[7:9])
+        intercompany(gl.post, _month_end(date(y, m, 1)), by_ent)
+    for (run, ent), (taxes, benefits) in sorted(owed.items()):
         y, m = int(run[3:7]), int(run[7:9])
         pay = date(y + (m == 12), m % 12 + 1, 15)
         if pay <= end:
-            gl.post(pay, "payroll_remittance", f"Remit payroll taxes and benefits {run}",
-                    [("2100", taxes, 0, {}), ("2110", benefits, 0, {}), ("1000", 0, taxes + benefits, {})], run)
+            dims = {"entity_id": ent}
+            gl.post(pay, "payroll_remittance", f"Remit payroll taxes and benefits {run}" + ("" if ent == PARENT else f" {ent}"),
+                    [("2100", taxes, 0, dims), ("2110", benefits, 0, dims), ("1000", 0, taxes + benefits, dims)], run)
 
 
 def build_ledger(cfg, customers, usage, lifecycle, cloud_costs, bills, bill_lines, pay_register, employees,
@@ -216,7 +228,7 @@ def build_ledger(cfg, customers, usage, lifecycle, cloud_costs, bills, bill_line
                     [("2000", b["total_amount"], 0, dims), ("1000", 0, b["total_amount"], dims)], b["bill_id"])
 
     # Payroll, per department per pay run.
-    post_payroll(gl, pay_register, end)
+    post_payroll(gl, pay_register, end, employees)
 
     # Opex scaled by headcount relative to the first month.
     def headcount(d):

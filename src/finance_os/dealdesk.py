@@ -10,6 +10,14 @@ and checks the guardrails (seeds/deal_guardrails.csv, seeds/deal_policy.csv):
   MARGIN     projected gross margin ≥ the revenue-weighted product floor (seeds/margin_floors.csv) + buffer
   TERM       term ≤ the maximum Sales may sign
   COMMIT     a discounted deal carries a monthly minimum commit ≥ the policy share of expected revenue
+and adds the risk view a deal desk reviews (risk(), informational, not a guardrail):
+  cost to serve P10/P50/P90   monthly cost per hour by product over the last 12 closed months, and the deal's
+                              gross margin if cost runs at the P90 month
+  credit exposure             billed in arrears on the segment's terms: about (1 + terms/30) months of revenue
+                              outstanding at peak, plus the customer's open AR, against the credit limit
+  commission impact           first-year commission at the plan in effect, as a share of first-year gross margin,
+                              and months of gross margin to earn it back
+  discount distribution       where this discount sits among the discounts customers actually got (last 12 months)
 Inside every guardrail → auto-approved. Outside any → routed to Finance with the reasons (an approval card in the
 workspace, decided and audited like every other action). quote_pdf() renders the quote / order form.
 """
@@ -47,6 +55,75 @@ def inputs(wh):
     bands = wh.query("select * from seeds.deal_guardrails order by min_hours_month")
     policy = {r["rule_id"]: _d(r["value"]) for r in wh.query("select rule_id, value from seeds.deal_policy")}
     return prices, costs, floors, bands, policy
+
+
+TERMS_DAYS = {"mid_market": 30, "enterprise": 45}
+ENTERPRISE_ARR = Decimal(600_000)  # deals at or above this annual revenue are enterprise (terms, comp plan)
+
+
+def _pct(values, q):
+    v = sorted(values)
+    if not v:
+        return None
+    k = (len(v) - 1) * q
+    lo, hi = int(k), min(int(k) + 1, len(v) - 1)
+    return v[lo] + (v[hi] - v[lo]) * (k - lo)
+
+
+def risk(wh, ev, policy):
+    """The deal desk's risk view for an evaluated deal (see the module docstring)."""
+    rev, annual = _d(ev["monthly_revenue"]), _d(ev["annual_revenue"])
+    segment = "enterprise" if annual >= ENTERPRISE_ARR else "mid_market"
+    hist = {}
+    for r in wh.query("""select product_id, month, sum(cogs) / nullif(sum(audio_hours), 0) as cph
+                         from marts.fct_unit_economics_monthly
+                         where month > (select max(month) from marts.fct_kpi_monthly) - interval 12 month
+                           and month <= (select max(month) from marts.fct_kpi_monthly)
+                         group by 1, 2"""):
+        if r["cph"] is not None:
+            hist.setdefault(r["product_id"], []).append(float(r["cph"]))
+    cts, p90_cost = [], Decimal(0)
+    for l in ev["lines"]:
+        h = hist.get(l["product_id"], [])
+        p10, p50, p90 = (_pct(h, q) for q in (0.1, 0.5, 0.9))
+        cts.append({"product_id": l["product_id"], "p10": p10, "p50": p50, "p90": p90, "months": len(h)})
+        p90_cost += _d(l["hours_per_month"]) * _d(p90 or l["cost_per_hour"])
+    gm_p90 = float(((rev - p90_cost) / rev).quantize(Decimal("0.0001"))) if rev else None
+
+    terms = TERMS_DAYS[segment]
+    open_ar = wh.query("""select coalesce(sum(balance), 0) as v from marts.fct_ar_invoices
+                          where customer_id = ? and balance > 0""", [ev.get("customer") or ""])
+    open_ar = _d(open_ar[0]["v"]) if open_ar else Decimal(0)
+    peak = rev * (1 + _d(terms) / 30) + open_ar
+    limit = policy.get("CREDIT-LIMIT", Decimal(1_500_000))
+
+    plan = wh.query("""select p.plan_id, p.base_rate from seeds.comp_plans p join seeds.sales_reps r using (rep_id)
+                       where r.segment_focus = ? and current_date between p.effective_from and p.effective_to
+                       order by p.rep_id limit 1""", [segment])
+    if not plan:
+        plan = wh.query("""select p.plan_id, p.base_rate from seeds.comp_plans p join seeds.sales_reps r using (rep_id)
+                           where r.segment_focus = ? order by p.effective_from desc limit 1""", [segment])
+    rate = _d(plan[0]["base_rate"]) if plan else Decimal(0)
+    commission = annual * rate
+    gm_year = (rev - _d(ev["monthly_cost"])) * 12
+    disc = [float(r["discount_pct"]) for r in wh.query("""
+        select avg(discount_pct) as discount_pct from marts.fct_discount_leakage
+        where segment <> 'self_serve' and month > (select max(month) from marts.fct_kpi_monthly) - interval 12 month
+        group by customer_id""") if r["discount_pct"] is not None]
+    d = float(ev["discount_pct"])
+    return {
+        "segment": segment,
+        "cost_to_serve": cts, "gross_margin_pct_at_p90_cost": gm_p90,
+        "credit": {"terms_days": terms, "open_ar": float(open_ar), "peak_exposure": float(peak.quantize(CENT)),
+                   "credit_limit": float(limit), "within_limit": peak <= limit},
+        "commission": {"plan_id": plan[0]["plan_id"] if plan else None, "rate": float(rate),
+                       "first_year_commission": float(commission.quantize(CENT)),
+                       "share_of_first_year_gross_margin": float((commission / gm_year).quantize(Decimal("0.0001"))) if gm_year else None,
+                       "payback_months": float((commission / (gm_year / 12)).quantize(Decimal("0.1"))) if gm_year > 0 else None},
+        "discounts": {"customers": len(disc), "p25": _pct(disc, 0.25), "median": _pct(disc, 0.5), "p75": _pct(disc, 0.75),
+                      "max": max(disc) if disc else None,
+                      "this_deal_percentile": round(sum(1 for x in disc if x < d) / len(disc), 2) if disc else None},
+    }
 
 
 def evaluate(wh, deal):
@@ -89,7 +166,7 @@ def evaluate(wh, deal):
          "detail": f"minimum commit {_money(commit)}/month vs {_money(rev * policy['MIN-COMMIT-PCT'])} required for a discount"},
     ]
     failed = [c for c in checks if not c["passed"]]
-    return {
+    out = {
         "customer": deal.get("customer"), "lines": lines, "discount_pct": float(disc), "term_months": term,
         "monthly_commit": float(commit), "monthly_revenue": float(rev), "monthly_cost": float(cost),
         "gross_margin_pct": float(gm.quantize(Decimal("0.0001"))), "floor_pct": float(floor.quantize(Decimal("0.0001"))),
@@ -97,6 +174,8 @@ def evaluate(wh, deal):
         "checks": checks, "route": "finance_review" if failed else "auto_approve",
         "reasons": [c["detail"] for c in failed],
     }
+    out["risk"] = risk(wh, out, policy)
+    return out
 
 
 def quote_pdf(deal_id, evaluation, out_dir: Path, valid_days=30):

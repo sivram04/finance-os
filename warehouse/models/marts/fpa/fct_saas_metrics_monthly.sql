@@ -4,6 +4,8 @@
 --   CAC payback      CAC / (ARPA × gross margin), in months
 --   Rule of 40       revenue growth year over year + EBITDA margin
 --   Free cash flow   change in cash excluding equity raised (operations + capex)
+--   Burdened CAC     S&M spend plus Sales' share of G&A overhead (rent, software, legal, finance; by headcount share),
+--                    so unit economics aren't flattered by costs that sit in other departments
 with kpi as (
     select
         month,
@@ -21,6 +23,7 @@ gl as (
     select
         month,
         sum(case when account_type = 'opex' and department_id = 'SAL' then natural_amount else 0 end) as sm_spend,
+        sum(case when account_type = 'opex' and department_id = 'GA' then natural_amount else 0 end) as ga_spend,
         sum(case when account_type = 'revenue' then natural_amount
                  when account_type in ('cogs', 'opex') and account_id <> '6600' then -natural_amount else 0 end) as ebitda,
         sum(case when account_id = '1000' then amount else 0 end) as cash_change,
@@ -29,18 +32,27 @@ gl as (
     group by 1
 ),
 
+heads as (
+    select month, {{ fdiv("sum(case when department_id = 'SAL' then headcount else 0 end)", "nullif(sum(headcount), 0)") }} as sal_share
+    from {{ ref('fct_headcount_monthly') }}
+    group by 1
+),
+
 j as (
     select
         k.*,
         g.sm_spend,
+        g.sm_spend + g.ga_spend * coalesce(h.sal_share, 0) as sm_burdened,
         g.ebitda,
         g.cash_change - g.equity_raised as free_cash_flow,
         sum(g.sm_spend) over (order by k.month rows between 2 preceding and current row) as sm_t3m,
+        sum(g.sm_spend + g.ga_spend * coalesce(h.sal_share, 0)) over (order by k.month rows between 2 preceding and current row) as smb_t3m,
         sum(k.new_customers) over (order by k.month rows between 2 preceding and current row) as new_t3m,
         {{ dec("round(avg(k.logo_churn_rate) over (order by k.month rows between 2 preceding and current row), 6)", 9, 6) }} as churn_t3m,
         lag(k.revenue, 12) over (order by k.month) as revenue_ly
     from kpi k
     join gl g on g.month = k.month
+    left join heads h on h.month = k.month
 ),
 
 u as (
@@ -60,6 +72,9 @@ select
     {{ dec("sm_spend", 18, 2) }} as sm_spend,
     cast(new_customers as bigint) as new_customers,
     {{ dec("round(cac, 2)", 18, 2) }} as cac,
+    {{ dec("round(" ~ fdiv("smb_t3m", "nullif(new_t3m, 0)") ~ ", 2)", 18, 2) }} as cac_burdened,
+    {{ dec("round(" ~ fdiv("revenue * gross_margin_pct * new_t3m", "nullif(active_customers * churn_t3m * smb_t3m, 0)") ~ ", 2)", 9, 2) }} as ltv_to_cac_burdened,
+    {{ dec("round(" ~ fdiv("smb_t3m * active_customers", "nullif(new_t3m * revenue * gross_margin_pct, 0)") ~ ", 1)", 9, 1) }} as cac_payback_burdened_months,
     {{ dec("round(arpa, 2)", 18, 2) }} as arpa,
     {{ dec("round(churn_t3m, 4)", 9, 4) }} as monthly_logo_churn,
     {{ dec("round(" ~ fdiv("revenue * gross_margin_pct", "nullif(active_customers * churn_t3m, 0)") ~ ", 2)", 18, 2) }} as ltv,

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { api, fmt, type Action, type AgentEvent, type UploadedDoc } from '../api'
+import { api, fmt, type Action, type AgentEvent, type Evidence, type UploadedDoc } from '../api'
 import { Chip, useWorkspace } from './common'
 
 // One assistant turn: the user's message (or uploaded document), then every event the agent streamed back.
@@ -121,6 +121,30 @@ function Steps({ events, running }: { events: AgentEvent[]; running: boolean }) 
   )
 }
 
+// What the answer rests on: governed metrics and their versions, how fresh the data is, whether the books
+// reconcile, which tools and filters were used.
+function EvidenceBlock({ ev }: { ev: Evidence }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="evidence">
+      <button className="evidence-head" onClick={() => setOpen(!open)}>
+        <span>Evidence</span>
+        <span className="muted">closed through {ev.freshness.closed_through}{ev.freshness.live_through ? ` · live ${ev.freshness.live_through}` : ''}</span>
+        <span className={ev.reconciliation.failing_checks ? 'bad' : 'good'}>books {ev.reconciliation.status}</span>
+        <span className={ev.numbers_verified ? 'good' : 'bad'}>{ev.numbers_verified ? 'numbers verified' : 'numbers unverified'}</span>
+        <span className="muted">{open ? 'hide' : 'show'}</span>
+      </button>
+      {open && (
+        <div className="evidence-body">
+          {ev.metrics.length > 0 && <div><b>Metrics</b> {ev.metrics.map((m) => `${m.label} v${m.version} (from ${m.effective_from}, ${m.owner})`).join(' · ')}</div>}
+          <div><b>Sources</b> {ev.sources.join(' · ') || 'none'}</div>
+          {ev.filters.length > 0 && <div><b>Filters</b> {ev.filters.map((f) => `${f.tool}(${Object.entries(f.args).map(([k, v]) => `${k}=${typeof v === 'object' ? JSON.stringify(v) : String(v)}`).join(', ')})`).join(' · ')}</div>}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function TurnView({ turn }: { turn: Turn }) {
   const answer = turn.events.find((e): e is Extract<AgentEvent, { type: 'answer' }> => e.type === 'answer')
   const done = turn.events.find((e): e is Extract<AgentEvent, { type: 'done' }> => e.type === 'done')
@@ -135,6 +159,7 @@ function TurnView({ turn }: { turn: Turn }) {
       {answer && answer.unverified_numbers.length > 0 && (
         <div className="warning">Unverified: {answer.unverified_numbers.join(', ')} did not match any data the assistant read. Treat with care.</div>
       )}
+      {answer?.evidence && <EvidenceBlock ev={answer.evidence} />}
       {done && <div className="usage">{done.steps} tool steps · {(done.prompt_tokens + done.completion_tokens).toLocaleString()} tokens</div>}
     </div>
   )

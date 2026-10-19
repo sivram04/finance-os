@@ -11,6 +11,7 @@ ID_OR_DATE = re.compile(
     r"\b[A-Za-z]{1,6}-[\w-]*\d[\w-]*\b"       # EN-001, INV-EN-001-202606, P-103, A-M2-01, BVA-202604-GA-6400
     r"|\b\d{4}-\d{2}(?:-\d{2})?\b"             # 2026-09, 2026-09-30
     r"|\b(?:FY|Q[1-4])\s?\d{2,4}\b"            # FY2026, Q3 2026
+    r"|\b(?:ASC|ASU|IFRS|IAS)\s?\d{1,4}(?:-\d{1,4})*\b"  # ASC 340-40, ASC 606, IFRS 15
     r"|\b[A-Z]{1,6}\d{3,}\b"                   # PINV00014, PAY000786, PO00001
 )
 NUMBER = re.compile(r"(?<![\w.])(\$)?(-?\d[\d,]*(?:\.\d+)?)\s?(%|[kKmMbB]\b|million\b|billion\b|thousand\b)?")

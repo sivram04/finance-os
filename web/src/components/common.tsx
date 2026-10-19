@@ -4,7 +4,7 @@ import { api, fmt, label, type Row, type ToolResult } from '../api'
 
 // ---- app context: navigation and handing questions to the assistant ------------------------------
 
-export type Page = 'home' | 'alerts' | 'reports' | 'financials' | 'analysis' | 'growth' | 'pipeline' | 'deals' | 'comp' | 'revenue' | 'spend' | 'budget' | 'plan' | 'cash' | 'close' | 'projects' | 'billing' | 'ar' | 'ap' | 'pricing' | 'capital' | 'tax' | 'trust'
+export type Page = 'home' | 'alerts' | 'reports' | 'financials' | 'analysis' | 'growth' | 'pipeline' | 'scenarios' | 'entities' | 'deals' | 'comp' | 'revenue' | 'spend' | 'budget' | 'plan' | 'cash' | 'close' | 'projects' | 'billing' | 'ar' | 'ap' | 'pricing' | 'capital' | 'tax' | 'trust' | 'contracts' | 'drivers' | 'ceo'
 
 export type EntityKind = 'customer' | 'vendor' | 'project' | 'kpi'
 export interface Entity { kind: EntityKind; id: string }
@@ -89,8 +89,8 @@ function csvCell(v: unknown) {
 
 const PAGE = 15
 
-export function DataTable({ rows, columns, onRow, empty = 'Nothing here.', title = 'export' }:
-  { rows: Row[]; columns: Column[]; onRow?: (r: Row) => void; empty?: string; title?: string }) {
+export function DataTable({ rows, columns, onRow, empty = 'Nothing here.', title = 'export', pageSize = PAGE }:
+  { rows: Row[]; columns: Column[]; onRow?: (r: Row) => void; empty?: string; title?: string; pageSize?: number }) {
   const { inspect } = useWorkspace()
   // inside a <Dash> page, the page's cross-filters apply to any table whose rows carry the filtered field
   const pageFilters = useContext(FilterContext)?.filters
@@ -134,7 +134,7 @@ export function DataTable({ rows, columns, onRow, empty = 'Nothing here.', title
     a.click()
   }
   const tools = rows.length > 6
-  const pages = Math.ceil(shown.length / PAGE)
+  const pages = Math.ceil(shown.length / pageSize)
   const page = Math.min(pg, Math.max(pages - 1, 0))
   return (
     <div>
@@ -159,7 +159,7 @@ export function DataTable({ rows, columns, onRow, empty = 'Nothing here.', title
               {c.label ?? label(c.key)}{sort?.key === c.key ? (sort.dir === 1 ? ' ▲' : ' ▼') : ''}
             </th>))}</tr></thead>
           <tbody>
-            {shown.slice(page * PAGE, page * PAGE + PAGE).map((r, i) => (
+            {shown.slice(page * pageSize, page * pageSize + pageSize).map((r, i) => (
               <tr key={i} className={onRow ? 'clickable' : ''} onClick={onRow ? () => onRow(r) : undefined}>
                 {columns.map((c) => (
                   <td key={c.key} className={numeric(c) ? 'num' : ''}>

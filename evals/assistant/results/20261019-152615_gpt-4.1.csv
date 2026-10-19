@@ -1,0 +1,2 @@
+run,id,persona,passed,checks,unverified,stopped,steps,tools,prompt_tokens,completion_tokens,latency_s,answer
+1,deferred-commissions,Controller,True,tool get_commissions_dashboard=ok,,answered,1,get_commissions_dashboard,24348,73,4.7,"Echo Labs' deferred commissions balance under ASC 340-40 is $1,318,901, with $599,744 as the current portion. This represents commissions capitalized and amortized in line with revenue recognition rules.  Sources: fct_deferred_commissions_monthly (Commissions Dashboard)"

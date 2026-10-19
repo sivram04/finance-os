@@ -1,5 +1,7 @@
--- Grain: account × department × month. amount = debit − credit; natural_amount flips the sign for
--- credit-normal accounts (revenue, liability, equity) so revenue and payables read as positive.
+-- Grain: account × department × month, CONSOLIDATED: every entity, with intercompany accounts (1300, 2300, 4900,
+-- 6900) eliminated, so the group's numbers are what customers, vendors and employees did (see fct_consolidation_monthly
+-- for the entity-by-entity view). amount = debit − credit; natural_amount flips the sign for credit-normal accounts
+-- (revenue, liability, equity) so revenue and payables read as positive.
 select
     e.entry_month as month,
     l.account_id,
@@ -14,4 +16,5 @@ select
 from {{ ref('stg_erp__journal_lines') }} l
 join {{ ref('stg_erp__journal_entries') }} e using (entry_id)
 join {{ ref('gl_accounts') }} a using (account_id)
+where a.{{ adapter.quote('rollup') }} <> 'Intercompany'
 group by 1, 2, 3, 4, 5, 6

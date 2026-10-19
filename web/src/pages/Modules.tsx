@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react'
 import { Bars, Bridge, Columns, Dash, Donut, GroupedBars, KpiRow, Trend, useFiltered } from '../components/Dash'
 import { fmt, type Row } from '../api'
 import { AskButton, Card, Chip, DataTable, Loading, Source, useTool, useWorkspace } from '../components/common'
+import { SpendEfficiency } from './Insights'
 
 function Head({ title, sub, ask }: { title: string; sub: string; ask: string }) {
   return (
@@ -127,6 +128,7 @@ function SpendBody() {
           <Columns rows={[...trend.map((t) => ({ month: t.month, amount: t.cost })), ...((d.data.forecast ?? []) as Row[]).map((f) => ({ month: `${f.month} (f)`, amount: f.forecast }))]} x="month" y="amount" />
         </Card>
       </div>
+      <SpendEfficiency />
       <Card title="Vendor contracts" sub="Renewal flagged inside the notice period plus 30 days">
         <DataTable rows={contracts} columns={[{ key: 'vendor_name' }, { key: 'contract_id' }, { key: 'committed_gpu_type', label: 'GPU' }, { key: 'committed_gpu_hours_month', label: 'Committed h / month', unit: 'count' },
           { key: 'end_date' }, { key: 'days_to_end', unit: 'count' }, { key: 'avg_monthly_spend_t3m', label: 'Avg monthly spend (3m)', unit: 'usd' }, { key: 'is_renewal_due', label: 'Renewal due', flag: 'warn' }]} />
@@ -369,14 +371,15 @@ function ARBody() {
         <Card title="Collection effectiveness" sub="CEI by month · 80% is a common bar">
           <Trend rows={trend} x="month" unit="ratio" format={(v) => `${Math.round(v * 100)}%`} series={[{ key: 'cei', label: 'CEI', color: '#2f9e6b' }]} refs={[{ y: 0.8, label: '80%' }]} />
         </Card>
-        <Card title="When the cash lands" sub="Expected customer receipts by week (13-week forecast)">
-          <Columns rows={(d.data.receipts ?? []) as Row[]} x="week_start" y="inflows" color="#2f9e6b" xFormat={(v) => v.slice(5)} />
+        <Card title="When the cash lands" sub="Predicted from each customer's own payment history (due date + their average days late), by week">
+          <Columns rows={(d.data.predicted_receipts ?? []) as Row[]} x="week_start" y="amount" color="#2f9e6b" xFormat={(v) => v.slice(5)} />
         </Card>
       </div>
       <Card title="Open invoices" sub="Filtered with the page · click a row to ask about it">
         <DataTable title="open_invoices" rows={all} onRow={(r) => ask(`What's the status of invoice ${r.invoice_ref} for ${r.customer_id}, and should we chase it?`)} columns={[
           { key: 'invoice_ref' }, { key: 'customer_id' }, { key: 'segment', chip: true }, { key: 'invoice_date' }, { key: 'due_date' }, { key: 'balance', unit: 'usd' },
-          { key: 'days_past_due', label: 'Days late', unit: 'count' }, { key: 'aging_bucket', label: 'Age', chip: true }, { key: 'is_disputed', label: 'Disputed', flag: 'bad' }, { key: 'recommended_action' }]} />
+          { key: 'days_past_due', label: 'Days late', unit: 'count' }, { key: 'aging_bucket', label: 'Age', chip: true }, { key: 'is_disputed', label: 'Disputed', flag: 'bad' },
+          { key: 'predicted_pay_date', label: 'Expected payment' }, { key: 'prediction_basis', label: 'Based on' }, { key: 'recommended_action' }]} />
         <Source data={d.data} />
       </Card>
       <div className="grid cols-2">

@@ -24,3 +24,7 @@ account_id,account_name,account_type,statement,rollup
 6400,Professional fees,opex,income_statement,Professional fees
 6500,Marketing and travel,opex,income_statement,Sales and marketing
 6600,Depreciation,opex,income_statement,Depreciation
+1300,Intercompany receivable,asset,balance_sheet,Intercompany
+2300,Intercompany payable,liability,balance_sheet,Intercompany
+4900,Intercompany service revenue,revenue,income_statement,Intercompany
+6900,Intercompany service fees,opex,income_statement,Intercompany

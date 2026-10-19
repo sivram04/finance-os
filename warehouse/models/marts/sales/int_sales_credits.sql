@@ -4,6 +4,8 @@
 -- Credit (high-water mark, so usage noise is never paid twice): the first billed month is new ARR (revenue × 12);
 -- after that, only revenue above the customer's previous peak month counts, as expansion ARR.
 -- Clawback: a customer who churns within the rep's clawback window (days from signup) takes back everything credited.
+-- Credit splits (seeds/credit_splits.csv) share an account's credit between reps; the comp plan in effect for the month
+-- (seeds/comp_plans.csv, versioned by year) sets the expansion multiplier (comp_credit) and the clawback window.
 {{ config(materialized='table') }}
 with reps as (
     select r.*, row_number() over (partition by segment_focus order by rep_id) - 1 as slot,
@@ -18,15 +20,21 @@ accounts as (
     where c.segment in (select segment_focus from {{ ref('sales_reps') }})
 ),
 
-owners as (
+round_robin as (
     select a.customer_id, a.segment, a.signup_date, r.rep_id
     from accounts a
     join reps r on r.segment_focus = a.segment and r.slot = mod(a.seq, r.reps_in_segment)
 ),
 
+owners as (  -- split accounts take their split rows; every other account is 100% its round-robin owner
+    select o.customer_id, o.segment, o.signup_date, coalesce(s.rep_id, o.rep_id) as rep_id, coalesce(s.split_pct, 1) as split_pct
+    from round_robin o
+    left join {{ ref('credit_splits') }} s using (customer_id)
+),
+
 rep_revenue as (
-    select o.rep_id, o.customer_id, o.signup_date, m.month, m.revenue, m.movement,
-           max(m.revenue) over (partition by m.customer_id order by m.month
+    select o.rep_id, o.customer_id, o.segment, o.signup_date, o.split_pct, m.month, m.revenue, m.movement,
+           max(m.revenue) over (partition by m.customer_id, o.rep_id order by m.month
                                 rows between unbounded preceding and 1 preceding) as prior_peak
     from {{ ref('fct_customer_revenue_monthly') }} m
     join owners o using (customer_id)
@@ -35,7 +43,7 @@ rep_revenue as (
 
 credits as (
     select
-        rep_id, customer_id, signup_date, month, revenue, movement,
+        rep_id, customer_id, segment, signup_date, split_pct, month, revenue, movement,
         case when coalesce(prior_peak, 0) = 0 and revenue > 0 then 'new'
              when revenue > prior_peak then 'expansion' end as credit_type,
         case when coalesce(prior_peak, 0) = 0 and revenue > 0 then revenue * 12
@@ -47,7 +55,7 @@ credits as (
 churned_early as (
     select c.customer_id, min(c.month) as churn_month
     from credits c
-    join {{ ref('sales_reps') }} r on r.rep_id = c.rep_id
+    join {{ ref('comp_plans') }} r on r.rep_id = c.rep_id and c.month between r.effective_from and r.effective_to
     where c.movement = 'churn' and {{ days_between("c.signup_date", "c.month") }} <= r.clawback_days + 31
     group by c.customer_id
 )
@@ -55,20 +63,29 @@ churned_early as (
 select
     c.rep_id,
     c.customer_id,
+    c.segment,
     c.month,
     c.credit_type,
-    {{ dec("c.revenue", 18, 2) }} as billed_revenue,
-    {{ dec("c.credited_arr", 18, 2) }} as credited_arr,
+    {{ dec("c.split_pct", 9, 4) }} as split_pct,
+    {{ dec("c.revenue * c.split_pct", 18, 2) }} as billed_revenue,
+    {{ dec("round(c.credited_arr * c.split_pct, 2)", 18, 2) }} as credited_arr,
+    {{ dec("round(c.credited_arr * c.split_pct * case when c.credit_type = 'expansion' then p.expansion_multiplier else 1 end, 2)", 18, 2) }} as comp_credit,
+    p.plan_id,
     false as is_clawback
 from credits c
+join {{ ref('comp_plans') }} p on p.rep_id = c.rep_id and c.month between p.effective_from and p.effective_to
 where c.credited_arr > 0
 
 union all
 
 -- the clawback lands in the churn month, for everything credited on that customer before it
-select c.rep_id, c.customer_id, e.churn_month, 'clawback', {{ dec("0", 18, 2) }},
-       {{ dec("-sum(c.credited_arr)", 18, 2) }}, true
+select c.rep_id, c.customer_id, max(c.segment), e.churn_month, 'clawback', {{ dec("max(c.split_pct)", 9, 4) }}, {{ dec("0", 18, 2) }},
+       {{ dec("-round(sum(c.credited_arr * c.split_pct), 2)", 18, 2) }},
+       {{ dec("-round(sum(c.credited_arr * c.split_pct * case when c.credit_type = 'expansion' then p.expansion_multiplier else 1 end), 2)", 18, 2) }},
+       max(p2.plan_id), true
 from credits c
 join churned_early e using (customer_id)
+join {{ ref('comp_plans') }} p on p.rep_id = c.rep_id and c.month between p.effective_from and p.effective_to
+join {{ ref('comp_plans') }} p2 on p2.rep_id = c.rep_id and e.churn_month between p2.effective_from and p2.effective_to
 where c.credited_arr > 0 and c.month < e.churn_month
 group by c.rep_id, c.customer_id, e.churn_month

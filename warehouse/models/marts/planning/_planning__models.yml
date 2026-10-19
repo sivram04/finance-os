@@ -19,3 +19,12 @@ models:
     description: Next fiscal year's budget bottom-up (departments) vs top-down (board targets), with the gap.
   - name: fct_shared_cost_allocation_monthly
     description: Shared overhead re-allocated to departments by headcount share.
+
+  - name: fct_workforce_plan_monthly
+    description: >
+      Risk-adjusted workforce plan by department x month (base scenario): hiring probability and start-date slippage
+      by req status, attrition (measured or benchmark, with backfill lag), merit increases at the comp review,
+      recruiting fees and equipment per hire, next to the plan's headcount and payroll.
+    data_tests:
+      - dbt_utils_free_unique_combination:
+          arguments: {columns: [month, department_id]}

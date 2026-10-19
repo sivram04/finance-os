@@ -130,7 +130,8 @@ class AppState:
         self._q("UPDATE deals SET action_id = ? WHERE id = ?", [aid, did])
 
     def deals(self):
-        rows = self._q("""SELECT d.id, d.customer, d.route, d.created_at, d.evaluation, a.status AS approval_status
+        rows = self._q("""SELECT d.id, d.customer, d.route, d.created_at, d.evaluation, a.status AS approval_status,
+                                 a.decided_at, date_diff('minute', d.created_at, coalesce(a.decided_at, d.created_at)) AS cycle_minutes
                           FROM deals d LEFT JOIN actions a ON a.id = d.action_id ORDER BY d.created_at DESC""")
         for r in rows:
             r["evaluation"] = json.loads(r["evaluation"]) if isinstance(r["evaluation"], str) else r["evaluation"]

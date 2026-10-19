@@ -2,233 +2,707 @@
 # After editing, run: python -m finance_os.reports.build_metric_catalog
 # status: MEASURED (from source data) or ASSUMED (depends on a modeled input).
 metrics:
-  - name: revenue
-    label: Revenue
-    unit: usd
-    purpose: Top-line growth tracking and the base for every margin.
-    formula: Sum of GL revenue recognized in the month (usage 4000 + project services 4100).
-    grain: month
-    source_model: fct_gl_monthly
-    owner: Controller
-    status: MEASURED
-    tolerance: Usage must equal rated usage (recon_gl_revenue); services must equal project invoices (recon_project_billing_gl).
-
-  - name: cogs
-    label: Cost of revenue
-    unit: usd
-    purpose: Gross margin and cost-to-serve trend.
-    formula: Sum of GL COGS accounts (5000 GPU, 5010 cloud hosting, 5100 payment processing, 5200/5210 project subcontractors and direct costs).
-    grain: month
-    source_model: fct_gl_monthly
-    owner: Controller
-    status: MEASURED
-    tolerance: Vendor invoices reconcile to modeled cost within 1% (recon_vendor_invoices).
-
-  - name: opex
-    label: Operating expenses
-    unit: usd
-    purpose: Spending pace by department; input to BvA (M5).
-    formula: Sum of GL operating expense accounts (6000–6500).
-    grain: month
-    source_model: fct_gl_monthly
-    owner: Controller
-    status: MEASURED
-    tolerance: Payroll accounts equal the payroll register exactly (recon_payroll_gl).
-
-  - name: gross_margin_pct
-    label: Gross margin %
-    unit: ratio
-    purpose: Pricing and product mix decisions.
-    formula: (Revenue − COGS) ÷ Revenue, from the GL.
-    grain: month
-    source_model: fct_gl_monthly
-    owner: VP Finance
-    status: MEASURED
-    tolerance: GL-based; differs from fct_unit_economics_monthly, which allocates modeled cost and excludes payment fees.
-
-  - name: gross_burn
-    label: Gross burn
-    unit: usd
-    purpose: Spending pace in cash terms.
-    formula: Operating cash out (GL cash account 1000, excluding financing).
-    grain: month
-    source_model: fct_cash_monthly
-    owner: VP Finance
-    status: MEASURED
-    tolerance: Closing cash must never be negative.
-
-  - name: net_burn
-    label: Net burn
-    unit: usd
-    purpose: How fast the company consumes cash; drives runway.
-    formula: Operating cash out − operating cash in. Positive = burning.
-    grain: month
-    source_model: fct_cash_monthly
-    owner: VP Finance
-    status: MEASURED
-    tolerance: None beyond GL balance.
-
-  - name: closing_cash
-    label: Cash balance
-    unit: usd
-    purpose: Liquidity and fundraising timing.
-    formula: Cumulative net change in GL cash (account 1000) to month end.
-    grain: month
-    source_model: fct_cash_monthly
-    owner: VP Finance
-    status: MEASURED
-    tolerance: Will reconcile to Stripe payouts and bank statements in M12.
-
-  - name: runway_months
-    label: Runway
-    unit: months
-    purpose: Fundraising timing.
-    formula: Closing cash ÷ average net burn over the trailing 3 months. Blank when not burning or under 3 months of history.
-    grain: month
-    source_model: fct_cash_monthly
-    owner: VP Finance
-    status: MEASURED
-    tolerance: Assumes the trailing burn rate continues; not a forecast.
-
-  - name: arr
-    label: ARR
-    unit: usd
-    purpose: Growth tracking on an annualized basis.
-    formula: Usage run-rate (trailing-3-month usage revenue, account 4000, × 4) + committed annualized (none yet). Project services are excluded.
-    grain: month
-    source_model: fct_gl_monthly
-    owner: VP Finance
-    status: MEASURED
-    tolerance: Usage-based ARR moves with seasonality; read with NRR.
-
-  - name: headcount
-    label: Headcount
-    unit: count
-    purpose: Hiring plan tracking and per-employee ratios.
-    formula: Employees hired on or before month end and not yet terminated.
-    grain: month
-    source_model: fct_headcount_monthly
-    owner: VP Finance
-    status: MEASURED
-    tolerance: Employees with pay in the month must reconcile to headcount ± hires and leavers.
-
-  - name: arr_per_employee
-    label: ARR per employee
-    unit: usd
-    purpose: Efficiency benchmark (FR-4.3 revenue per employee, on an annualized basis).
-    formula: ARR ÷ month-end headcount.
-    grain: month
-    source_model: fct_kpi_monthly
-    owner: VP Finance
-    status: MEASURED
-    tolerance: None.
-
-  - name: nrr
-    label: Net revenue retention
-    unit: ratio
-    purpose: Expansion health of the existing customer base.
-    formula: Trailing-3-month revenue now from customers who had revenue in the same window 12 months earlier ÷ their revenue then.
-    grain: month
-    source_model: fct_gl_monthly
-    owner: VP Finance
-    status: MEASURED
-    tolerance: Starts once 12 months plus a 3-month window of history exist.
-
-  - name: grr
-    label: Gross revenue retention
-    unit: ratio
-    purpose: Churn and contraction, with expansion removed.
-    formula: Same cohort as NRR, but each customer's current revenue is capped at its prior revenue.
-    grain: month
-    source_model: fct_gl_monthly
-    owner: VP Finance
-    status: MEASURED
-    tolerance: Always ≤ NRR and ≤ 1.
-
-  - name: active_customers
-    label: Active customers
-    unit: count
-    purpose: Size of the paying base; denominator for churn.
-    formula: Customers with usage revenue in the month.
-    grain: month
-    source_model: fct_mrr_bridge_monthly
-    owner: VP Finance
-    status: MEASURED
-    tolerance: Equals opening + new + reactivated − churned (assert_mrr_bridge_balances).
-
-  - name: new_customers
-    label: New customers
-    unit: count
-    purpose: Acquisition pace.
-    formula: Customers with revenue this month and none in any earlier month.
-    grain: month
-    source_model: fct_mrr_bridge_monthly
-    owner: VP Finance
-    status: MEASURED
-    tolerance: None.
-
-  - name: churned_customers
-    label: Churned customers
-    unit: count
-    purpose: Retention problems by count; read with the churn reasons.
-    formula: Customers with revenue last month and none this month. Mid-month churn shows the month after.
-    grain: month
-    source_model: fct_mrr_bridge_monthly
-    owner: VP Finance
-    status: MEASURED
-    tolerance: Measured from revenue; a customer that pauses for a month counts as churned, then reactivated.
-
-  - name: logo_churn_rate
-    label: Logo churn rate
-    unit: ratio
-    purpose: Share of paying customers lost each month; drives retention priorities.
-    formula: Churned customers ÷ customers with revenue last month.
-    grain: month
-    source_model: fct_mrr_bridge_monthly
-    owner: VP Finance
-    status: MEASURED
-    tolerance: Dominated by self-serve; read alongside gross MRR churn.
-
-  - name: gross_mrr_churn_rate
-    label: Gross MRR churn rate
-    unit: ratio
-    purpose: Revenue lost from existing customers each month, before expansion.
-    formula: −(contraction MRR + churned MRR) ÷ opening MRR.
-    grain: month
-    source_model: fct_mrr_bridge_monthly
-    owner: VP Finance
-    status: MEASURED
-    tolerance: Usage noise makes every month show some contraction; trend matters more than level.
-
-  - name: dso_days
-    label: DSO
-    unit: days
-    purpose: How fast customers pay; cash planning and collections staffing.
-    formula: Ending AR ÷ invoiced sales in the month × days in the month.
-    grain: month
-    source_model: fct_ar_monthly
-    owner: Controller
-    status: MEASURED
-    tolerance: AR subledger must equal the GL control account (assert_ar_ties_to_gl). Month-end billing makes it swing.
-
-  - name: cei
-    label: Collection effectiveness index
-    unit: ratio
-    purpose: Collections team performance, independent of sales volume.
-    formula: (Beginning AR + sales − ending AR) ÷ (beginning AR + sales − ending current AR).
-    grain: month
-    source_model: fct_ar_monthly
-    owner: Controller
-    status: MEASURED
-    tolerance: 1.0 means everything collectible was collected.
-
-  - name: ar_over_60
-    label: AR over 60 days
-    unit: usd
-    purpose: Bad-debt risk and write-off candidates.
-    formula: Open invoice balances more than 60 days past due at month end.
-    grain: month
-    source_model: fct_ar_aging_snapshot
-    owner: Controller
-    status: MEASURED
-    tolerance: Includes failed-payment self-serve balances that should be reviewed for write-off.
+- name: revenue
+  label: Revenue
+  unit: usd
+  purpose: Top-line growth tracking and the base for every margin.
+  formula: Sum of GL revenue recognized in the month (usage 4000 + project services 4100).
+  grain: month
+  source_model: fct_gl_monthly
+  owner: Controller
+  status: MEASURED
+  tolerance: Usage must equal rated usage (recon_gl_revenue); services must equal project invoices (recon_project_billing_gl).
+  numerator: GL revenue accounts 4000 + 4010 + 4100
+  denominator: n/a
+  inclusions: Usage, refunds and credits, project services
+  exclusions: Intercompany service revenue (4900, eliminated)
+  currency_treatment: USD as booked. Foreign-currency invoices are converted at the invoice date's rate; currency moves on collection go to realized
+    FX, not this metric.
+  period_logic: Closed months only; a month closes when it is billed on the 1st of the next month.
+  refresh: Daily (morning run); final at month close
+  version: 1
+  effective_from: '2025-01-01'
+  restatement_policy: Closed months are not restated; corrections post in the open month and are disclosed in the board pack
+- name: cogs
+  label: Cost of revenue
+  unit: usd
+  purpose: Gross margin and cost-to-serve trend.
+  formula: Sum of GL COGS accounts (5000 GPU, 5010 cloud hosting, 5100 payment processing, 5200/5210 project subcontractors and direct costs).
+  grain: month
+  source_model: fct_gl_monthly
+  owner: Controller
+  status: MEASURED
+  tolerance: Vendor invoices reconcile to modeled cost within 1% (recon_vendor_invoices).
+  numerator: GL COGS accounts 5000-5210
+  denominator: n/a
+  inclusions: GPU, cloud hosting, payment processing, project subcontractors and direct costs
+  exclusions: Depreciation (opex)
+  currency_treatment: USD as booked. Foreign-currency invoices are converted at the invoice date's rate; currency moves on collection go to realized
+    FX, not this metric.
+  period_logic: Closed months only; a month closes when it is billed on the 1st of the next month.
+  refresh: Daily (morning run); final at month close
+  version: 1
+  effective_from: '2025-01-01'
+  restatement_policy: Closed months are not restated; corrections post in the open month and are disclosed in the board pack
+- name: opex
+  label: Operating expenses
+  unit: usd
+  purpose: Spending pace by department; input to BvA (M5).
+  formula: Sum of GL operating expense accounts (6000–6500).
+  grain: month
+  source_model: fct_gl_monthly
+  owner: Controller
+  status: MEASURED
+  tolerance: Payroll accounts equal the payroll register exactly (recon_payroll_gl).
+  numerator: GL opex accounts 6000-6600
+  denominator: n/a
+  inclusions: Payroll, cloud R&D, software, rent, professional fees, marketing, depreciation
+  exclusions: Intercompany service fees (6900, eliminated)
+  currency_treatment: USD as booked. Foreign-currency invoices are converted at the invoice date's rate; currency moves on collection go to realized
+    FX, not this metric.
+  period_logic: Closed months only; a month closes when it is billed on the 1st of the next month.
+  refresh: Daily (morning run); final at month close
+  version: 1
+  effective_from: '2025-01-01'
+  restatement_policy: Closed months are not restated; corrections post in the open month and are disclosed in the board pack
+- name: gross_margin_pct
+  label: Gross margin %
+  unit: ratio
+  purpose: Pricing and product mix decisions.
+  formula: (Revenue − COGS) ÷ Revenue, from the GL.
+  grain: month
+  source_model: fct_gl_monthly
+  owner: VP Finance
+  status: MEASURED
+  tolerance: GL-based; differs from fct_unit_economics_monthly, which allocates modeled cost and excludes payment fees.
+  numerator: revenue - cogs
+  denominator: revenue
+  inclusions: As revenue and cogs
+  exclusions: Depreciation
+  currency_treatment: USD as booked. Foreign-currency invoices are converted at the invoice date's rate; currency moves on collection go to realized
+    FX, not this metric.
+  period_logic: Closed months only; a month closes when it is billed on the 1st of the next month.
+  refresh: Daily (morning run); final at month close
+  version: 1
+  effective_from: '2025-01-01'
+  restatement_policy: Closed months are not restated; corrections post in the open month and are disclosed in the board pack
+- name: gross_burn
+  label: Gross burn
+  unit: usd
+  purpose: Spending pace in cash terms.
+  formula: Operating cash out (GL cash account 1000, excluding financing).
+  grain: month
+  source_model: fct_cash_monthly
+  owner: VP Finance
+  status: MEASURED
+  tolerance: Closing cash must never be negative.
+  numerator: Cash paid out in the month (credits to account 1000)
+  denominator: n/a
+  inclusions: Operating and capital payments
+  exclusions: Intercompany settlements (net to zero across entities)
+  currency_treatment: USD as booked. Foreign-currency invoices are converted at the invoice date's rate; currency moves on collection go to realized
+    FX, not this metric.
+  period_logic: Closed months only; a month closes when it is billed on the 1st of the next month.
+  refresh: Daily (morning run); final at month close
+  version: 1
+  effective_from: '2025-01-01'
+  restatement_policy: Closed months are not restated; corrections post in the open month and are disclosed in the board pack
+- name: net_burn
+  label: Net burn
+  unit: usd
+  purpose: How fast the company consumes cash; drives runway.
+  formula: Operating cash out − operating cash in. Positive = burning.
+  grain: month
+  source_model: fct_cash_monthly
+  owner: VP Finance
+  status: MEASURED
+  tolerance: None beyond GL balance.
+  numerator: Cash out - cash in, excluding equity raised
+  denominator: n/a
+  inclusions: Operations and capex
+  exclusions: Funding rounds
+  currency_treatment: USD as booked. Foreign-currency invoices are converted at the invoice date's rate; currency moves on collection go to realized
+    FX, not this metric.
+  period_logic: Closed months only; a month closes when it is billed on the 1st of the next month.
+  refresh: Daily (morning run); final at month close
+  version: 1
+  effective_from: '2025-01-01'
+  restatement_policy: Closed months are not restated; corrections post in the open month and are disclosed in the board pack
+- name: closing_cash
+  label: Cash balance
+  unit: usd
+  purpose: Liquidity and fundraising timing.
+  formula: Cumulative net change in GL cash (account 1000) to month end.
+  grain: month
+  source_model: fct_cash_monthly
+  owner: VP Finance
+  status: MEASURED
+  tolerance: Will reconcile to Stripe payouts and bank statements in M12.
+  numerator: Balance of account 1000 at month end, all entities
+  denominator: n/a
+  inclusions: Operating bank, money market, T-bills (one GL account)
+  exclusions: None
+  currency_treatment: USD as booked. Foreign-currency invoices are converted at the invoice date's rate; currency moves on collection go to realized
+    FX, not this metric.
+  period_logic: Closed months only; a month closes when it is billed on the 1st of the next month.
+  refresh: Daily (morning run); final at month close
+  version: 1
+  effective_from: '2025-01-01'
+  restatement_policy: Closed months are not restated; corrections post in the open month and are disclosed in the board pack
+- name: runway_months
+  label: Runway
+  unit: months
+  purpose: Fundraising timing.
+  formula: Closing cash ÷ average net burn over the trailing 3 months. Blank when not burning or under 3 months of history.
+  grain: month
+  source_model: fct_cash_monthly
+  owner: VP Finance
+  status: MEASURED
+  tolerance: Assumes the trailing burn rate continues; not a forecast.
+  numerator: closing_cash
+  denominator: average net burn, trailing 3 months
+  inclusions: As net burn
+  exclusions: Planned raises (see the scenario engine for runway with financing)
+  currency_treatment: USD as booked. Foreign-currency invoices are converted at the invoice date's rate; currency moves on collection go to realized
+    FX, not this metric.
+  period_logic: Closed months only; a month closes when it is billed on the 1st of the next month.
+  refresh: Daily (morning run); final at month close
+  version: 1
+  effective_from: '2025-01-01'
+  restatement_policy: Closed months are not restated; corrections post in the open month and are disclosed in the board pack
+- name: arr
+  label: Run-rate ARR
+  unit: usd
+  purpose: Growth tracking on an annualized basis.
+  formula: Recognized usage revenue in the month x 12. A run rate, not contracted ARR (see contracted_arr) and not GAAP revenue.
+  grain: month
+  source_model: fct_gl_monthly
+  owner: VP Finance
+  status: MEASURED
+  tolerance: Usage-based ARR moves with seasonality; read with NRR.
+  numerator: Recognized usage revenue in the month x 12
+  denominator: n/a
+  inclusions: Usage revenue (4000)
+  exclusions: Project services, refunds
+  currency_treatment: USD as booked. Foreign-currency invoices are converted at the invoice date's rate; currency moves on collection go to realized
+    FX, not this metric.
+  period_logic: Closed months only; a month closes when it is billed on the 1st of the next month.
+  refresh: Daily (morning run); final at month close
+  version: 2
+  effective_from: '2026-10-19'
+  restatement_policy: Closed months are not restated; corrections post in the open month and are disclosed in the board pack
+- name: headcount
+  label: Headcount
+  unit: count
+  purpose: Hiring plan tracking and per-employee ratios.
+  formula: Employees hired on or before month end and not yet terminated.
+  grain: month
+  source_model: fct_headcount_monthly
+  owner: VP Finance
+  status: MEASURED
+  tolerance: Employees with pay in the month must reconcile to headcount ± hires and leavers.
+  numerator: Employees on payroll at month end, all entities
+  denominator: n/a
+  inclusions: Full-time employees
+  exclusions: Contractors, planned hires
+  currency_treatment: USD as booked. Foreign-currency invoices are converted at the invoice date's rate; currency moves on collection go to realized
+    FX, not this metric.
+  period_logic: Closed months only; a month closes when it is billed on the 1st of the next month.
+  refresh: Daily (morning run); final at month close
+  version: 1
+  effective_from: '2025-01-01'
+  restatement_policy: Closed months are not restated; corrections post in the open month and are disclosed in the board pack
+- name: arr_per_employee
+  label: ARR per employee
+  unit: usd
+  purpose: Efficiency benchmark (FR-4.3 revenue per employee, on an annualized basis).
+  formula: ARR ÷ month-end headcount.
+  grain: month
+  source_model: fct_kpi_monthly
+  owner: VP Finance
+  status: MEASURED
+  tolerance: None.
+  numerator: arr
+  denominator: headcount
+  inclusions: As arr and headcount
+  exclusions: None
+  currency_treatment: USD as booked. Foreign-currency invoices are converted at the invoice date's rate; currency moves on collection go to realized
+    FX, not this metric.
+  period_logic: Closed months only; a month closes when it is billed on the 1st of the next month.
+  refresh: Daily (morning run); final at month close
+  version: 1
+  effective_from: '2025-01-01'
+  restatement_policy: Closed months are not restated; corrections post in the open month and are disclosed in the board pack
+- name: nrr
+  label: Net revenue retention
+  unit: ratio
+  purpose: Expansion health of the existing customer base.
+  formula: Trailing-3-month revenue now from customers who had revenue in the same window 12 months earlier ÷ their revenue then.
+  grain: month
+  source_model: fct_gl_monthly
+  owner: VP Finance
+  status: MEASURED
+  tolerance: Starts once 12 months plus a 3-month window of history exist.
+  numerator: Revenue this month from customers active 12 months ago
+  denominator: Their revenue 12 months ago
+  inclusions: Expansion, contraction, churn
+  exclusions: New customers
+  currency_treatment: USD as booked. Foreign-currency invoices are converted at the invoice date's rate; currency moves on collection go to realized
+    FX, not this metric.
+  period_logic: Closed months only; a month closes when it is billed on the 1st of the next month.
+  refresh: Daily (morning run); final at month close
+  version: 1
+  effective_from: '2025-01-01'
+  restatement_policy: Closed months are not restated; corrections post in the open month and are disclosed in the board pack
+- name: grr
+  label: Gross revenue retention
+  unit: ratio
+  purpose: Churn and contraction, with expansion removed.
+  formula: Same cohort as NRR, but each customer's current revenue is capped at its prior revenue.
+  grain: month
+  source_model: fct_gl_monthly
+  owner: VP Finance
+  status: MEASURED
+  tolerance: Always ≤ NRR and ≤ 1.
+  numerator: Revenue this month from customers active 12 months ago, each capped at its revenue then
+  denominator: Their revenue 12 months ago
+  inclusions: Contraction and churn
+  exclusions: Expansion, new customers
+  currency_treatment: USD as booked. Foreign-currency invoices are converted at the invoice date's rate; currency moves on collection go to realized
+    FX, not this metric.
+  period_logic: Closed months only; a month closes when it is billed on the 1st of the next month.
+  refresh: Daily (morning run); final at month close
+  version: 1
+  effective_from: '2025-01-01'
+  restatement_policy: Closed months are not restated; corrections post in the open month and are disclosed in the board pack
+- name: active_customers
+  label: Active customers
+  unit: count
+  purpose: Size of the paying base; denominator for churn.
+  formula: Customers with usage revenue in the month.
+  grain: month
+  source_model: fct_mrr_bridge_monthly
+  owner: VP Finance
+  status: MEASURED
+  tolerance: Equals opening + new + reactivated − churned (assert_mrr_bridge_balances).
+  numerator: Customers with revenue in the month
+  denominator: n/a
+  inclusions: All segments
+  exclusions: None
+  currency_treatment: USD as booked. Foreign-currency invoices are converted at the invoice date's rate; currency moves on collection go to realized
+    FX, not this metric.
+  period_logic: Closed months only; a month closes when it is billed on the 1st of the next month.
+  refresh: Daily (morning run); final at month close
+  version: 1
+  effective_from: '2025-01-01'
+  restatement_policy: Closed months are not restated; corrections post in the open month and are disclosed in the board pack
+- name: new_customers
+  label: New customers
+  unit: count
+  purpose: Acquisition pace.
+  formula: Customers with revenue this month and none in any earlier month.
+  grain: month
+  source_model: fct_mrr_bridge_monthly
+  owner: VP Finance
+  status: MEASURED
+  tolerance: None.
+  numerator: Customers whose first revenue month is this month
+  denominator: n/a
+  inclusions: All segments
+  exclusions: Reactivations
+  currency_treatment: USD as booked. Foreign-currency invoices are converted at the invoice date's rate; currency moves on collection go to realized
+    FX, not this metric.
+  period_logic: Closed months only; a month closes when it is billed on the 1st of the next month.
+  refresh: Daily (morning run); final at month close
+  version: 1
+  effective_from: '2025-01-01'
+  restatement_policy: Closed months are not restated; corrections post in the open month and are disclosed in the board pack
+- name: churned_customers
+  label: Churned customers
+  unit: count
+  purpose: Retention problems by count; read with the churn reasons.
+  formula: Customers with revenue last month and none this month. Mid-month churn shows the month after.
+  grain: month
+  source_model: fct_mrr_bridge_monthly
+  owner: VP Finance
+  status: MEASURED
+  tolerance: Measured from revenue; a customer that pauses for a month counts as churned, then reactivated.
+  numerator: Customers with revenue last month and none this month
+  denominator: n/a
+  inclusions: All segments
+  exclusions: None
+  currency_treatment: USD as booked. Foreign-currency invoices are converted at the invoice date's rate; currency moves on collection go to realized
+    FX, not this metric.
+  period_logic: Closed months only; a month closes when it is billed on the 1st of the next month.
+  refresh: Daily (morning run); final at month close
+  version: 1
+  effective_from: '2025-01-01'
+  restatement_policy: Closed months are not restated; corrections post in the open month and are disclosed in the board pack
+- name: logo_churn_rate
+  label: Logo churn rate
+  unit: ratio
+  purpose: Share of paying customers lost each month; drives retention priorities.
+  formula: Churned customers ÷ customers with revenue last month.
+  grain: month
+  source_model: fct_mrr_bridge_monthly
+  owner: VP Finance
+  status: MEASURED
+  tolerance: Dominated by self-serve; read alongside gross MRR churn.
+  numerator: churned_customers
+  denominator: active customers last month
+  inclusions: As the formula
+  exclusions: None
+  currency_treatment: USD as booked. Foreign-currency invoices are converted at the invoice date's rate; currency moves on collection go to realized
+    FX, not this metric.
+  period_logic: Closed months only; a month closes when it is billed on the 1st of the next month.
+  refresh: Daily (morning run); final at month close
+  version: 1
+  effective_from: '2025-01-01'
+  restatement_policy: Closed months are not restated; corrections post in the open month and are disclosed in the board pack
+- name: gross_mrr_churn_rate
+  label: Gross MRR churn rate
+  unit: ratio
+  purpose: Revenue lost from existing customers each month, before expansion.
+  formula: −(contraction MRR + churned MRR) ÷ opening MRR.
+  grain: month
+  source_model: fct_mrr_bridge_monthly
+  owner: VP Finance
+  status: MEASURED
+  tolerance: Usage noise makes every month show some contraction; trend matters more than level.
+  numerator: Revenue lost from churned customers
+  denominator: Opening MRR
+  inclusions: As the formula
+  exclusions: Contraction
+  currency_treatment: USD as booked. Foreign-currency invoices are converted at the invoice date's rate; currency moves on collection go to realized
+    FX, not this metric.
+  period_logic: Closed months only; a month closes when it is billed on the 1st of the next month.
+  refresh: Daily (morning run); final at month close
+  version: 1
+  effective_from: '2025-01-01'
+  restatement_policy: Closed months are not restated; corrections post in the open month and are disclosed in the board pack
+- name: dso_days
+  label: DSO
+  unit: days
+  purpose: How fast customers pay; cash planning and collections staffing.
+  formula: Ending AR ÷ invoiced sales in the month × days in the month.
+  grain: month
+  source_model: fct_ar_monthly
+  owner: Controller
+  status: MEASURED
+  tolerance: AR subledger must equal the GL control account (assert_ar_ties_to_gl). Month-end billing makes it swing.
+  numerator: Ending AR
+  denominator: Invoiced sales in the month x days in the month
+  inclusions: Usage and project invoices
+  exclusions: None
+  currency_treatment: USD as booked. Foreign-currency invoices are converted at the invoice date's rate; currency moves on collection go to realized
+    FX, not this metric.
+  period_logic: Closed months only; a month closes when it is billed on the 1st of the next month.
+  refresh: Daily (morning run); final at month close
+  version: 1
+  effective_from: '2025-01-01'
+  restatement_policy: Closed months are not restated; corrections post in the open month and are disclosed in the board pack
+- name: cei
+  label: Collection effectiveness index
+  unit: ratio
+  purpose: Collections team performance, independent of sales volume.
+  formula: (Beginning AR + sales − ending AR) ÷ (beginning AR + sales − ending current AR).
+  grain: month
+  source_model: fct_ar_monthly
+  owner: Controller
+  status: MEASURED
+  tolerance: 1.0 means everything collectible was collected.
+  numerator: Beginning AR + sales - ending AR
+  denominator: Beginning AR + sales - ending current AR
+  inclusions: As the formula
+  exclusions: None
+  currency_treatment: USD as booked. Foreign-currency invoices are converted at the invoice date's rate; currency moves on collection go to realized
+    FX, not this metric.
+  period_logic: Closed months only; a month closes when it is billed on the 1st of the next month.
+  refresh: Daily (morning run); final at month close
+  version: 1
+  effective_from: '2025-01-01'
+  restatement_policy: Closed months are not restated; corrections post in the open month and are disclosed in the board pack
+- name: ar_over_60
+  label: AR over 60 days
+  unit: usd
+  purpose: Bad-debt risk and write-off candidates.
+  formula: Open invoice balances more than 60 days past due at month end.
+  grain: month
+  source_model: fct_ar_aging_snapshot
+  owner: Controller
+  status: MEASURED
+  tolerance: Includes failed-payment self-serve balances that should be reviewed for write-off.
+  numerator: Open invoice balances more than 60 days past due
+  denominator: n/a
+  inclusions: As the formula
+  exclusions: Disputed invoices are included and flagged
+  currency_treatment: USD as booked. Foreign-currency invoices are converted at the invoice date's rate; currency moves on collection go to realized
+    FX, not this metric.
+  period_logic: Closed months only; a month closes when it is billed on the 1st of the next month.
+  refresh: Daily (morning run); final at month close
+  version: 1
+  effective_from: '2025-01-01'
+  restatement_policy: Closed months are not restated; corrections post in the open month and are disclosed in the board pack
+- name: net_new_arr
+  label: Net new run-rate ARR
+  unit: usd
+  purpose: 'Growth quality: where ARR came from and went.'
+  formula: (new + expansion + reactivation + contraction + churn) MRR x 12
+  grain: month
+  source_model: fct_growth_efficiency_monthly
+  owner: VP Finance
+  status: MEASURED
+  tolerance: Recomputed from governed marts; parity-tested on two engines.
+  numerator: (new + expansion + reactivation + contraction + churn) MRR x 12
+  denominator: see formula
+  inclusions: As the formula
+  exclusions: None
+  currency_treatment: USD as booked. Foreign-currency invoices are converted at the invoice date's rate; currency moves on collection go to realized
+    FX, not this metric.
+  period_logic: Closed months only; a month closes when it is billed on the 1st of the next month.
+  refresh: Daily (morning run); final at month close
+  version: 1
+  effective_from: '2026-10-19'
+  restatement_policy: Closed months are not restated; corrections post in the open month and are disclosed in the board pack
+- name: quick_ratio
+  label: SaaS quick ratio
+  unit: ratio
+  purpose: 'Is growth efficient: ARR added per ARR lost.'
+  formula: (new + expansion + reactivation) / |contraction + churn|, trailing 3 months
+  grain: month
+  source_model: fct_growth_efficiency_monthly
+  owner: VP Finance
+  status: MEASURED
+  tolerance: Recomputed from governed marts; parity-tested on two engines.
+  numerator: (new + expansion + reactivation) / |contraction + churn|, trailing 3 months
+  denominator: see formula
+  inclusions: As the formula
+  exclusions: None
+  currency_treatment: USD as booked. Foreign-currency invoices are converted at the invoice date's rate; currency moves on collection go to realized
+    FX, not this metric.
+  period_logic: Closed months only; a month closes when it is billed on the 1st of the next month.
+  refresh: Daily (morning run); final at month close
+  version: 1
+  effective_from: '2026-10-19'
+  restatement_policy: Closed months are not restated; corrections post in the open month and are disclosed in the board pack
+- name: burn_multiple
+  label: Burn multiple
+  unit: ratio
+  purpose: 'Capital efficiency: cash burned per dollar of net new ARR.'
+  formula: net burn / net new ARR, trailing 3 months; null when net new ARR is not positive
+  grain: month
+  source_model: fct_growth_efficiency_monthly
+  owner: CFO
+  status: MEASURED
+  tolerance: Recomputed from governed marts; parity-tested on two engines.
+  numerator: net burn / net new ARR, trailing 3 months; null when net new ARR is not positive
+  denominator: see formula
+  inclusions: As the formula
+  exclusions: None
+  currency_treatment: USD as booked. Foreign-currency invoices are converted at the invoice date's rate; currency moves on collection go to realized
+    FX, not this metric.
+  period_logic: Closed months only; a month closes when it is billed on the 1st of the next month.
+  refresh: Daily (morning run); final at month close
+  version: 1
+  effective_from: '2026-10-19'
+  restatement_policy: Closed months are not restated; corrections post in the open month and are disclosed in the board pack
+- name: rule_of_40
+  label: Rule of 40
+  unit: ratio
+  purpose: Balance of growth and profitability.
+  formula: revenue growth year on year + EBITDA margin
+  grain: month
+  source_model: fct_saas_metrics_monthly
+  owner: CFO
+  status: MEASURED
+  tolerance: Recomputed from governed marts; parity-tested on two engines.
+  numerator: revenue growth year on year + EBITDA margin
+  denominator: see formula
+  inclusions: As the formula
+  exclusions: None
+  currency_treatment: USD as booked. Foreign-currency invoices are converted at the invoice date's rate; currency moves on collection go to realized
+    FX, not this metric.
+  period_logic: Closed months only; a month closes when it is billed on the 1st of the next month.
+  refresh: Daily (morning run); final at month close
+  version: 1
+  effective_from: '2026-10-19'
+  restatement_policy: Closed months are not restated; corrections post in the open month and are disclosed in the board pack
+- name: cac
+  label: CAC (S&M only)
+  unit: usd
+  purpose: Cost to acquire a customer.
+  formula: Sales department opex / new customers, trailing 3 months
+  grain: month
+  source_model: fct_saas_metrics_monthly
+  owner: VP Finance
+  status: MEASURED
+  tolerance: Recomputed from governed marts; parity-tested on two engines.
+  numerator: Sales department opex / new customers, trailing 3 months
+  denominator: see formula
+  inclusions: As the formula
+  exclusions: None
+  currency_treatment: USD as booked. Foreign-currency invoices are converted at the invoice date's rate; currency moves on collection go to realized
+    FX, not this metric.
+  period_logic: Closed months only; a month closes when it is billed on the 1st of the next month.
+  refresh: Daily (morning run); final at month close
+  version: 1
+  effective_from: '2026-10-19'
+  restatement_policy: Closed months are not restated; corrections post in the open month and are disclosed in the board pack
+- name: cac_burdened
+  label: CAC (fully burdened)
+  unit: usd
+  purpose: Unit economics without hidden overhead.
+  formula: (Sales opex + Sales' headcount share of G&A) / new customers, trailing 3 months
+  grain: month
+  source_model: fct_saas_metrics_monthly
+  owner: VP Finance
+  status: MEASURED
+  tolerance: Recomputed from governed marts; parity-tested on two engines.
+  numerator: (Sales opex + Sales' headcount share of G&A) / new customers, trailing 3 months
+  denominator: see formula
+  inclusions: As the formula
+  exclusions: None
+  currency_treatment: USD as booked. Foreign-currency invoices are converted at the invoice date's rate; currency moves on collection go to realized
+    FX, not this metric.
+  period_logic: Closed months only; a month closes when it is billed on the 1st of the next month.
+  refresh: Daily (morning run); final at month close
+  version: 1
+  effective_from: '2026-10-19'
+  restatement_policy: Closed months are not restated; corrections post in the open month and are disclosed in the board pack
+- name: ltv_to_cac_burdened
+  label: 'LTV : CAC (fully burdened)'
+  unit: ratio
+  purpose: Is acquisition creating value.
+  formula: ARPA x gross margin / monthly logo churn, over burdened CAC
+  grain: month
+  source_model: fct_saas_metrics_monthly
+  owner: VP Finance
+  status: MEASURED
+  tolerance: Recomputed from governed marts; parity-tested on two engines.
+  numerator: ARPA x gross margin / monthly logo churn, over burdened CAC
+  denominator: see formula
+  inclusions: As the formula
+  exclusions: None
+  currency_treatment: USD as booked. Foreign-currency invoices are converted at the invoice date's rate; currency moves on collection go to realized
+    FX, not this metric.
+  period_logic: Closed months only; a month closes when it is billed on the 1st of the next month.
+  refresh: Daily (morning run); final at month close
+  version: 1
+  effective_from: '2026-10-19'
+  restatement_policy: Closed months are not restated; corrections post in the open month and are disclosed in the board pack
+- name: cac_payback_burdened_months
+  label: CAC payback (fully burdened)
+  unit: months
+  purpose: How long to earn back acquisition cost.
+  formula: burdened CAC / (ARPA x gross margin)
+  grain: month
+  source_model: fct_saas_metrics_monthly
+  owner: VP Finance
+  status: MEASURED
+  tolerance: Recomputed from governed marts; parity-tested on two engines.
+  numerator: burdened CAC / (ARPA x gross margin)
+  denominator: see formula
+  inclusions: As the formula
+  exclusions: None
+  currency_treatment: USD as booked. Foreign-currency invoices are converted at the invoice date's rate; currency moves on collection go to realized
+    FX, not this metric.
+  period_logic: Closed months only; a month closes when it is billed on the 1st of the next month.
+  refresh: Daily (morning run); final at month close
+  version: 1
+  effective_from: '2026-10-19'
+  restatement_policy: Closed months are not restated; corrections post in the open month and are disclosed in the board pack
+- name: magic_number
+  label: Magic number
+  unit: ratio
+  purpose: 'Sales efficiency: new revenue per S&M dollar.'
+  formula: (revenue this quarter - revenue last quarter) x 4 / S&M spend last quarter
+  grain: month
+  source_model: fct_efficiency_quarterly
+  owner: VP Finance
+  status: MEASURED
+  tolerance: Recomputed from governed marts; parity-tested on two engines.
+  numerator: (revenue this quarter - revenue last quarter) x 4 / S&M spend last quarter
+  denominator: see formula
+  inclusions: As the formula
+  exclusions: None
+  currency_treatment: USD as booked. Foreign-currency invoices are converted at the invoice date's rate; currency moves on collection go to realized
+    FX, not this metric.
+  period_logic: Closed months only; a month closes when it is billed on the 1st of the next month.
+  refresh: Daily (morning run); final at month close
+  version: 1
+  effective_from: '2026-10-19'
+  restatement_policy: Closed months are not restated; corrections post in the open month and are disclosed in the board pack
+- name: contracted_arr
+  label: Contracted ARR
+  unit: usd
+  purpose: Revenue under contract, not run rate.
+  formula: Annualized committed minimums of active contracts
+  grain: month
+  source_model: fct_contract_revenue_monthly
+  owner: VP Finance
+  status: MEASURED
+  tolerance: Recomputed from governed marts; parity-tested on two engines.
+  numerator: Annualized committed minimums of active contracts
+  denominator: see formula
+  inclusions: As the formula
+  exclusions: None
+  currency_treatment: USD as booked. Foreign-currency invoices are converted at the invoice date's rate; currency moves on collection go to realized
+    FX, not this metric.
+  period_logic: Closed months only; a month closes when it is billed on the 1st of the next month.
+  refresh: Daily (morning run); final at month close
+  version: 1
+  effective_from: '2026-10-19'
+  restatement_policy: Closed months are not restated; corrections post in the open month and are disclosed in the board pack
+- name: rpo
+  label: Remaining performance obligations
+  unit: usd
+  purpose: Contracted revenue not yet recognized (ASC 606).
+  formula: Committed minimums remaining on active contracts + prepaid credits not yet used
+  grain: month
+  source_model: fct_contract_revenue_monthly
+  owner: Controller
+  status: MEASURED
+  tolerance: Recomputed from governed marts; parity-tested on two engines.
+  numerator: Committed minimums remaining on active contracts + prepaid credits not yet used
+  denominator: see formula
+  inclusions: As the formula
+  exclusions: None
+  currency_treatment: USD as booked. Foreign-currency invoices are converted at the invoice date's rate; currency moves on collection go to realized
+    FX, not this metric.
+  period_logic: Closed months only; a month closes when it is billed on the 1st of the next month.
+  refresh: Daily (morning run); final at month close
+  version: 1
+  effective_from: '2026-10-19'
+  restatement_policy: Closed months are not restated; corrections post in the open month and are disclosed in the board pack
+- name: crpo
+  label: Current RPO
+  unit: usd
+  purpose: What we will recognize in the next 12 months from contracts.
+  formula: The portion of RPO expected within 12 months
+  grain: month
+  source_model: fct_contract_revenue_monthly
+  owner: Controller
+  status: MEASURED
+  tolerance: Recomputed from governed marts; parity-tested on two engines.
+  numerator: The portion of RPO expected within 12 months
+  denominator: see formula
+  inclusions: As the formula
+  exclusions: None
+  currency_treatment: USD as booked. Foreign-currency invoices are converted at the invoice date's rate; currency moves on collection go to realized
+    FX, not this metric.
+  period_logic: Closed months only; a month closes when it is billed on the 1st of the next month.
+  refresh: Daily (morning run); final at month close
+  version: 1
+  effective_from: '2026-10-19'
+  restatement_policy: Closed months are not restated; corrections post in the open month and are disclosed in the board pack
+changelog:
+- metric: arr
+  version: 2
+  effective_from: '2026-10-19'
+  change: Renamed to Run-rate ARR (usage x 12). Contracted ARR and RPO added as separate metrics.
+  approved_by: VP Finance
+- metric: opex
+  version: 1
+  effective_from: '2026-10-19'
+  change: Depreciation (6600) included; intercompany service fees (6900) eliminated on consolidation.
+  approved_by: Controller

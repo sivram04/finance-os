@@ -28,6 +28,7 @@ from finance_os.generator.events.gcp_billing_export import build_gcp_export
 from finance_os.generator.events.payroll import register_lines, summarize
 from finance_os.generator.events.vendor_bills import build_vendor_bills
 from finance_os.paths import SEEDS
+from finance_os.generator.entities.legal import PARENT, entity_of, intercompany
 from finance_os.simulator import ap_approvals
 
 CENT = Decimal("0.01")
@@ -184,8 +185,9 @@ class Books:
         for n, (account, dr, cr, dims) in enumerate(lines, 1):
             self.day.log("journal_lines", entry_id=entry_id, line_no=n, account_id=account,
                          department_id=dims.get("department_id"), customer_id=dims.get("customer_id"),
-                         vendor_id=dims.get("vendor_id"), debit=str(cents(dr)), credit=str(cents(cr)))
-            if account == "1000":
+                         vendor_id=dims.get("vendor_id"), entity_id=dims.get("entity_id") or PARENT,
+                         debit=str(cents(dr)), credit=str(cents(cr)))
+            if account == "1000" and (dims.get("entity_id") or PARENT) == PARENT:
                 self.w.ops["cash"] = str(Decimal(self.w.ops["cash"]) + cents(dr) - cents(cr))
         return entry_id
 
@@ -209,7 +211,7 @@ class Books:
         run = f"PR-{today:%Y%m}"
         self.day.log("pay_runs", pay_run_id=run, period_start=today.replace(day=1), period_end=today, pay_date=today)
         ytd = self.w.ops.setdefault("ytd_wages", {})
-        by_dept = defaultdict(lambda: defaultdict(Decimal))
+        by_dept = defaultdict(lambda: defaultdict(Decimal))  # (department, entity) -> line type -> amount
         for e in self.w.ops["employees"]:
             gross = cents(Decimal(e["annual_salary"]) / 12)
             key = f"{e['employee_id']}|{today.year}"
@@ -218,26 +220,32 @@ class Books:
             for n, (t, code, amount) in enumerate(reg, 1):
                 self.day.log("pay_register_lines", pay_run_id=run, employee_id=e["employee_id"],
                              department_id=e["department_id"], line_no=n, line_type=t, code=code, amount=str(amount))
-                by_dept[e["department_id"]][t] += amount
+                by_dept[(e["department_id"], entity_of(e["employee_id"], e.get("title") or ""))][t] += amount
             g, er_tax, er_ben, *_ = summarize(reg)
             self.day.log("pay_lines", pay_run_id=run, employee_id=e["employee_id"], department_id=e["department_id"],
                          gross_pay=str(g), employer_tax=str(er_tax), benefits=str(er_ben))
-        owed = self.w.ops.setdefault("payroll_owed", {}).setdefault(run, ["0", "0"])
-        for dept, t in sorted(by_dept.items()):
-            dims = {"department_id": dept}
+        costs = defaultdict(Decimal)
+        for (dept, ent), t in sorted(by_dept.items()):
+            dims = {"department_id": dept, "entity_id": ent}
             taxes, benefits = t["employee_tax"] + t["employer_tax"], t["employee_deduction"] + t["employer_benefit"]
-            self.post(today, "payroll", f"Payroll {run} {dept}",
+            self.post(today, "payroll", f"Payroll {run} {dept}" + ("" if ent == PARENT else f" {ent}"),
                       [("6000", t["earning"], 0, dims), ("6010", t["employer_tax"], 0, dims),
                        ("6020", t["employer_benefit"], 0, dims), ("1000", 0, t["net_pay"], dims),
                        ("2100", 0, taxes, dims), ("2110", 0, benefits, dims)], run)
+            owed = self.w.ops.setdefault("payroll_owed", {}).setdefault(f"{run}|{ent}", ["0", "0"])
             owed[0], owed[1] = str(Decimal(owed[0]) + taxes), str(Decimal(owed[1]) + benefits)
+            costs[(ent, dept)] += t["earning"] + t["employer_tax"] + t["employer_benefit"]
+        intercompany(self.post, today, costs)
 
     def remit_payroll(self):
         """15th: pay last month's withheld and employer payroll taxes and benefits to the agencies and plans."""
-        for run, (taxes, benefits) in sorted(self.w.ops.get("payroll_owed", {}).items()):
+        for key, (taxes, benefits) in sorted(self.w.ops.get("payroll_owed", {}).items()):
+            run, _, ent = key.partition("|")
+            ent = ent or PARENT
             taxes, benefits = Decimal(taxes), Decimal(benefits)
-            self.post(self.day.today, "payroll_remittance", f"Remit payroll taxes and benefits {run}",
-                      [("2100", taxes, 0, {}), ("2110", benefits, 0, {}), ("1000", 0, taxes + benefits, {})], run)
+            dims = {"entity_id": ent}
+            self.post(self.day.today, "payroll_remittance", f"Remit payroll taxes and benefits {run}" + ("" if ent == PARENT else f" {ent}"),
+                      [("2100", taxes, 0, dims), ("2110", benefits, 0, dims), ("1000", 0, taxes + benefits, dims)], run)
         self.w.ops["payroll_owed"] = {}
 
     def opex(self):

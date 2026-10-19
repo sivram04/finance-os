@@ -1,0 +1,3 @@
+metric_name,version,effective_from,change,approved_by
+arr,2,2026-10-19,Renamed to Run-rate ARR (usage x 12). Contracted ARR and RPO added as separate metrics.,VP Finance
+opex,1,2026-10-19,Depreciation (6600) included; intercompany service fees (6900) eliminated on consolidation.,Controller

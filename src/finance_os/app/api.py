@@ -200,6 +200,14 @@ def create_app(state: AppState | None = None, wh: tools.Warehouse | None = None,
         return Response(data, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         headers={"Content-Disposition": f'attachment; filename="echo_labs_financials_{period}.xlsx"'})
 
+    @app.get("/api/dataroom.zip")
+    def dataroom():
+        from fastapi.responses import Response
+        from finance_os.reports import dataroom as dr
+        data, month = dr.build(wh)
+        return Response(data, media_type="application/zip",
+                        headers={"Content-Disposition": f'attachment; filename="echo_labs_data_room_{month}.zip"'})
+
     class AckBody(BaseModel):
         alert_key: str
         who: str | None = None

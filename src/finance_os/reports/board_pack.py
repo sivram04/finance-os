@@ -73,13 +73,14 @@ def outlook(con):
     out = ["## Outlook (driver-based forecast, next 12 months)", "",
            "| Scenario | Revenue | Gross margin | EBITDA | Cash in 12 months | Runway | Cash runs out |",
            "|---|---:|---:|---:|---:|---:|---|"]
-    for sc, rev, gm, ebitda, cash12, runway, out_m in q("""
-            select scenario, revenue_next_12m, gross_margin_pct_next_12m, ebitda_next_12m, cash_in_12m, runway_months,
-                   cash_out_month from marts.fct_scenario_summary
-            order by case scenario when 'upside' then 0 when 'base' then 1 else 2 end"""):
-        rw = "n/a" if runway is None else f"{runway:.1f} mo"
-        out.append(f"| {sc} | {_usd(rev)} | {gm * 100:.1f}% | {_usd(ebitda)} | {_usd(cash12)} | {rw} | "
-                   + (f"{out_m:%b %Y} |" if out_m else "not within 18 months |"))
+    # the same driver engine as the Plan page, the stress test and the assistant: one runway per scenario
+    from finance_os.app import tools
+    db = next(r[2] for r in con.execute("pragma database_list").fetchall() if r[1] == con.execute("select current_database()").fetchone()[0])
+    for sm in sorted(tools.scenario_summaries(tools.Warehouse(Path(db))), key=lambda x: ["upside", "base", "downside"].index(x["scenario"])):
+        rw = "not within 5 years" if sm["runway_months"] is None else f"{sm['runway_months']} mo"
+        out.append(f"| {sm['scenario']} | {_usd(sm['revenue_next_12m'])} | {sm['gross_margin_pct_next_12m'] * 100:.1f}% | "
+                   f"{_usd(sm['ebitda_next_12m'])} | {_usd(sm['cash_in_12m'])} | {rw} | "
+                   + (f"{sm['cash_out_month']} |" if sm["cash_out_month"] else "not within 5 years |"))
     low = q("select min(closing_cash), min(case when is_below_min_cash then week end) from marts.fct_cash_forecast_13w")[0]
     cov = q("""select rule_id, description, min(month), bool_or(not is_forecast) from marts.fct_treasury_covenants
                where status = 'breach' and month >= (select max(month) from marts.fct_kpi_monthly) group by 1, 2 order by 3""")

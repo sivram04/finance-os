@@ -1,0 +1,2 @@
+run,id,persona,passed,checks,unverified,stopped,steps,tools,prompt_tokens,completion_tokens,latency_s,answer
+1,deferred-commissions,Controller,False,tool get_commissions_dashboard=FAIL,,answered,2,get_close_review get_financial_statements,41320,218,9.1,"There is no deferred commissions asset or liability shown on Echo Labs' latest balance sheet for September 2026. The financial statements list all major asset and liability accounts, but none for deferred commissions.  Sources: marts.fct_gl_monthly (financial statements, 2026-09)"

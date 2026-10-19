@@ -17,8 +17,11 @@ TYPE = {"revenue": "CustInvc", "project_invoice": "CustInvc", "collection": "Cus
         "refund": "CustRfnd", "vendor_bill": "VendBill", "subcontractor_bill": "VendBill",
         "vendor_payment": "VendPymt", "subcontractor_payment": "VendPymt", "payroll": "Journal",
         "payment_fee": "Journal", "payroll_remittance": "Check", "opex": "Check", "one_off": "Check",
-        "project_odc": "Check", "funding": "Deposit", "capex": "Check", "depreciation": "Journal"}
-ACCT_TYPE = {"1000": "Bank", "1200": "AcctRec", "1500": "FixedAsset", "1510": "FixedAsset", "2000": "AcctPay", "3000": "Equity"}
+        "project_odc": "Check", "funding": "Deposit", "capex": "Check", "depreciation": "Journal",
+        "intercompany_charge": "Journal", "intercompany_settlement": "Journal"}
+SUBSIDIARY = {"US01": 1, "UK01": 2, "IN01": 3}  # NetSuite OneWorld subsidiary internal ids
+ACCT_TYPE = {"1000": "Bank", "1200": "AcctRec", "1300": "OthCurrAsset", "1500": "FixedAsset", "1510": "FixedAsset", "2000": "AcctPay",
+             "2300": "OthCurrLiab", "3000": "Equity"}
 BY_CLASS = {"asset": "OthCurrAsset", "liability": "OthCurrLiab", "equity": "Equity", "revenue": "Income",
             "cogs": "COGS", "opex": "Expense"}
 LIVE_TXN_OFFSET = 1_000_000   # live entries (LJE000001…) get internal ids above the history's
@@ -48,8 +51,12 @@ def reference_tables(gl_accounts, departments, customers, vendors, first, last):
         periods.append({"id": period_id(d), "periodname": d.strftime("%b %Y"), "startdate": d, "enddate": end,
                         "isquarter": "F", "isyear": "F", "isadjust": "F"})
         d = end + timedelta(days=1)
+    from finance_os.generator.entities.legal import entities as legal_entities
+    subs = [{"id": SUBSIDIARY[e["entity_id"]], "name": e["entity_name"], "externalid": e["entity_id"], "country": e["country"],
+             "currency": e["currency"], "parent": SUBSIDIARY.get(e["parent_entity_id"]) if e["parent_entity_id"] else None}
+            for e in legal_entities().values()]
     return {"netsuite_account": accounts, "netsuite_department": depts, "netsuite_entity": entities,
-            "netsuite_accountingperiod": periods}
+            "netsuite_accountingperiod": periods, "netsuite_subsidiary": subs}
 
 
 def entity_rows(typed_codes, start_id=1000):
@@ -79,7 +86,8 @@ def transactions(entries, lines, account_id, dept_id, entity_id):
             ent = l.get("customer_id") or l.get("vendor_id")
             tlines.append({"transaction": tid, "id": int(l["line_no"]), "account": account_id[str(l["account_id"])],
                            "department": dept_id.get(l.get("department_id")), "entity": entity_id.get(ent),
-                           "subsidiary": 1, "location": 1, "memo": e["memo"], "debit": debit, "credit": credit,
+                           "subsidiary": SUBSIDIARY[l.get("entity_id") or "US01"], "location": 1, "memo": e["memo"],
+                           "debit": debit, "credit": credit,
                            "posting": "T"})
     return txns, tlines
 

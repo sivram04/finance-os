@@ -315,3 +315,28 @@ table.cohort td.num, table.cohort th.num { text-align: right; }
 /* chart cards never scroll sideways; wide tables scroll inside their own .table-wrap */
 .card-body { overflow-x: hidden; }
 .recharts-wrapper:focus, .recharts-surface:focus, .recharts-wrapper *:focus { outline: none; }
+
+/* Scenario levers */
+.lever-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px 20px; }
+.lever { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--muted); }
+.lever span:first-child { display: flex; justify-content: space-between; gap: 8px; }
+.lever b { color: var(--text); font-variant-numeric: tabular-nums; }
+.lever input[type=range] { width: 100%; accent-color: var(--accent); }
+@media (max-width: 1100px) { .lever-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 800px) { .lever-grid { grid-template-columns: 1fr; } }
+
+/* evidence block under assistant answers */
+.evidence { margin-top: 8px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; }
+.evidence-head { display: flex; flex-wrap: wrap; gap: 10px; width: 100%; padding: 6px 10px; background: none; border: 0; cursor: pointer; text-align: left; color: inherit; font: inherit; }
+.evidence-head > span:first-child { font-weight: 600; }
+.evidence-head .good { color: var(--good); }
+.evidence-head .bad { color: var(--bad); }
+.evidence-body { padding: 4px 10px 8px; display: grid; gap: 4px; color: var(--muted, inherit); word-break: break-word; }
+/* driver tree */
+.tree-row { display: grid; grid-template-columns: minmax(180px, 1.4fr) 1fr 1fr 1fr 1.2fr; gap: 8px; align-items: center; padding: 4px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+.tree-row.head { font-weight: 600; color: var(--muted, inherit); font-size: 12px; }
+.tree-bar { height: 8px; border-radius: 4px; }
+/* CEO one-pager */
+.onepager-item { display: grid; grid-template-columns: 28px 1fr auto; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.onepager-item .rank { font-weight: 700; color: var(--muted, inherit); }
+.onepager-item .amt { font-weight: 600; white-space: nowrap; }

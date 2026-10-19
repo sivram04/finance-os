@@ -23,6 +23,12 @@ seeds:
       +column_types: {account_id: "{{ 'string' if target.type == 'bigquery' else 'varchar' }}"}
     metric_benchmarks:
       +column_types: {good: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,4)' }}", median: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,4)' }}"}
+    entities:
+      +column_types: {markup_pct: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}"}
+    entity_assignment:
+      +column_types: {share: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}"}
+    sales_capacity_policy:
+      +column_types: {value: "{{ 'string' if target.type == 'bigquery' else 'varchar' }}"}
     cost_behavior:
       +column_types: {account_id: "{{ 'string' if target.type == 'bigquery' else 'varchar' }}", variable_share: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}"}
     lrp_assumptions:
@@ -41,6 +47,18 @@ seeds:
       +column_types: {tier: integer, min_days_overdue: integer, max_days_overdue: integer}
     margin_floors:
       +column_types: {gross_margin_floor_pct: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(5,4)' }}"}
+    comp_plans:
+      +column_types: {annual_quota_arr: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,4)' }}", base_rate: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,4)' }}", accelerator_rate: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,4)' }}", expansion_multiplier: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,4)' }}", effective_from: date, effective_to: date}
+    credit_splits:
+      +column_types: {split_pct: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,4)' }}"}
+    spiffs:
+      +column_types: {amount_per_credit: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,4)' }}", start_month: date, end_month: date}
+    workforce_policy:
+      +column_types: {attrition_benchmark: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}", recruiting_fee_pct: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}", equipment_per_hire: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,2)' }}", merit_pct: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}"}
+    hire_probability:
+      +column_types: {probability: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}", slip_months: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,2)' }}"}
+    scenario_levers:
+      +column_types: {value: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}"}
     planning_scenarios:
       +column_types: {value: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}"}
     planning_targets:

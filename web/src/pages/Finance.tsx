@@ -58,8 +58,8 @@ export function Plan() {
       <div className="grid cols-4">
         <Kpi label="Revenue, next 12 months" value={cur ? usd(cur.revenue_next_12m) : '…'} note={`${scenario} scenario`} />
         <Kpi label="EBITDA, next 12 months" value={cur ? usd(cur.ebitda_next_12m) : '…'} tone={cur && (cur.ebitda_next_12m as number) < 0 ? 'bad' : undefined} />
-        <Kpi label="Runway" value={cur?.runway_months != null ? `${(cur.runway_months as number).toFixed(1)} mo` : '…'} tone={cur && (cur.runway_months as number) < 12 ? 'bad' : undefined} />
-        <Kpi label="Cash runs out" value={cur ? (cur.cash_out_month ? String(cur.cash_out_month).slice(0, 7) : 'Not in 18 mo') : '…'} tone={cur?.cash_out_month ? 'bad' : 'good'} />
+        <Kpi label="Runway (no new money)" value={cur ? (cur.runway_months != null ? `${String(cur.runway_months)} mo` : '5+ years') : '…'} note="months until projected cash goes below zero" tone={cur && cur.runway_months != null && (cur.runway_months as number) < 18 ? 'bad' : cur ? 'good' : undefined} />
+        <Kpi label="Cash runs out" value={cur ? (cur.cash_out_month ? String(cur.cash_out_month).slice(0, 7) : 'Not within 5 years') : '…'} tone={cur?.cash_out_month ? 'bad' : 'good'} />
       </div>
       <Card title="Cash by scenario"
         sub={withRaise
@@ -86,6 +86,7 @@ export function Plan() {
         {f.data ? <DataTable rows={f.data.rows} columns={[{ key: 'month' }, { key: 'revenue', unit: 'usd' }, { key: 'gross_margin_pct', unit: 'ratio' }, { key: 'payroll', unit: 'usd' }, { key: 'other_opex', unit: 'usd' }, { key: 'ebitda', unit: 'usd' }, { key: 'closing_cash', unit: 'usd' }]} /> : <Loading state={f} />}
         <Source data={f.data} />
       </Card>
+      <ForecastChanges scenario={scenario} />
       <div className="grid cols-2">
         <Card title="Forecast accuracy" sub="Past base forecasts vs what actually closed · positive = forecast too high">
           {acc.data ? <DataTable rows={acc.data.rows} columns={[{ key: 'line' }, { key: 'months_ahead', label: 'Months ahead' }, { key: 'n', label: 'Versions' }, { key: 'avg_error_pct', label: 'Avg error (bias)', unit: 'ratio' }, { key: 'avg_abs_error_pct', label: 'Avg abs error', unit: 'ratio' }]} /> : <Loading state={acc} />}
@@ -94,6 +95,15 @@ export function Plan() {
           {hc.data ? <DataTable rows={hc.data.planned_roles as Row[]} empty="No roles in this scenario." columns={[{ key: 'role_id' }, { key: 'department_id', label: 'Dept' }, { key: 'title' }, { key: 'start_month' }, { key: 'status', chip: true }, { key: 'monthly_loaded_cost', label: 'Loaded / month', unit: 'usd' }]} /> : <Loading state={hc} />}
         </Card>
       </div>
+      {hc.data?.workforce ? (
+        <Card title="Workforce plan, risk-adjusted" sub={`Base plan vs what is likely: hiring odds and slippage by req status, attrition with backfill lag, April merit, recruiting and equipment · next 12 months ${usd((hc.data.workforce_next_12m as Row).expected_people_cost)} vs plan ${usd((hc.data.workforce_next_12m as Row).plan_payroll)}`}>
+          <div className="grid cols-2">
+            <Trend rows={hc.data.workforce as Row[]} x="month" series={[{ key: 'plan_payroll', label: 'Plan payroll', color: '#7a8699', dashed: true }, { key: 'expected_people_cost', label: 'Expected people cost' }]} />
+            <DataTable rows={hc.data.workforce_by_department as Row[]} columns={[{ key: 'department_id', label: 'Dept' }, { key: 'attrition_rate', label: 'Attrition (planning)', unit: 'ratio' }, { key: 'measured_attrition', label: 'Measured', unit: 'ratio' }, { key: 'plan_headcount', label: 'Plan heads (12 mo)', unit: 'count' }, { key: 'expected_headcount', label: 'Expected heads' }, { key: 'variance_to_plan', label: 'Monthly cost vs plan', unit: 'usd' }]} />
+          </div>
+          <Source data={hc.data} />
+        </Card>
+      ) : null}
       <div className="grid cols-2">
         <Card title="Next year's budget" sub="Bottom-up (department asks) vs top-down (board targets)">
           {bb.data ? <DataTable rows={bb.data.rows} columns={[{ key: 'line' }, { key: 'department_id', label: 'Dept' }, { key: 'bottom_up', unit: 'usd' }, { key: 'top_down', unit: 'usd' }, { key: 'gap', unit: 'usd' }, { key: 'gap_pct', unit: 'ratio' }]} /> : <Loading state={bb} />}
@@ -107,7 +117,49 @@ export function Plan() {
   )
 }
 
+// This close's forecast vs the forecast as it stood at the previous close: same engine and levers, so every change
+// comes from the data (the starting-point table says which).
+function ForecastChanges({ scenario }: { scenario: string }) {
+  const c = useTool('get_forecast_changes', { scenario })
+  if (!c.data) return <Card title="Forecast vs last close"><Loading state={c} /></Card>
+  const sm = c.data.summary as { now: Row; prior_close: Row; revenue_next_12m_change: number }
+  const snaps = (c.data.snapshots ?? []) as Row[]
+  return (
+    <Card title="Forecast vs last close" sub={`${scenario} scenario as of ${String(c.data.as_of)} vs as of ${String(c.data.prior_as_of)} · next-12-month revenue ${sm.revenue_next_12m_change >= 0 ? '+' : '−'}${usd(Math.abs(sm.revenue_next_12m_change))}${snaps.length ? ` · ${snaps.length} daily snapshot(s) stored` : ''}`}>
+      <div className="grid cols-2">
+        <Trend rows={c.data.rows as Row[]} x="month" series={[{ key: 'revenue', label: 'This close' }, { key: 'prior_revenue', label: 'Last close', color: '#7a8699', dashed: true }]} />
+        <DataTable rows={c.data.starting_point as Row[]} columns={[{ key: 'driver', label: 'Starting point' }, { key: 'now', render: (r) => fmtDriver(r, 'now') }, { key: 'prior_close', label: 'Last close', render: (r) => fmtDriver(r, 'prior_close') }, { key: 'change', render: (r) => fmtDriver(r, 'change') }]} />
+      </div>
+      <Source data={c.data} />
+    </Card>
+  )
+}
+
+function fmtDriver(r: Row, k: string) {
+  const v = Number(r[k])
+  return ['cogs_pct', 'existing_net_monthly'].includes(String(r.driver)) ? `${(v * 100).toFixed(2)}%` : usd(v)
+}
+
 // ---- Cash: 13-week forecast, accounts, covenants, payment runs, working capital ------------------------
+
+
+function SweepCard() {
+  const sw = useTool('get_treasury_sweep')
+  const d = sw.data
+  return (
+    <Card title="Cash sweeps (simulated)" sub={d ? `Operating account held at ${String((d.policy as Row).target_weeks)} weeks of outflows (never below ${String((d.policy as Row).floor_weeks)}); excess to the money market; surplus into T-bills · interest over 13 weeks ${usd(d.interest_13w)} (${usd(d.interest_annualized)} a year)` : ''}>
+      {d ? (
+        <div className="grid cols-2">
+          <Trend rows={d.rows as Row[]} x="week_start" series={[{ key: 'operating', label: 'Operating', color: '#7a8699' }, { key: 'money_market', label: 'Money market', color: '#3b6fd8' }, { key: 'treasury_bills', label: 'T-bills', color: '#2f9e6b' }]} />
+          <div>
+            <DataTable rows={(d.by_entity ?? []) as Row[]} columns={[{ key: 'entity_name', label: 'Entity (bank)' }, { key: 'currency' }, { key: 'cash_local', label: 'Cash, local', render: (r) => `${Number(r.cash_local).toLocaleString('en-US', { maximumFractionDigits: 0 })} ${String(r.currency)}` }, { key: 'cash_usd', label: 'Cash, USD', unit: 'usd' }]} />
+            <DataTable rows={(d.rows as Row[]).slice(0, 6)} columns={[{ key: 'week_start', label: 'Week' }, { key: 'net_flow', unit: 'usd' }, { key: 'sweep_to_mmf', label: 'Sweep (+ out / − in)', unit: 'usd' }, { key: 'to_tbills', label: 'To T-bills', unit: 'usd' }, { key: 'operating_weeks', label: 'Operating (weeks)' }]} />
+          </div>
+        </div>
+      ) : <Loading state={sw} />}
+    </Card>
+  )
+}
 
 export function Cash() {
   const c = useTool('get_cash_forecast')
@@ -154,7 +206,8 @@ export function Cash() {
           {c.data ? <DataTable rows={breaches} empty="All covenants pass." onRow={(r) => ask(`Explain covenant ${r.rule_id} and what it would take to stay compliant.`)}
             columns={[{ key: 'rule_id' }, { key: 'description' }, { key: 'first_breach_month' }, { key: 'breached_in_actuals', label: 'Already breached', flag: 'bad' }]} /> : <Loading state={c} />}
         </Card>
-        <Card title="Cash by account">
+        <SweepCard />
+      <Card title="Cash by account">
           {c.data ? <DataTable rows={c.data.cash_by_account as Row[]} columns={[{ key: 'bank' }, { key: 'account_type', chip: true }, { key: 'balance', unit: 'usd' }, { key: 'annual_yield', unit: 'ratio' }, { key: 'monthly_interest', unit: 'usd' }, { key: 'weeks_of_outflows', label: 'Weeks covered' }]} /> : <Loading state={c} />}
         </Card>
       </div>
@@ -312,6 +365,9 @@ function CapitalBody() {
     <div className="page">
       <Head title="Cap table & fundraising" sub="Who owns what (fully diluted, the basis investors price on), and what each round does to ownership and runway · click to filter"
         ask="Walk me through our ownership and each fundraise scenario: price, dilution, the option pool shuffle and runway." />
+      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <a className="btn primary" href="/api/dataroom.zip">Download diligence data room (.zip)</a>
+      </div>
       <KpiRow items={[
         { label: 'Fully diluted shares', value: fd.toLocaleString(), note: `${rows.length} holdings shown` },
         { label: 'Founders', value: `${(share((r) => String(r.holder).startsWith('Founder')) * 100).toFixed(1)}%`, note: 'fully diluted' },
@@ -492,15 +548,46 @@ export function DealDesk() {
                 { key: 'monthly_revenue', unit: 'usd' }, { key: 'gross_margin_pct', unit: 'ratio' }, { key: 'floor_pct', label: 'Floor', unit: 'ratio' }]} />
             </Card>
           </div>
+          {ev.risk ? <DealRisk risk={ev.risk as Row} /> : null}
         </>
       ) : null}
       {ev?.error ? <div className="error">{String(ev.error)}</div> : null}
-      <Card title="Deals" sub="Approval status comes from the approval card (audited)">
+      <Card title="Deals" sub={`Approval status comes from the approval card (audited)${cycleNote(deals)}`}>
         <DataTable rows={deals} empty="No deals yet." columns={[{ key: 'id' }, { key: 'customer' }, { key: 'route', chip: true },
           { key: 'approval_status', label: 'Status', chip: true }, { key: 'created_at', render: (r) => String(r.created_at).slice(0, 10) },
+          { key: 'cycle_minutes', label: 'Quote cycle', render: (r) => (r.decided_at || r.route === 'auto_approve' ? fmtMinutes(Number(r.cycle_minutes ?? 0)) : 'pending') },
           { key: 'quote', label: '', render: (r) => <a className="btn small" href={`/api/deals/${r.id}/quote.pdf`} target="_blank" rel="noreferrer">Quote PDF</a> }]} />
       </Card>
     </div>
+  )
+}
+
+function fmtMinutes(m: number) {
+  return m < 60 ? `${m} min` : m < 60 * 24 ? `${(m / 60).toFixed(1)} h` : `${(m / 1440).toFixed(1)} days`
+}
+
+function cycleNote(deals: Row[]) {
+  const done = deals.filter((d) => d.decided_at || d.route === 'auto_approve').map((d) => Number(d.cycle_minutes ?? 0)).sort((a, b) => a - b)
+  if (!done.length) return ''
+  return ` · median quote cycle ${fmtMinutes(done[Math.floor((done.length - 1) / 2)])} over ${done.length} decided deal(s)`
+}
+
+// The deal desk's risk view: cost-to-serve range, credit exposure, commission impact and where the discount sits.
+function DealRisk({ risk }: { risk: Row }) {
+  const cr = risk.credit as Row, cm = risk.commission as Row, dd = risk.discounts as Row
+  const pct = (v: unknown) => (v == null ? '—' : `${(Number(v) * 100).toFixed(1)}%`)
+  return (
+    <>
+      <div className="grid cols-4">
+        <Kpi label="Margin if cost hits P90" value={pct(risk.gross_margin_pct_at_p90_cost)} note="worst month in 10 for cost per hour" />
+        <Kpi label="Peak credit exposure" value={usd(cr.peak_exposure)} note={`${String(cr.terms_days)}-day terms + ${usd(cr.open_ar)} open AR · limit ${usd(cr.credit_limit)}`} tone={cr.within_limit ? 'good' : 'bad'} />
+        <Kpi label="First-year commission" value={usd(cm.first_year_commission)} note={`${pct(cm.rate)} on ${String(cm.plan_id)} · ${pct(cm.share_of_first_year_gross_margin)} of year-1 gross margin · payback ${String(cm.payback_months ?? '—')} mo`} />
+        <Kpi label="Discount vs history" value={dd.this_deal_percentile == null ? '—' : `${Math.round(Number(dd.this_deal_percentile) * 100)}th pct`} note={`customers got: median ${pct(dd.median)}, P75 ${pct(dd.p75)}, max ${pct(dd.max)}`} />
+      </div>
+      <Card title="Cost to serve by product" sub="Cost per audio hour by month over the last 12 closed months: P10 / P50 / P90">
+        <DataTable rows={risk.cost_to_serve as Row[]} columns={[{ key: 'product_id' }, { key: 'p10', label: 'P10 $/hr', render: (r) => Number(r.p10).toFixed(4) }, { key: 'p50', label: 'P50 $/hr', render: (r) => Number(r.p50).toFixed(4) }, { key: 'p90', label: 'P90 $/hr', render: (r) => Number(r.p90).toFixed(4) }, { key: 'months', unit: 'count' }]} />
+      </Card>
+    </>
   )
 }
 
@@ -544,12 +631,22 @@ function CommissionsBody() {
       </div>
       <Card title="Statements" sub="Latest month · filtered with the page">
         <DataTable title="commission_statements" rows={lmAll} columns={[{ key: 'rep_id' }, { key: 'rep_name' }, { key: 'segment_focus', chip: true }, { key: 'new_arr', unit: 'usd' }, { key: 'expansion_arr', unit: 'usd' }, { key: 'clawback_arr', unit: 'usd' },
-          { key: 'ytd_credited_arr', unit: 'usd' }, { key: 'annual_quota_arr', unit: 'usd' }, { key: 'quota_attainment_pct', label: 'Attainment', unit: 'ratio' }, { key: 'commission_total', unit: 'usd' }]} />
+          { key: 'ytd_credited_arr', unit: 'usd' }, { key: 'annual_quota_arr', unit: 'usd' }, { key: 'quota_attainment_pct', label: 'Attainment', unit: 'ratio' }, { key: 'plan_id', label: 'Plan' }, { key: 'spiff', label: 'SPIFF', unit: 'usd' }, { key: 'commission_total', unit: 'usd' }]} />
         <Source data={c.data} />
       </Card>
-      <Card title="Credits this year" sub="Which customers earned the credit">
-        <DataTable rows={(c.data.credits ?? []) as Row[]} columns={[{ key: 'rep_id' }, { key: 'customer_id' }, { key: 'credit_type', chip: true }, { key: 'billed_revenue', unit: 'usd' }, { key: 'credited_arr', unit: 'usd' }]} />
+      <Card title="Credits this year" sub="Which customers earned the credit · split accounts show each rep's share">
+        <DataTable rows={(c.data.credits ?? []) as Row[]} columns={[{ key: 'rep_id' }, { key: 'customer_id' }, { key: 'credit_type', chip: true }, { key: 'split_pct', label: 'Split', unit: 'ratio' }, { key: 'billed_revenue', unit: 'usd' }, { key: 'credited_arr', unit: 'usd' }, { key: 'comp_credit', label: 'Comp credit', unit: 'usd' }]} />
       </Card>
+      <div className="grid cols-2">
+        <Card title="Deferred commissions (ASC 340-40)" sub={`Capitalized when earned, amortized over 48 months (new logos, SPIFFs) or 36 (expansion) · balance ${usd(Number((c.data.deferred_summary as Row | undefined)?.balance ?? 0))}, current portion ${usd(Number((c.data.deferred_summary as Row | undefined)?.current_portion ?? 0))}`}>
+          <Trend rows={(c.data.deferred ?? []) as Row[]} x="month" series={[{ key: 'deferred_commission_balance', label: 'Deferred balance' }, { key: 'amortization', label: 'Amortization (expense)', color: '#c98a1b' }]} />
+        </Card>
+        <Card title="Comp plans, splits and SPIFFs" sub="Plan versions by year; split accounts; SPIFF programs">
+          <DataTable rows={(c.data.plans ?? []) as Row[]} columns={[{ key: 'plan_id' }, { key: 'rep_id' }, { key: 'effective_from' }, { key: 'annual_quota_arr', label: 'Quota', unit: 'usd' }, { key: 'base_rate', unit: 'ratio' }, { key: 'accelerator_rate', unit: 'ratio' }, { key: 'expansion_multiplier', label: 'Expansion credit', unit: 'ratio' }]} />
+          <DataTable rows={(c.data.splits ?? []) as Row[]} columns={[{ key: 'customer_id' }, { key: 'rep_id' }, { key: 'split_pct', unit: 'ratio' }, { key: 'reason' }]} />
+          <DataTable rows={(c.data.spiffs ?? []) as Row[]} columns={[{ key: 'spiff_id' }, { key: 'name' }, { key: 'start_month' }, { key: 'end_month' }, { key: 'amount_per_credit', label: 'Per credit', unit: 'usd' }, { key: 'paid', unit: 'usd' }]} />
+        </Card>
+      </div>
     </div>
   )
 }
@@ -617,7 +714,7 @@ export function Financials() {
     : String(selVal)
   return (
     <div className="page">
-      <Head title="Financials" sub="Income statement, balance sheet and cash flow from the general ledger, closed months only. Download the full workbook for Excel."
+      <Head title="Financials" sub="Consolidated income statement, balance sheet and cash flow from the general ledger (intercompany eliminated), closed months only. Balances are as booked in USD; the translated consolidation (ASC 830) is on Close & control → Entities."
         ask="Walk me through the financial statements: what changed this quarter in revenue, margins, cash and working capital?" />
       <Card
         title={<div className="segmented">{SHEETS.map((s) => <button key={s} className={sheet === s ? 'on' : ''} onClick={() => { setSheet(s); setSel(null) }}>{s}</button>)}</div>}
@@ -625,6 +722,7 @@ export function Financials() {
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <div className="segmented">{(['month', 'quarter', 'year'] as const).map((p) => <button key={p} className={period === p ? 'on' : ''} onClick={() => { setPeriod(p); setSel(null) }}>{p === 'month' ? 'Monthly' : p === 'quarter' ? 'Quarterly' : 'Annual'}</button>)}</div>
             <a className="btn small primary" href={`/api/financials.xlsx?period=${period}&periods=${count}`}>Download Excel</a>
+            <a className="btn small" href="/api/dataroom.zip" title="Workbook, board pack and every table behind them as CSV, for investors, lenders or auditors">Data room</a>
           </div>}>
         <div className="formula-bar">
           <span className="ref">{sel ? `${colName(sel.c)}${sel.r + 1}` : ''}</span>
@@ -710,6 +808,40 @@ function BusinessCase() {
   )
 }
 
+
+function SegmentPnl() {
+  const [dim, setDim] = useState<'region' | 'channel'>('region')
+  const sp = useTool('get_segment_pnl', { dimension: dim })
+  const rows = (sp.data?.rows ?? []) as Row[]
+  const trend = (sp.data?.trend ?? []) as Row[]
+  const segs = [...new Set(trend.map((t) => String(t.segment)))].filter((x) => !x.startsWith('Unallocated'))
+  const byMonth = Object.values(trend.reduce<Record<string, Row>>((a, t) => { const k = String(t.month); a[k] ??= { month: k }; a[k][String(t.segment)] = t.operating_income; return a }, {}))
+  return (
+    <Card title="Segment P&L" sub={sp.data ? `${String(sp.data.month)} · cost to serve = payment fees, support and success; other opex allocated by revenue share · ties to the ledger` : ''}
+      right={<div className="segmented"><button className={dim === 'region' ? 'on' : ''} onClick={() => setDim('region')}>By region</button><button className={dim === 'channel' ? 'on' : ''} onClick={() => setDim('channel')}>By channel</button></div>}>
+      {sp.data ? (
+        <div className="grid cols-2">
+          <DataTable title={`segment_pnl_${dim}`} rows={rows} columns={[{ key: 'segment' }, { key: 'revenue', unit: 'usd' }, { key: 'gross_margin_pct', label: 'GM %', unit: 'ratio' },
+            { key: 'cost_to_serve', unit: 'usd' }, { key: 'contribution_margin', unit: 'usd' }, { key: 'allocated_opex', unit: 'usd' }, { key: 'operating_income', unit: 'usd' }]} />
+          <div style={{ height: 240 }}>
+            <ResponsiveContainer>
+              <LineChart data={byMonth} margin={{ left: 8, right: 8, top: 8 }}>
+                <CartesianGrid stroke="var(--border)" vertical={false} />
+                <XAxis dataKey="month" {...AXIS} />
+                <YAxis tickFormatter={usd} width={70} {...AXIS} />
+                <Tooltip formatter={usd} {...TIP} />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <ReferenceLine y={0} stroke="var(--faint)" />
+                {segs.map((sg, i) => <Line key={sg} dataKey={sg} name={`${sg} operating income`} stroke={['#3b6fd8', '#2f9e6b', '#c98a1b', '#8a63d2'][i % 4]} strokeWidth={2} dot={false} isAnimationActive={false} />)}
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      ) : <Loading state={sp} />}
+    </Card>
+  )
+}
+
 export function Analysis() {
   const saas = useTool('get_saas_metrics', { months: 12 })
   const cost = useTool('get_cost_behavior', { months: 12 })
@@ -725,14 +857,14 @@ export function Analysis() {
       <Head title="Analysis" sub="Unit economics, cost structure and breakeven, revenue bridge, runway sensitivity, the five-year plan and business cases."
         ask="Give me a CFO read of our unit economics: CAC, LTV:CAC, payback, Rule of 40, breakeven and where the leverage is." />
       <div className="grid cols-4">
-        <Kpi label="LTV : CAC" value={last?.ltv_to_cac != null ? `${(last.ltv_to_cac as number).toFixed(1)}x` : '—'} note={last ? `LTV ${usd(last.ltv)} · CAC ${usd(last.cac)}` : ''} tone={last && (last.ltv_to_cac as number) >= 3 ? 'good' : 'bad'} />
-        <Kpi label="CAC payback" value={last?.cac_payback_months != null ? `${(last.cac_payback_months as number).toFixed(1)} mo` : '—'} tone={last && (last.cac_payback_months as number) <= 18 ? 'good' : 'bad'} />
+        <Kpi label="LTV : CAC (fully burdened)" value={last?.ltv_to_cac_burdened != null ? `${(last.ltv_to_cac_burdened as number).toFixed(1)}x` : '—'} note={last ? `S&M only ${(last.ltv_to_cac as number).toFixed(1)}x · burdened CAC ${usd(last.cac_burdened)}` : ''} tone={last && (last.ltv_to_cac_burdened as number) >= 3 ? 'good' : 'bad'} />
+        <Kpi label="CAC payback (fully burdened)" value={last?.cac_payback_burdened_months != null ? `${(last.cac_payback_burdened_months as number).toFixed(1)} mo` : '—'} note={last ? `S&M only ${(last.cac_payback_months as number).toFixed(1)} mo` : ''} tone={last && (last.cac_payback_burdened_months as number) <= 18 ? 'good' : 'bad'} />
         <Kpi label="Rule of 40" value={last ? `${((last.rule_of_40 as number) * 100).toFixed(0)}` : '—'} note={last ? `growth ${pct(last.revenue_growth_yoy)} + EBITDA margin ${pct(last.ebitda_margin)}` : ''} tone={last && (last.rule_of_40 as number) >= 0.4 ? 'good' : 'bad'} />
         <Kpi label="Breakeven revenue / month" value={lc ? usd(lc.breakeven_revenue) : '—'} note={lc ? `revenue ${usd(lc.revenue)} · margin of safety ${pct(lc.margin_of_safety)}` : ''} />
       </div>
 
-      <Card title="SaaS unit economics" sub="CAC on trailing 3 months; LTV = ARPA × gross margin / monthly churn">
-        {saas.data ? <DataTable title="saas_metrics" rows={[...saas.data.rows].reverse()} columns={[{ key: 'month' }, { key: 'arr', unit: 'usd' }, { key: 'new_customers', label: 'New' }, { key: 'cac', label: 'CAC', unit: 'usd' }, { key: 'arpa', label: 'ARPA', unit: 'usd' }, { key: 'ltv', label: 'LTV', unit: 'usd' }, { key: 'ltv_to_cac', label: 'LTV:CAC' }, { key: 'cac_payback_months', label: 'Payback (mo)' }, { key: 'revenue_growth_yoy', label: 'Growth YoY', unit: 'ratio' }, { key: 'rule_of_40', label: 'Rule of 40', unit: 'ratio' }, { key: 'free_cash_flow', label: 'Free cash flow', unit: 'usd' }]} /> : <Loading state={saas} />}
+      <Card title="SaaS unit economics" sub="CAC on trailing 3 months; burdened CAC adds Sales' share of G&A overhead (rent, software, legal, finance) by headcount; LTV = ARPA × gross margin / monthly churn">
+        {saas.data ? <DataTable title="saas_metrics" rows={[...saas.data.rows].reverse()} columns={[{ key: 'month' }, { key: 'arr', unit: 'usd' }, { key: 'new_customers', label: 'New' }, { key: 'cac', label: 'CAC', unit: 'usd' }, { key: 'cac_burdened', label: 'CAC burdened', unit: 'usd' }, { key: 'arpa', label: 'ARPA', unit: 'usd' }, { key: 'ltv', label: 'LTV', unit: 'usd' }, { key: 'ltv_to_cac', label: 'LTV:CAC' }, { key: 'ltv_to_cac_burdened', label: 'LTV:CAC burdened' }, { key: 'cac_payback_burdened_months', label: 'Payback burdened (mo)' }, { key: 'revenue_growth_yoy', label: 'Growth YoY', unit: 'ratio' }, { key: 'rule_of_40', label: 'Rule of 40', unit: 'ratio' }, { key: 'free_cash_flow', label: 'Free cash flow', unit: 'usd' }]} /> : <Loading state={saas} />}
       </Card>
 
       <div className="grid cols-2">
@@ -778,9 +910,9 @@ export function Analysis() {
         </Card>
       </div>
 
-      <Card title="Runway sensitivity" sub={sens.data ? `Months until cash runs out with no new money. Rows: monthly revenue growth (today ${pct((sens.data.base as Row).revenue_growth_monthly)}). Columns: change in opex.` : ''}>
-        {sens.data ? <DataTable rows={sens.data.rows} columns={Object.keys(sens.data.rows[0] ?? {}).map((k) => k === 'revenue_growth_monthly'
-          ? { key: k, label: 'Revenue growth / month', unit: 'ratio' as const }
+      <Card title="Runway sensitivity" sub="Months until cash runs out with no new money, from the same driver engine as the forecast. Rows: change in net revenue retention (annual points). Columns: change in non-payroll opex.">
+        {sens.data ? <DataTable rows={sens.data.rows} columns={Object.keys(sens.data.rows[0] ?? {}).map((k) => k === 'nrr_change'
+          ? { key: k, label: 'NRR change', render: (r: Row) => `${(r[k] as number) > 0 ? '+' : ''}${Math.round((r[k] as number) * 100)} pts` }
           : { key: k, label: k, render: (r: Row) => (typeof r[k] === 'number' ? `${r[k]} months` : `${String(r[k])} months`) })} /> : <Loading state={sens} />}
       </Card>
 
@@ -806,7 +938,158 @@ export function Analysis() {
         ) : <Loading state={lrp} />}
       </Card>
 
+      <SegmentPnl />
       <BusinessCase />
+    </div>
+  )
+}
+
+
+// ---- Scenarios: one-click stress tests with your own levers, against the baseline ---------------------------
+
+const LEVERS: { key: string; label: string; min: number; max: number; step: number; fmt: (v: number) => string; base: number }[] = [
+  { key: 'nrr_pts', label: 'Net revenue retention (annual, pts)', min: -0.15, max: 0.15, step: 0.01, fmt: (v) => `${v >= 0 ? '+' : ''}${Math.round(v * 100)} pts`, base: 0 },
+  { key: 'win_rate_pct', label: 'Win rate', min: -0.5, max: 0.5, step: 0.05, fmt: (v) => `${v >= 0 ? '+' : ''}${Math.round(v * 100)}%`, base: 0 },
+  { key: 'cycle_days', label: 'Sales cycle', min: -30, max: 90, step: 15, fmt: (v) => `${v >= 0 ? '+' : ''}${v} days`, base: 0 },
+  { key: 'price_pct', label: 'Price', min: -0.2, max: 0.2, step: 0.01, fmt: (v) => `${v >= 0 ? '+' : ''}${Math.round(v * 100)}%`, base: 0 },
+  { key: 'cogs_pts', label: 'Cost to serve (pts of revenue)', min: -0.05, max: 0.1, step: 0.01, fmt: (v) => `${v >= 0 ? '+' : ''}${Math.round(v * 100)} pts`, base: 0 },
+  { key: 'hiring_pct', label: 'Hiring plan delivered', min: 0, max: 1.5, step: 0.1, fmt: (v) => `${Math.round(v * 100)}%`, base: 1 },
+  { key: 'opex_pct', label: 'Other opex', min: -0.3, max: 0.3, step: 0.05, fmt: (v) => `${v >= 0 ? '+' : ''}${Math.round(v * 100)}%`, base: 0 },
+]
+
+export function Scenarios() {
+  const [levers, setLevers] = useState<Record<string, number>>(() => Object.fromEntries(LEVERS.map((l) => [l.key, l.base])))
+  const [raise, setRaise] = useState({ amount: 0, month: '2027-06' })
+  const [preset, setPreset] = useState<string | null>(null)
+  const args = useMemo(() => ({ ...levers, ...(raise.amount ? { raise_amount: raise.amount, raise_month: raise.month } : {}) }), [levers, raise])
+  const r = useTool('run_stress_test', args)
+  const presets = (r.data?.presets ?? {}) as Record<string, Record<string, number | string>>
+  const apply = (key: string) => {
+    const p = presets[key]
+    setPreset(key)
+    setLevers(Object.fromEntries(LEVERS.map((l) => [l.key, p[l.key] != null ? Number(p[l.key]) : l.base])))
+  }
+  const reset = () => { setPreset(null); setLevers(Object.fromEntries(LEVERS.map((l) => [l.key, l.base]))); setRaise({ amount: 0, month: '2027-06' }) }
+  const b = (r.data?.baseline ?? {}) as Row, s = (r.data?.scenario ?? {}) as Row
+  const rows = (r.data?.rows ?? []) as Row[]
+  const delta = (k: string) => Number(s[k] ?? 0) - Number(b[k] ?? 0)
+  const signed = (v: number) => `${v >= 0 ? '+' : '−'}${usd(Math.abs(v))}`
+  const runway = (x: Row) => (x.cash_out_month ? `runs out ${String(x.cash_out_month)}` : 'no cash-out in 24 months')
+  return (
+    <div className="page">
+      <Head title="Scenarios" sub="Stress-test the plan: move the levers or pick a preset; revenue, EBITDA, ARR and cash update against the baseline for 24 months"
+        ask={`Walk me through this scenario (${JSON.stringify(args)}): what breaks first, how bad does cash get, and what would you do about it?`} />
+      <Card title="Levers" right={<button className="btn small" onClick={reset}>Reset to baseline</button>}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+          {Object.entries(presets).map(([k, p]) => <button key={k} className={`btn ${preset === k ? 'primary' : ''}`} onClick={() => apply(k)}>{String(p.label)}</button>)}
+        </div>
+        <div className="lever-grid">
+          {LEVERS.map((l) => (
+            <label key={l.key} className="lever">
+              <span>{l.label}<b>{l.fmt(levers[l.key])}</b></span>
+              <input type="range" min={l.min} max={l.max} step={l.step} value={levers[l.key]}
+                onChange={(e) => { setPreset(null); setLevers({ ...levers, [l.key]: Number(e.target.value) }) }} />
+            </label>
+          ))}
+          <label className="lever">
+            <span>Funding round<b>{raise.amount ? usd(raise.amount) : 'none'}</b></span>
+            <span style={{ display: 'flex', gap: 6 }}>
+              <input type="number" className="table-search" style={{ width: 120 }} step={1000000} value={raise.amount} onChange={(e) => setRaise({ ...raise, amount: Number(e.target.value) })} />
+              <input type="month" className="table-search" value={raise.month} onChange={(e) => setRaise({ ...raise, month: e.target.value })} />
+            </span>
+          </label>
+        </div>
+      </Card>
+      {r.data ? (
+        <>
+          <KpiRow items={[
+            { label: 'Revenue, next 12 months', value: usd(s.revenue_12m), note: `${signed(delta('revenue_12m'))} vs baseline`, tone: delta('revenue_12m') < -1 ? 'bad' : delta('revenue_12m') > 1 ? 'good' : null },
+            { label: 'EBITDA, next 12 months', value: usd(s.ebitda_12m), note: `${signed(delta('ebitda_12m'))} vs baseline`, tone: Number(s.ebitda_12m) < 0 ? 'bad' : 'good' },
+            { label: 'Run-rate ARR in 12 months', value: usd(s.arr_12m), note: `${signed(delta('arr_12m'))} vs baseline`, tone: delta('arr_12m') < -1 ? 'bad' : delta('arr_12m') > 1 ? 'good' : null },
+            { label: 'Lowest cash', value: usd(s.min_cash), note: runway(s), tone: s.cash_out_month ? 'bad' : Number(s.min_cash) < 3000000 ? 'bad' : 'good' },
+            { label: 'Cash in 24 months', value: usd(s.cash_end), note: `${signed(delta('cash_end'))} vs baseline` },
+            { label: 'First EBITDA-positive month', value: String(s.first_ebitda_positive ?? 'not in 24 months'), note: `baseline ${String(b.first_ebitda_positive ?? 'none')}`, tone: s.first_ebitda_positive ? 'good' : 'bad' },
+          ]} />
+          <div className="grid cols-3">
+            <Card title="Cash" sub="Scenario vs baseline · dashed line: $3M minimum (policy)">
+              <Trend rows={rows} x="month" series={[{ key: 'scenario_cash', label: 'Scenario', color: '#3b6fd8' }, { key: 'base_cash', label: 'Baseline', color: '#7a8699', dashed: true }]} refs={[{ y: 3000000, label: '$3M minimum' }]} />
+            </Card>
+            <Card title="Run-rate ARR" sub="Existing customers at the retention rate, plus pipeline and run-rate bookings">
+              <Trend rows={rows} x="month" series={[{ key: 'scenario_arr', label: 'Scenario', color: '#2f9e6b' }, { key: 'base_arr', label: 'Baseline', color: '#7a8699', dashed: true }]} />
+            </Card>
+            <Card title="EBITDA by month" sub="Scenario vs baseline">
+              <Trend rows={rows} x="month" series={[{ key: 'scenario_ebitda', label: 'Scenario', color: '#c98a1b' }, { key: 'base_ebitda', label: 'Baseline', color: '#7a8699', dashed: true }]} refs={[{ y: 0, label: 'breakeven' }]} />
+            </Card>
+          </div>
+          <Card title="Month by month" sub={String(r.data.note ?? '')}>
+            <DataTable title="scenario" rows={rows} columns={[{ key: 'month' }, { key: 'scenario_revenue', label: 'Revenue', unit: 'usd' }, { key: 'base_revenue', label: 'Baseline revenue', unit: 'usd' },
+              { key: 'scenario_new_arr', label: 'New ARR booked', unit: 'usd' }, { key: 'scenario_ebitda', label: 'EBITDA', unit: 'usd' }, { key: 'scenario_cash', label: 'Cash', unit: 'usd' }, { key: 'base_cash', label: 'Baseline cash', unit: 'usd' }]} />
+            <Source data={r.data} />
+          </Card>
+        </>
+      ) : <Loading state={r} />}
+    </div>
+  )
+}
+
+
+// ---- Entities: the consolidation worksheet ------------------------------------------------------------------------
+
+export function Entities() {
+  return <Dash><EntitiesBody /></Dash>
+}
+
+function EntitiesBody() {
+  const c = useTool('get_consolidation')
+  const d = c.data
+  const ents = (d?.entities ?? []) as Row[]
+  const cols = (d?.columns ?? []) as string[]
+  const name = (id: string) => (id === 'ELIM' ? 'Eliminations' : String(ents.find((e) => e.entity_id === id)?.entity_name ?? id))
+  const pl = (d?.rows ?? []) as Row[]
+  const bs = (d?.balance_sheet ?? []) as Row[]
+  const trend = (d?.trend ?? []) as Row[]
+  const cta = (d?.cta ?? []) as Row[]
+  const ic = pl.find((r) => r.account_id === '4900')
+  const total = pl.find((r) => r.account_type === 'total')
+  const sumCol = (rows: Row[], col: string, types: string[]) => rows.filter((r) => types.includes(String(r.account_type))).reduce((a, r) => a + Number(r[col] ?? 0), 0)
+  const cost = (id: string) => sumCol(pl.filter((r) => r.account_id !== '6900'), id, ['cogs', 'opex'])
+  const ctaNow = cta.filter((x) => x.month === d?.month).reduce((a, x) => a + Number(x.cta), 0)
+  const byMonth = (rows: Row[], key: string) => Object.values(rows.reduce<Record<string, Row>>((a, r) => { const k = String(r.month); a[k] ??= { month: k }; a[k][String(r.entity_id)] = r[key]; return a }, {}))
+  const sheetCols = [{ key: 'line', label: 'Account' }, ...cols.map((cid) => ({ key: cid, label: name(cid), unit: 'usd' as const })), { key: 'consolidated', label: 'Consolidated', unit: 'usd' as const }]
+  if (!d) return <div className="page"><Loading state={c} /></div>
+  return (
+    <div className="page">
+      <Head title={`Entities and consolidation · ${String(d.month)}`} sub="Each legal entity's books, the intercompany eliminations and the consolidated group · subsidiaries are cost-plus service providers to the parent"
+        ask="Walk me through the consolidation: each entity's results, the intercompany charges and eliminations, and the currency translation adjustment." />
+      <KpiRow items={[
+        { label: 'Legal entities', value: String(ents.length), note: ents.map((e) => `${e.entity_id} ${e.currency}`).join(' · ') },
+        { label: 'Intercompany charges', value: usd(ic ? cols.filter((x) => x !== 'ELIM').reduce((a, x) => a + Number(ic[x] ?? 0), 0) : 0), note: 'subsidiaries to parent this month, eliminated', tone: null },
+        { label: 'Eliminations net to zero', value: total && Math.abs(Number(total.ELIM ?? 0)) < 1 ? 'Yes' : 'Check', note: 'intercompany revenue = fees; receivables = payables', tone: total && Math.abs(Number(total.ELIM ?? 0)) < 1 ? 'good' : 'bad' },
+        { label: 'UK cost base', value: usd(cost('UK01')), note: `markup ${Math.round(Number(ents.find((e) => e.entity_id === 'UK01')?.markup_pct ?? 0) * 100)}% · profit ${usd(Number(total?.UK01 ?? 0))}` },
+        { label: 'India cost base', value: usd(cost('IN01')), note: `markup ${Math.round(Number(ents.find((e) => e.entity_id === 'IN01')?.markup_pct ?? 0) * 100)}% · profit ${usd(Number(total?.IN01 ?? 0))}` },
+        { label: 'Translation adjustment', value: usd(ctaNow), note: 'cumulative, in equity (CTA)', tone: ctaNow < 0 ? 'bad' : null },
+      ]} />
+      <Card title="Consolidation worksheet: P&L" sub="Each entity's month in USD (subsidiaries at the average rate), eliminations, consolidated · ties to the income statement">
+        <DataTable title="consolidation_pl" rows={pl} columns={sheetCols} pageSize={100} />
+      </Card>
+      <div className="grid cols-3">
+        <Card title="Costs by entity" sub="Cost of revenue and operating expenses, excluding intercompany fees">
+          <Donut rows={cols.filter((x) => x !== 'ELIM').map((x) => ({ entity: name(x), cost: cost(x) }))} dim="entity" measure="cost" />
+        </Card>
+        <Card title="Intercompany charges by month" sub="What each subsidiary bills the parent (cost plus markup)">
+          <Trend rows={byMonth(trend, 'ic_charge')} x="month" series={[{ key: 'UK01', label: name('UK01'), color: '#3b6fd8' }, { key: 'IN01', label: name('IN01'), color: '#c98a1b' }]} />
+        </Card>
+        <Card title="Translation adjustment" sub="Cumulative CTA by subsidiary (closing vs historical rates)">
+          <Trend rows={byMonth(cta, 'cta')} x="month" series={[{ key: 'UK01', label: name('UK01'), color: '#3b6fd8' }, { key: 'IN01', label: name('IN01'), color: '#c98a1b' }]} refs={[{ y: 0, label: '' }]} />
+        </Card>
+      </div>
+      <Card title="Consolidation worksheet: balance sheet" sub="Month end, subsidiaries translated at the closing rate; CTA balances the translated books">
+        <DataTable title="consolidation_bs" rows={bs} columns={sheetCols} pageSize={100} />
+      </Card>
+      <Card title="Entities">
+        <DataTable rows={ents} columns={[{ key: 'entity_id' }, { key: 'entity_name' }, { key: 'country' }, { key: 'currency' }, { key: 'role' }, { key: 'markup_pct', label: 'Transfer-pricing markup', unit: 'ratio' }]} />
+        <Source data={d} />
+      </Card>
     </div>
   )
 }

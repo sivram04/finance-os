@@ -14,3 +14,4 @@ sources:
       - name: department
       - name: entity
       - name: accountingperiod
+      - name: subsidiary
