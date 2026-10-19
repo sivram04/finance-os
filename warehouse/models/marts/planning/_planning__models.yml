@@ -28,3 +28,11 @@ models:
     data_tests:
       - dbt_utils_free_unique_combination:
           arguments: {columns: [month, department_id]}
+
+  - name: fct_workforce_employee_monthly
+    description: >
+      Employee-level workforce forecast: each current employee (retention probability, merit and expected promotion
+      raises, employer tax on vesting equity) and each open role (fill probability from its slipped start), by month.
+    data_tests:
+      - dbt_utils_free_unique_combination:
+          arguments: {columns: [month, employee_id]}

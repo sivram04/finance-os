@@ -329,7 +329,7 @@ questions:
   - id: rpo-crpo
     persona: Investor
     ask: What is our RPO and current RPO, and how does contracted ARR compare to run-rate ARR?
-    expect_tools: ["get_contracts|get_kpi_trend"]
+    expect_tools: ["get_contracts|get_kpi_trend|get_kpis"]
   - id: renewal-risk
     persona: CRO
     ask: Which contracts renewing in the next six months are burning below their commitment?
@@ -370,3 +370,36 @@ questions:
     persona: Auditor
     ask: How is run-rate ARR defined, what version is it, and when did it last change?
     expect_tools: [get_metric_definition]
+  - id: stress-largest-customer
+    persona: CFO
+    ask: What happens to revenue and cash if our largest customer leaves?
+    expect_tools: [run_stress_test]
+  - id: stress-fundraise-delay
+    persona: CEO
+    ask: What if our Series B closes six months late?
+    expect_tools: [run_stress_test]
+  - id: workforce-employee
+    persona: VP People
+    ask: Which employees cost us the most next year, including promotions and equity taxes?
+    expect_tools: [get_headcount_plan]
+  - id: deal-unlimited
+    persona: Deal desk
+    ask: Can we sell New Co 30,000 streaming hours a month with unlimited usage and net 90 payment terms? Who has to approve?
+    expect_tools: [price_deal]
+    expect_text: ["'CFO'"]
+  - id: forecast-error-driver
+    persona: CFO
+    ask: Which driver has our forecast been getting most wrong?
+    expect_tools: [get_forecast_error_by_driver]
+  - id: vendor-concentration
+    persona: Board member
+    ask: How concentrated is our vendor spend?
+    expect_tools: [get_vendor_concentration]
+  - id: decisions-needed
+    persona: CEO
+    ask: What decisions does the board need to make this quarter?
+    expect_tools: ["get_decisions_needed|get_ceo_one_pager"]
+  - id: driver-correlation
+    persona: VP Finance
+    ask: Which operating drivers move together with EBITDA?
+    expect_tools: ["get_driver_correlation|get_driver_tree"]

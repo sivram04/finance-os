@@ -353,3 +353,5 @@ table.cohort td.num, table.cohort th.num { text-align: right; }
 .explore-field select, .explore-field input { font: inherit; font-size: 13px; color: var(--text); background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 5px 6px; }
 .metric-picker { display: flex; flex-wrap: wrap; gap: 6px; }
 .filter-chip.on { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+
+.evidence-drill { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 10px 8px; }

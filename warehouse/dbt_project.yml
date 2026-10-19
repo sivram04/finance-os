@@ -54,7 +54,7 @@ seeds:
     spiffs:
       +column_types: {amount_per_credit: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,4)' }}", start_month: date, end_month: date}
     workforce_policy:
-      +column_types: {attrition_benchmark: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}", recruiting_fee_pct: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}", equipment_per_hire: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,2)' }}", merit_pct: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}"}
+      +column_types: {attrition_benchmark: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}", recruiting_fee_pct: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}", equipment_per_hire: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,2)' }}", merit_pct: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}", promotion_rate: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}", promotion_uplift_pct: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}", equity_grant_pct: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}", equity_employer_tax_pct: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}"}
     hire_probability:
       +column_types: {probability: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}", slip_months: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,2)' }}"}
     scenario_levers:

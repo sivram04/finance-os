@@ -134,6 +134,15 @@ function EvidenceBlock({ ev }: { ev: Evidence }) {
         <span className={ev.numbers_verified ? 'good' : 'bad'}>{ev.numbers_verified ? 'numbers verified' : 'numbers unverified'}</span>
         <span className="muted">{open ? 'hide' : 'show'}</span>
       </button>
+      {ev.drill?.length ? (
+        <div className="evidence-drill">
+          {ev.drill.map((d) => (
+            <button key={d.label} className="btn small" onClick={() => { location.hash = `explore?${new URLSearchParams(d.args).toString()}` }}>
+              Show transactions: {d.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
       {open && (
         <div className="evidence-body">
           {ev.metrics.length > 0 && <div><b>Metrics</b> {ev.metrics.map((m) => `${m.label} v${m.version} (from ${m.effective_from}, ${m.owner})`).join(' · ')}</div>}

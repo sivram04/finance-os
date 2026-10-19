@@ -201,3 +201,18 @@ def test_every_read_tool_runs_against_the_warehouse():
     for name in TOOLS:
         result = run_tool(wh, name, needs.get(name, {}))
         assert "source" in result, name
+
+
+@needs_warehouse
+def test_commission_dispute_raise_and_resolve(tmp_path):
+    client = TestClient(create_app(AppState(tmp_path / "app.duckdb"), Warehouse()))
+    stmt = Warehouse().query("""select rep_id, strftime(month, '%Y-%m') as m from marts.fct_commission_statement_monthly
+                                order by month desc limit 1""")[0]
+    r = client.post("/api/commission-disputes", json={"rep_id": stmt["rep_id"], "month": stmt["m"], "customer_id": "EN-001",
+                                                      "claim": "expansion credited at the wrong rate", "claimed_amount": 1200})
+    assert r.status_code == 200
+    aid = r.json()["proposed_action_id"]
+    assert client.get("/api/commission-disputes").json()[0]["status"] == "pending"
+    client.post(f"/api/actions/{aid}/approve", json={"note": "Upheld: plan says 75%"})
+    d = client.get("/api/commission-disputes").json()[0]
+    assert d["status"] == "approved" and d["resolution"] == "Upheld: plan says 75%"

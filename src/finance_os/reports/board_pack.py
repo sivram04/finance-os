@@ -97,12 +97,41 @@ def outlook(con):
                    founders_pct_after, runs_out_before_close from marts.fct_fundraise_scenarios order by scenario"""):
         out.append(f"| {sc} | {rnd} | {close:%b %Y} | {_usd(pre)} | {_usd(raise_)} | ${price:.2f} | {inv * 100:.1f}% | "
                    f"{fnd * 100:.1f}% | " + ("**no: bridge needed**" if late else "yes") + " |")
+    out += forecast_changes_and_decisions(con)
     alerts = q("select message, recipients from marts.fct_alerts where severity = 'high' order by rule_id")
     out += ["", "## Needs the board's attention", ""]
     out += [f"- {m} *(owner: {r})*" for m, r in alerts[:10]] or ["- Nothing high-severity is open."]
     if len(alerts) > 10:
         out.append(f"- …and {len(alerts) - 10} more (see the Alerts page).")
     return out + [""]
+
+
+def _fmt_driver(v):
+    return f"{v * 100:.2f}%" if abs(v) < 1 else _usd(v)
+
+
+def forecast_changes_and_decisions(con):
+    """What changed since the last forecast (same engine, last close vs this close, and why) and the decisions needed."""
+    from finance_os.app import tools
+    db = next(r[2] for r in con.execute("pragma database_list").fetchall() if r[1] == con.execute("select current_database()").fetchone()[0])
+    wh = tools.Warehouse(Path(db))
+    fc = tools.get_forecast_changes(wh)
+    now, prior = fc["summary"]["now"], fc["summary"]["prior_close"]
+    out = ["", f"## What changed since the last forecast ({fc['prior_as_of']} close → {fc['as_of']} close, base scenario)", "",
+           "| | Last forecast | This forecast | Change |", "|---|---:|---:|---:|"]
+    for key, label in (("revenue_next_12m", "Revenue, next 12 months"), ("ebitda_next_12m", "EBITDA, next 12 months"),
+                       ("cash_in_12m", "Cash in 12 months"), ("arr_in_12m", "Run-rate ARR in 12 months")):
+        a, b = prior.get(key), now.get(key)
+        out.append(f"| {label} | {_usd(a)} | {_usd(b)} | {_usd((b or 0) - (a or 0))} |")
+    out.append(f"| First EBITDA-positive month | {prior.get('first_ebitda_positive') or 'n/a'} | {now.get('first_ebitda_positive') or 'n/a'} | |")
+    moved = sorted(fc["starting_point"], key=lambda r: -abs(r["change"] / r["prior_close"]) if r["prior_close"] else 0)[:4]
+    out += ["", "Why: same engine and assumptions at both closes, so the change comes from the data. Largest moves in the starting point: "
+            + "; ".join(f"{r['driver'].replace('_', ' ')} {_fmt_driver(r['prior_close'])} → {_fmt_driver(r['now'])}" for r in moved) + "."]
+    dec = tools.get_decisions_needed(wh)["rows"]
+    out += ["", "## Decisions needed", ""]
+    out += [f"{i}. **{d['decision']}** ({d['owner']}, by {d['by']}). {d['evidence']} Options: {d['options']}."
+            for i, d in enumerate(dec, 1)] or ["- No decisions pending."]
+    return out
 
 
 def main():

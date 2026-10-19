@@ -131,6 +131,38 @@ def create_app(state: AppState | None = None, wh: tools.Warehouse | None = None,
     def undo(aid: str, body: DecisionIn | None = None):
         return _decide(aid, "reverted", body.note if body else None)
 
+    class DisputeBody(BaseModel):
+        rep_id: str
+        month: str
+        customer_id: str
+        claim: str
+        claimed_amount: float | None = None
+
+    @app.post("/api/commission-disputes")
+    def raise_dispute(body: DisputeBody):
+        """A rep raises a dispute from the Commissions page; it becomes an approval card for Finance."""
+        from finance_os.app.actions import propose_commission_dispute
+        out = propose_commission_dispute(wh, state, None, **body.model_dump())
+        if out.get("error"):
+            raise HTTPException(400, out["error"])
+        return out
+
+    @app.get("/api/commission-disputes")
+    def list_disputes():
+        """Every dispute with its status and the reviewer's resolution note."""
+        out = []
+        for a in state.actions():
+            if a["kind"] != "commission_dispute":
+                continue
+            payload = json.loads(a["payload"]) if isinstance(a["payload"], str) else a["payload"]
+            trail = state.audit(a["id"])
+            decided = [t for t in trail if t["event"] in ("approved", "rejected", "undone")]
+            out.append({"id": a["id"], "status": a["status"], **payload,
+                        "raised_at": a["created_at"].isoformat() if hasattr(a["created_at"], "isoformat") else a["created_at"],
+                        "resolution": decided[-1]["note"] if decided else None,
+                        "decided_by": a.get("decided_by")})
+        return out[::-1]
+
     @app.get("/api/audit")
     def audit():
         return state.audit()
@@ -141,6 +173,12 @@ def create_app(state: AppState | None = None, wh: tools.Warehouse | None = None,
         discount_pct: float = 0
         term_months: int = 12
         monthly_commit: float = 0
+        payment_terms_days: int = 30
+        sla: str = "standard"
+        unlimited_usage: bool = False
+        prepaid_credits: bool = False
+        free_months: int = 0
+        custom_terms: str | None = None
 
     @app.post("/api/deals/evaluate")
     def evaluate_deal(body: DealBody):

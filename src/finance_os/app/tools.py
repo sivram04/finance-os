@@ -103,6 +103,43 @@ def get_metric_definition(wh, metric):
                    latest_value_month=latest[0]["m"] if latest else None)
 
 
+METRIC_ACCOUNT_TYPE = {"revenue": "revenue", "arr": "revenue", "cogs": "cogs", "gross_margin_pct": "cogs", "opex": "opex",
+                       "gross_burn": "opex", "net_burn": "opex"}
+
+
+def _evidence_drill(wh, low, calls, metrics):
+    """Links from an answer to the journal lines behind it: explore_ledger filters for each month, customer, vendor,
+    department or metric the answer used. The page opens Explore with these filters."""
+    latest = str(wh.latest_month())[:7]
+    out, seen = [], set()
+
+    def add(label, args):
+        key = tuple(sorted(args.items()))
+        if key not in seen and len(out) < 4:
+            seen.add(key)
+            out.append({"label": label, "args": args})
+
+    for name, args, _ in calls:
+        a = args or {}
+        if name == "explore_ledger":
+            add("Your ledger query", {k: v for k, v in a.items() if v})
+            continue
+        month = (a.get("month") or "")[:7] or None
+        start, end = (a.get("start_month") or "")[:7] or month, (a.get("end_month") or "")[:7] or month
+        rng = {"start_month": start or latest, "end_month": end or latest}
+        if a.get("customer_id"):
+            add(f"Revenue lines for {a['customer_id']}", {"customer_id": a["customer_id"], "account_type": "revenue", "group_by": "month", **({"start_month": start, "end_month": end} if start else {})})
+        if a.get("vendor_id"):
+            add(f"Ledger lines for {a['vendor_id']}", {"vendor_id": a["vendor_id"], "group_by": "month"})
+        if a.get("department"):
+            add(f"{a['department']} spend, {rng['start_month']}", {"department": a["department"], "account_type": "opex", "group_by": "account", **rng})
+    for m in metrics:
+        t = METRIC_ACCOUNT_TYPE.get(m["metric"])
+        if t:
+            add(f"{t.capitalize()} lines behind {m['label']}, {latest}", {"account_type": t, "start_month": latest, "end_month": latest, "group_by": "account"})
+    return out
+
+
 def answer_evidence(wh, text, calls, unverified):
     """The evidence block under every assistant answer: what was read (sources and filters), which governed metrics
     the answer uses (version, effective date, owner), how fresh the data is, and whether the books reconcile."""
@@ -117,6 +154,7 @@ def answer_evidence(wh, text, calls, unverified):
     live = json.loads(world.read_text(encoding="utf-8")).get("as_of") if world.exists() else None
     recon = wh.query("select count(*) as n from recon.recon_status where status <> 'pass'")[0]["n"]
     return {
+        "drill": _evidence_drill(wh, low, calls, metrics),
         "sources": sorted({r.get("source") for _, _, r in calls if isinstance(r, dict) and r.get("source")}),
         "filters": [{"tool": n, "args": a} for n, a, _ in calls if a],
         "metrics": metrics[:12],
@@ -588,11 +626,83 @@ def get_forecast_changes(wh, scenario="base"):
     return _result(rows, "finance_os.fpa.project as of this close and the previous close; data/live/forecast_snapshots.jsonl",
                    scenario=scenario, as_of=cur_base["start_month"], prior_as_of=prev_base["start_month"],
                    summary={"now": c, "prior_close": p,
-                            "revenue_next_12m_change": round(c["revenue_next_12m"] - p["revenue_next_12m"], 2)},
+                            "revenue_next_12m_change": round(c["revenue_next_12m"] - p["revenue_next_12m"], 2),
+                            "changes": {k: round(c[k] - p[k], 4) for k in c
+                                        if isinstance(c.get(k), (int, float)) and isinstance(p.get(k), (int, float))}},
                    starting_point=starting, snapshots=[{k: v for k, v in d.items() if k != "n"} for d in sorted(by_date.values(), key=lambda x: x["snapshot_date"])],
                    note="Same engine and levers at both closes, so every change comes from the data: the starting point "
                         "table shows what moved.")
 
+
+def get_forecast_error_by_driver(wh, versions=5, horizon=3):
+    """Forecast error explained by driver, not hidden in totals. For each of the last `versions` closes, the driver
+    engine is re-run as of that close (base levers, no new money) and each of the next `horizon` months is compared
+    with what actually closed, split into:
+      revenue    existing customers (retention / expansion driver), new customers (pipeline and bookings driver), services
+      cost       cost-of-revenue volume (forecast cost rate x revenue miss) and rate (cost per revenue dollar moved)
+      opex       payroll (hiring plan) and other opex
+    Error = forecast - actual (positive = forecast too high); EBITDA error = revenue error - cost errors."""
+    from finance_os import fpa
+    closes = [str(r["m"])[:10] for r in wh.query("""select distinct month as m from marts.fct_kpi_monthly
+                                                   where month <= ?::date order by 1 desc""", [_month(None, wh)])]
+    latest = closes[0]
+    rows = []
+    for as_of in closes[1:int(versions) + 1]:
+        base = _stress_base(wh, as_of)
+        out = fpa.project(base, {"opex_growth_monthly": _scenario_levers(wh, "base", with_raise=False).get("opex_growth_monthly")}, int(horizon))
+        for k, f in enumerate(out["rows"], 1):
+            m = f"{f['month']}-01"
+            if m > latest:
+                break
+            a = wh.query("""
+                with known as (select distinct customer_id from marts.fct_customer_revenue_monthly where month <= ?::date and revenue > 0),
+                usage as (
+                    select sum(case when k.customer_id is not null then r.revenue else 0 end) as existing_usage,
+                           sum(case when k.customer_id is null then r.revenue else 0 end) as new_usage
+                    from marts.fct_customer_revenue_monthly r left join known k using (customer_id) where r.month = ?::date),
+                gl as (
+                    select sum(case when account_id = '4100' then natural_amount else 0 end) as services,
+                           sum(case when account_type = 'revenue' then natural_amount else 0 end) as revenue,
+                           sum(case when account_type = 'cogs' then natural_amount else 0 end) as cogs,
+                           sum(case when account_id in ('6000', '6010', '6020') then natural_amount else 0 end) as payroll,
+                           sum(case when account_type = 'opex' and account_id not in ('6000', '6010', '6020', '6600') then natural_amount else 0 end) as other_opex
+                    from marts.fct_gl_monthly where month = ?::date)
+                select * from usage cross join gl""", [as_of, m, m])[0]
+            a = {k2: float(v or 0) for k2, v in a.items()}
+            # usage actuals tie to GL usage revenue; anything not on a customer (timing, refunds) goes to existing
+            a["existing_usage"] += (a["revenue"] - a["services"]) - (a["existing_usage"] + a["new_usage"])
+            f_rate = f["cogs"] / f["revenue"] if f["revenue"] else 0
+            a_rate = a["cogs"] / a["revenue"] if a["revenue"] else 0
+            rev_err = f["revenue"] - a["revenue"]
+            row = {"as_of": as_of[:7], "month": f["month"], "months_ahead": k,
+                   "existing_customers": round(f["existing_usage"] - a["existing_usage"], 2),
+                   "new_customers": round(f["new_usage"] - a["new_usage"], 2),
+                   "services": round(f["services"] - a["services"], 2),
+                   "revenue": round(rev_err, 2),
+                   "cost_volume": round(f_rate * rev_err, 2),
+                   "cost_rate": round((f_rate - a_rate) * a["revenue"], 2),
+                   "payroll": round(f["payroll"] - a["payroll"], 2),
+                   "other_opex": round(f["other_opex"] - a["other_opex"], 2),
+                   "actual_revenue": round(a["revenue"], 2)}
+            row["ebitda"] = round(row["revenue"] - row["cost_volume"] - row["cost_rate"] - row["payroll"] - row["other_opex"], 2)
+            row["revenue_error_pct"] = round(rev_err / a["revenue"], 4) if a["revenue"] else None
+            rows.append(row)
+    drivers = ["existing_customers", "new_customers", "services", "cost_volume", "cost_rate", "payroll", "other_opex"]
+    summary = []
+    for d in drivers + ["revenue", "ebitda"]:
+        vals = [r[d] for r in rows]
+        if vals:
+            summary.append({"driver": d, "bias": round(sum(vals) / len(vals), 2), "avg_abs_error": round(sum(abs(v) for v in vals) / len(vals), 2),
+                            "share_of_abs_ebitda_error": None})
+    tot = sum(x["avg_abs_error"] for x in summary if x["driver"] in drivers) or 1
+    for x in summary:
+        if x["driver"] in drivers:
+            x["share_of_abs_ebitda_error"] = round(x["avg_abs_error"] / tot, 4)
+    biggest = max((x for x in summary if x["driver"] in drivers), key=lambda x: x["avg_abs_error"], default=None)
+    return _result(rows, "finance_os.fpa.project re-run as of each close vs fct_customer_revenue_monthly and fct_gl_monthly",
+                   summary=summary, biggest_driver=biggest["driver"] if biggest else None, versions=int(versions), horizon=int(horizon),
+                   note="Error = forecast - actual (positive = forecast too high). Pipeline as of an earlier close is rebuilt "
+                        "approximately (deals that closed later counted at even odds).")
 
 def get_forecast_accuracy(wh):
     rows = wh.query("""select line, months_ahead, count(*) as n, avg(error_pct) as avg_error_pct,
@@ -624,12 +734,26 @@ def get_headcount_plan(wh, scenario="base"):
     twelve = wf[:12]
     summary = {k: round(sum(float(r[k] or 0) for r in twelve), 2) for k in
                ("plan_payroll", "expected_people_cost", "merit_uplift", "recruiting_cost", "equipment_cost", "variance_to_plan")}
+    extra = wh.query("""select sum(promotion_cost) as promotion_cost, sum(equity_employer_cost) as equity_employer_cost
+                        from marts.fct_workforce_employee_monthly
+                        where month < (select min(month) from marts.fct_workforce_employee_monthly) + interval 12 month""")[0]
+    summary["promotion_cost"] = round(float(extra["promotion_cost"] or 0), 2)
+    summary["equity_employer_cost"] = round(float(extra["equity_employer_cost"] or 0), 2)
+    summary["expected_people_cost_all_in"] = round(summary["expected_people_cost"] + summary["promotion_cost"] + summary["equity_employer_cost"], 2)
+    employees = wh.query("""with yr as (select * from marts.fct_workforce_employee_monthly
+                                        where month < (select min(month) from marts.fct_workforce_employee_monthly) + interval 12 month)
+                            select employee_id, employee_name, department_id, title, kind,
+                                   min(probability) as stay_or_fill_probability, max(annual_salary) as salary_after_review,
+                                   sum(expected_loaded_cost) as expected_cost_12m, sum(promotion_cost) as promotion_cost_12m,
+                                   sum(equity_employer_cost) as equity_employer_cost_12m
+                            from yr group by 1, 2, 3, 4, 5 order by department_id, kind, expected_cost_12m desc""")
     return _result(rows, "marts.fct_headcount_plan_monthly, fct_workforce_plan_monthly, seeds.hiring_plan, "
                          "seeds.workforce_policy, seeds.hire_probability", scenario=scenario, planned_roles=roles,
-                   workforce=wf, workforce_by_department=depts, workforce_next_12m=summary,
+                   workforce=wf, workforce_by_department=depts, workforce_next_12m=summary, employees=employees,
                    note="Workforce = the base plan adjusted for hiring probability and slippage by req status, attrition "
                         "(measured or benchmark, whichever is higher) with backfill lag, merit at the April review, and "
-                        "recruiting and equipment cost per hire.")
+                        "recruiting and equipment cost per hire. Employees: each person and open role with retention or fill "
+                        "probability, merit plus expected promotion raises, and employer tax on vesting equity.")
 
 
 def get_budget_build(wh):
@@ -743,10 +867,13 @@ def get_commissions(wh, rep_id=None, month=None):
                    note="Credits come from billed revenue above each account's previous peak month (x12 = ARR).")
 
 
-def price_deal(wh, customer, lines, discount_pct=0, term_months=12, monthly_commit=0):
+def price_deal(wh, customer, lines, discount_pct=0, term_months=12, monthly_commit=0, payment_terms_days=30, sla="standard",
+               unlimited_usage=False, prepaid_credits=False, free_months=0, custom_terms=None):
     from finance_os import dealdesk
     ev = dealdesk.evaluate(wh, {"customer": customer, "lines": lines, "discount_pct": discount_pct,
-                                "term_months": term_months, "monthly_commit": monthly_commit})
+                                "term_months": term_months, "monthly_commit": monthly_commit, "payment_terms_days": payment_terms_days,
+                                "sla": sla, "unlimited_usage": unlimited_usage, "prepaid_credits": prepaid_credits,
+                                "free_months": free_months, "custom_terms": custom_terms})
     if ev.get("error"):
         return _result([], "deal desk", note=ev["error"])
     return _result(ev["lines"], "deal desk (seeds.deal_guardrails, seeds.deal_policy, seeds.margin_floors, "
@@ -1559,6 +1686,23 @@ STRESS_PRESETS = {
     "gpu_squeeze": {"label": "GPU cost up", "cogs_pts": 0.06},
     "lean": {"label": "Hiring freeze", "hiring_pct": 0.0, "opex_pct": -0.10},
     "breakout": {"label": "Breakout", "nrr_pts": 0.05, "win_rate_pct": 0.25, "cycle_days": -15},
+    "severe_downside": {"label": "Severe downside", "nrr_pts": -0.15, "win_rate_pct": -0.4, "cycle_days": 60, "price_pct": -0.05,
+                        "cogs_pts": 0.04},
+    "fundraise_delayed": {"label": "Fundraise delayed", "raise_delay_months": 6},
+    "largest_customer_churn": {"label": "Largest customer leaves", "lose_largest": 1, "lose_in_months": 3},
+    "gpu_price_shock": {"label": "GPU price shock", "cogs_pts": 0.12},
+}
+# what each preset means, for the page and the assistant
+PRESET_NOTES = {
+    "downturn": "NRR -5 pts, 20% fewer wins, deals a month slower.",
+    "price_war": "Prices -10%, 15% fewer wins, NRR -3 pts.",
+    "gpu_squeeze": "Cost to serve +6 points of revenue.",
+    "lean": "Hiring freeze and other opex -10%.",
+    "breakout": "NRR +5 pts, 25% more wins, deals two weeks faster.",
+    "severe_downside": "NRR -15 pts, 40% fewer wins, deals two months slower, prices -5%, cost to serve +4 pts.",
+    "fundraise_delayed": "The base plan's round closes six months late; compared with the round on time.",
+    "largest_customer_churn": "The largest customer by MRR leaves in three months; nothing replaces it.",
+    "gpu_price_shock": "GPU and cloud prices jump: cost to serve +12 points of revenue (about a third more).",
 }
 
 
@@ -1658,7 +1802,25 @@ def run_stress_test(wh, preset=None, nrr_pts=None, win_rate_pct=None, cycle_days
     levers.update({k: v for k, v in dict(nrr_pts=nrr_pts, win_rate_pct=win_rate_pct, cycle_days=cycle_days, price_pct=price_pct,
                                          cogs_pts=cogs_pts, hiring_pct=hiring_pct, opex_pct=opex_pct, raise_amount=raise_amount,
                                          raise_month=raise_month).items() if v is not None})
-    baseline = fpa.stress_test(base, {}, int(months))
+    baseline_levers, detail = {}, None
+    delay = levers.pop("raise_delay_months", None)
+    if delay:  # compare the planned round on time with the same round late
+        planned = _scenario_levers(wh, "base")
+        baseline_levers = {"raise_amount": planned.get("raise_amount", 0.0), "raise_month": planned.get("raise_month")}
+        if planned.get("raise_month"):
+            y, m = int(planned["raise_month"][:4]), int(planned["raise_month"][5:7]) - 1 + int(delay)
+            levers.update(raise_amount=planned["raise_amount"], raise_month=f"{y + m // 12:04d}-{m % 12 + 1:02d}")
+        detail = {"planned_close": planned.get("raise_month"), "delayed_close": levers.get("raise_month"), "raise_amount": planned.get("raise_amount")}
+    if levers.pop("lose_largest", None):
+        months_out = int(levers.pop("lose_in_months", 3))
+        top = wh.query("""select customer_id, revenue from marts.fct_customer_revenue_monthly where month = ?::date
+                          order by revenue desc limit 1""", [_month(None, wh)])
+        if top:
+            y, m = int(base["start_month"][:4]), int(base["start_month"][5:7]) - 1 + months_out
+            levers.update(lost_mrr=float(top[0]["revenue"]), lost_month=f"{y + m // 12:04d}-{m % 12 + 1:02d}")
+            detail = {"customer_id": top[0]["customer_id"], "mrr": float(top[0]["revenue"]), "leaves_in": levers["lost_month"],
+                      "share_of_mrr": round(float(top[0]["revenue"]) / base["mrr"], 4) if base["mrr"] else None}
+    baseline = fpa.stress_test(base, baseline_levers, int(months))
     scenario = fpa.stress_test(base, levers, int(months))
     rows = [{"month": b["month"], "base_revenue": b["revenue"], "scenario_revenue": s["revenue"], "base_cash": b["cash"],
              "scenario_cash": s["cash"], "base_ebitda": b["ebitda"], "scenario_ebitda": s["ebitda"], "base_arr": b["arr"],
@@ -1667,7 +1829,8 @@ def run_stress_test(wh, preset=None, nrr_pts=None, win_rate_pct=None, cycle_days
                       "fct_bookings_monthly, fct_forecast_monthly (base payroll and opex)",
             "row_count": len(rows), "rows": rows, "levers": scenario["levers"], "baseline": baseline["summary"],
             "scenario": scenario["summary"], "assumptions": {k: v for k, v in base.items() if k not in ("pipeline", "payroll", "other_opex")},
-            "presets": {k: v for k, v in STRESS_PRESETS.items()},
+            "presets": {k: {**v, "note": PRESET_NOTES.get(k)} for k, v in STRESS_PRESETS.items()}, "preset": preset,
+            "preset_detail": detail,
             "note": "Existing customers move at the trailing 6-month net rate, adjusted by NRR points; sales-led bookings come "
                     "from the open pipeline (probability x win-rate change, shifted by the cycle change), then the 12-month "
                     "bookings rate; new usage ramps over three months."}
@@ -1888,6 +2051,12 @@ def get_ceo_one_pager(wh):
                             where month > ?::date - interval 3 month and month <= ?::date""", [m, m])[0]["v"]
     add(risk, "Paying for unused GPU commitment", shortfall, "Committed GPU hours not used, annualized.", "VP Engineering", "spend")
 
+    vc = get_vendor_concentration(wh)
+    if vc["rows"] and vc["summary"]["top1_share"] and vc["summary"]["top1_share"] > 0.5:
+        top = vc["rows"][0]
+        add(risk, f"Single-vendor dependence: {top['vendor_id']} is {top['share']:.0%} of vendor spend", top["spend"],
+            f"Trailing 12-month spend with one vendor (HHI {vc['summary']['hhi']:,}); price or capacity changes hit margin directly.",
+            "VP Engineering / CFO", "drivers")
     opp.sort(key=lambda r: -r["amount"])
     risk.sort(key=lambda r: -r["amount"])
     headline = {"month": m[:7], "revenue": k.get("revenue"), "arr": k.get("arr"), "gross_margin_pct": k.get("gross_margin_pct"),
@@ -2034,6 +2203,168 @@ def explore_options(wh):
             "entry_types": q("select distinct entry_type as v from staging.stg_erp__journal_entries order by 1"),
             "months": q("select distinct strftime(entry_month, '%Y-%m') as v from staging.stg_erp__journal_entries order by 1"),
             "metrics": wh.query("select metric_name, label, unit from seeds.metric_catalog order by label")}
+
+
+def get_vendor_concentration(wh, months=12):
+    """How dependent we are on a few vendors: billed spend by vendor over the trailing months, each vendor's share and
+    the cumulative share, top-1 and top-3 share, the Herfindahl-Hirschman index (HHI: sum of squared shares x 10,000;
+    above 2,500 = highly concentrated), and what is still committed to each vendor and when its contract ends."""
+    m = _month(None, wh)
+    rows = wh.query("""select l.vendor_id, sum(l.credit) as spend, count(distinct l.entry_id) as bills
+                       from staging.stg_erp__journal_lines l join staging.stg_erp__journal_entries e using (entry_id)
+                       where l.account_id = '2000' and l.vendor_id is not null and l.credit > 0
+                         and e.entry_month > ?::date - interval (?) month and e.entry_month <= ?::date
+                       group by 1 order by 2 desc""", [m, int(months), m])
+    total = sum(float(r["spend"]) for r in rows) or 1
+    commit = {r["vendor_id"]: r for r in wh.query("""select vendor_id, sum(remaining_commitment) as remaining_commitment,
+                                                            strftime(max(end_date), '%Y-%m-%d') as contract_end
+                                                     from marts.fct_vendor_commitments group by 1""")}
+    run = 0.0
+    for r in rows:
+        share = float(r["spend"]) / total
+        run += share
+        r["share"], r["cumulative_share"] = round(share, 4), round(run, 4)
+        c = commit.get(r["vendor_id"], {})
+        r["remaining_commitment"], r["contract_end"] = c.get("remaining_commitment"), c.get("contract_end")
+    hhi = round(sum((float(r["spend"]) / total * 100) ** 2 for r in rows))
+    return _result(rows, "staging.stg_erp__journal_lines (bills booked to AP), marts.fct_vendor_commitments", months=int(months),
+                   summary={"vendors": len(rows), "total_spend": round(total, 2), "top1_share": rows[0]["share"] if rows else None,
+                            "top3_share": round(sum(r["share"] for r in rows[:3]), 4), "hhi": hhi,
+                            "concentration": "high" if hhi > 2500 else "moderate" if hhi > 1500 else "low"},
+                   note="HHI above 2,500 is highly concentrated (US DOJ guideline); a single critical vendor needs an exit plan.")
+
+
+DRIVER_SERIES = {
+    "audio_hours": "Audio hours", "active_customers": "Active customers", "revenue_per_hour": "Revenue per hour",
+    "cost_per_hour": "Cost per audio hour", "revenue": "Revenue", "cost_of_revenue": "Cost of revenue",
+    "payroll": "Payroll", "other_opex": "Other opex", "headcount": "Headcount", "gpu_idle_share": "Idle GPU share",
+    "ebitda": "EBITDA",
+}
+
+
+def get_driver_correlation(wh, months=18):
+    """How drivers move together: month-over-month changes of the operating drivers over the trailing months and the
+    Pearson correlation of every pair (1 = always move together, -1 = opposite, 0 = unrelated), with the strongest
+    pairs. Correlation is not causation: use it to find which drivers to model jointly and which to watch."""
+    rows = wh.query("""
+        with gl as (
+            select month,
+                   sum(case when account_type = 'revenue' then natural_amount else 0 end) as revenue,
+                   sum(case when account_type = 'cogs' then natural_amount else 0 end) as cost_of_revenue,
+                   sum(case when account_id in ('6000', '6010', '6020') then natural_amount else 0 end) as payroll,
+                   sum(case when account_type = 'opex' and account_id not in ('6000', '6010', '6020', '6600') then natural_amount else 0 end) as other_opex
+            from marts.fct_gl_monthly where month <= (select max(month) from marts.fct_kpi_monthly) group by 1),
+        ue as (select month, sum(audio_hours) as audio_hours, sum(revenue) as usage_revenue, sum(cogs) as usage_cogs,
+                      count(distinct case when revenue > 0 then customer_id end) as active_customers
+               from marts.fct_unit_economics_monthly group by 1),
+        hc as (select month, sum(headcount) as headcount from marts.fct_headcount_monthly group by 1),
+        gpu as (select month, sum(idle_hours) / nullif(sum(gpu_hours), 0) as gpu_idle_share from marts.fct_gpu_efficiency_monthly group by 1)
+        select strftime(gl.month, '%Y-%m') as month, gl.revenue, gl.cost_of_revenue, gl.payroll, gl.other_opex,
+               gl.revenue - gl.cost_of_revenue - gl.payroll - gl.other_opex as ebitda,
+               ue.audio_hours, ue.active_customers, ue.usage_revenue / nullif(ue.audio_hours, 0) as revenue_per_hour,
+               ue.usage_cogs / nullif(ue.audio_hours, 0) as cost_per_hour, hc.headcount, gpu.gpu_idle_share
+        from gl left join ue using (month) left join hc using (month) left join gpu using (month)
+        order by 1""")[-(int(months) + 1):]
+    keys = list(DRIVER_SERIES)
+    changes = []
+    for prev, cur in zip(rows, rows[1:]):
+        ch = {"month": cur["month"]}
+        for k in keys:
+            a, b = prev.get(k), cur.get(k)
+            if k in ("ebitda",):  # can cross zero: use the change in dollars
+                ch[k] = None if a is None or b is None else float(b) - float(a)
+            else:
+                ch[k] = None if not a or b is None else float(b) / float(a) - 1
+        changes.append(ch)
+
+    def corr(x, y):
+        pairs = [(a, b) for a, b in zip(x, y) if a is not None and b is not None]
+        if len(pairs) < 6:
+            return None
+        n = len(pairs)
+        mx, my = sum(a for a, _ in pairs) / n, sum(b for _, b in pairs) / n
+        sx = sum((a - mx) ** 2 for a, _ in pairs) ** 0.5
+        sy = sum((b - my) ** 2 for _, b in pairs) ** 0.5
+        return None if not sx or not sy else round(sum((a - mx) * (b - my) for a, b in pairs) / (sx * sy), 3)
+
+    series = {k: [c[k] for c in changes] for k in keys}
+    matrix, pairs = [], []
+    for i, a in enumerate(keys):
+        row = {"driver": DRIVER_SERIES[a]}
+        for j, b in enumerate(keys):
+            r = 1.0 if a == b else corr(series[a], series[b])
+            row[b] = r
+            if j > i and r is not None:
+                pairs.append({"driver_a": DRIVER_SERIES[a], "driver_b": DRIVER_SERIES[b], "correlation": r,
+                              "strength": "strong" if abs(r) >= 0.7 else "moderate" if abs(r) >= 0.4 else "weak"})
+        matrix.append(row)
+    pairs.sort(key=lambda x: -abs(x["correlation"]))
+    return _result(matrix, "marts.fct_gl_monthly, fct_unit_economics_monthly, fct_headcount_monthly, fct_gpu_efficiency_monthly",
+                   columns=[{"key": k, "label": v} for k, v in DRIVER_SERIES.items()], strongest_pairs=pairs[:10],
+                   months=len(changes), changes=changes,
+                   note="Correlation of month-over-month % changes (EBITDA in dollars). Not causation; needs at least 6 months.")
+
+
+def get_decisions_needed(wh):
+    """The decisions the board or leadership must make now, each with the evidence behind it, the options, the owner
+    and the deadline. Built from rules over contracts, vendor concentration, forecast bias, the funding plan, runway,
+    covenants and the margin floor, so the list changes as the numbers do."""
+    out = []
+    c = get_contracts(wh)
+    at_risk = [r for r in c["rows"] if r["in_renewal_window"] and (r["burn_pace"] or 0) < 0.9]
+    if at_risk:
+        worst = min(at_risk, key=lambda r: r["days_to_renewal"])
+        out.append({"decision": "Approve a save plan for renewals burning below commitment",
+                    "evidence": f"{len(at_risk)} contract(s) renewing within 180 days run below 90% of pace; "
+                                f"{_usd_text(c['summary']['revenue_at_risk'])} of commitment at risk. First up: {worst['contract_id']} in {worst['days_to_renewal']} days.",
+                    "options": "Re-size the commitment down to keep the logo · offer a ramp · hold price and accept churn risk",
+                    "owner": "CRO", "by": f"{worst['days_to_renewal']} days", "amount": c["summary"]["revenue_at_risk"],
+                    "contracts_at_risk": len(at_risk), "first_contract": worst["contract_id"], "days_to_first": worst["days_to_renewal"]})
+    vc = get_vendor_concentration(wh)
+    if vc["rows"] and (vc["summary"]["top1_share"] or 0) > 0.5:
+        top = vc["rows"][0]
+        out.append({"decision": f"Decide whether to qualify a second GPU vendor before {top['vendor_id']} renews",
+                    "evidence": f"{top['vendor_id']} is {top['share']:.0%} of vendor spend (HHI {vc['summary']['hhi']:,}); "
+                                f"{_usd_text(top['remaining_commitment'] or 0)} still committed, contract ends {top['contract_end'] or 'n/a'}.",
+                    "options": "Dual-source (pilot 10-20% of load) · renew with price protection · accept the dependence",
+                    "owner": "VP Engineering / CFO", "by": top["contract_end"] or "next renewal", "amount": top["spend"],
+                    "vendor_share": top["share"], "hhi": vc["summary"]["hhi"], "remaining_commitment": top["remaining_commitment"]})
+    fe = get_forecast_error_by_driver(wh)
+    ex = next((x for x in fe["summary"] if x["driver"] == "existing_customers"), None)
+    if ex and abs(ex["bias"]) > 0.02 * (fe["rows"][0]["actual_revenue"] if fe["rows"] else 1):
+        out.append({"decision": "Reset the retention assumption in the forecast",
+                    "evidence": f"Forecasts ran {_usd_text(abs(ex['bias']))} a month {'high' if ex['bias'] > 0 else 'low'} on existing customers "
+                                f"over the last {fe['versions']} closes ({ex['share_of_abs_ebitda_error']:.0%} of forecast error).",
+                    "options": "Use the trailing 3-month net rate · use cohort curves · keep the 6-month rate and widen the range",
+                    "owner": "VP Finance", "by": "next forecast", "amount": abs(ex["bias"]) * 12,
+                    "monthly_bias": ex["bias"], "share_of_error": ex["share_of_abs_ebitda_error"]})
+    sc = {x["scenario"]: x for x in scenario_summaries(wh)}
+    base = sc.get("base")
+    fr = wh.query("select raise_amount, close_month from seeds.fundraise_scenarios where scenario = 'base'")
+    if base and fr:
+        need = base["runway_months"] is not None and base["runway_months"] < 24
+        out.append({"decision": "Confirm the funding plan",
+                    "evidence": (f"Base plan: {_usd_text(fr[0]['raise_amount'])} round in {str(fr[0]['close_month'])[:7]}. Without it, "
+                                 + (f"cash runs out in {base['runway_months']} months." if need else "cash does not run out within five years")
+                                 + f"; base EBITDA next 12 months {_usd_text(base['ebitda_next_12m'])}."),
+                    "options": "Raise on plan to fund growth · delay and grow on cash flow · raise smaller and earlier",
+                    "owner": "CEO / CFO", "by": str(fr[0]["close_month"])[:7], "amount": fr[0]["raise_amount"],
+                    "runway_months": base["runway_months"], "ebitda_next_12m": base["ebitda_next_12m"]})
+    below = wh.query("""select count(*) as n, sum(revenue * gross_margin_floor_pct - gross_margin) * 12 as v
+                        from marts.fct_customer_margin_monthly where month = ?::date and is_below_floor""", [_month(None, wh)])[0]
+    if below["n"]:
+        out.append({"decision": "Reprice or restructure customers below the margin floor",
+                    "evidence": f"{below['n']} customer(s) below their product margin floor, {_usd_text(below['v'])} a year short of it.",
+                    "options": "Price increase at renewal · move to a cheaper model tier · accept as strategic",
+                    "owner": "CFO / CRO", "by": "next renewal", "amount": below["v"], "customers": below["n"]})
+    cov = wh.query("""select rule_id, description, min(month) as m from marts.fct_treasury_covenants
+                      where status = 'breach' and month >= (select max(month) from marts.fct_kpi_monthly) group by 1, 2""")
+    for r in cov:
+        out.append({"decision": f"Cure covenant {r['rule_id']}", "evidence": f"{r['description']}: breach from {str(r['m'])[:7]}.",
+                    "options": "Draw on the facility · cut spend · negotiate a waiver", "owner": "CFO", "by": str(r["m"])[:7], "amount": None})
+    return _result(out, "get_contracts, get_vendor_concentration, get_forecast_error_by_driver, driver engine scenarios, "
+                        "fct_customer_margin_monthly, fct_treasury_covenants",
+                   note="Rules over the governed numbers; each decision names the evidence, the options and an owner.")
 
 def get_treasury_sweep(wh):
     """Simulated cash sweeps over the 13-week forecast. Each week the operating account takes the net flow, then:
@@ -2185,8 +2516,10 @@ TOOLS = {
                         "change, e.g. -0.05), win_rate_pct (-0.2 = 20% fewer wins), cycle_days (+30 = deals close a month "
                         "later), price_pct, cogs_pts (cost to serve, share of revenue), hiring_pct (1 = hiring plan, 0 = "
                         "freeze), opex_pct, raise_amount + raise_month (YYYY-MM). Presets: downturn, price_war, gpu_squeeze, "
-                        "lean, breakout. Use for any 'what happens if…' question.",
-                        _p({"preset": {"type": "string", "enum": ["downturn", "price_war", "gpu_squeeze", "lean", "breakout"]},
+                        "lean, breakout, severe_downside, fundraise_delayed (planned round six months late), "
+                        "largest_customer_churn (top customer leaves in 3 months), gpu_price_shock. Use for any "
+                        "'what happens if…' question.",
+                        _p({"preset": {"type": "string", "enum": list(STRESS_PRESETS)},
                             "nrr_pts": {"type": "number"}, "win_rate_pct": {"type": "number"}, "cycle_days": {"type": "integer"},
                             "price_pct": {"type": "number"}, "cogs_pts": {"type": "number"}, "hiring_pct": {"type": "number"},
                             "opex_pct": {"type": "number"}, "raise_amount": {"type": "number"}, "raise_month": {"type": "string"},
@@ -2217,6 +2550,15 @@ TOOLS = {
                            "top": {"type": "integer"}})),
     "explore_options": (explore_options, "The values each explore_ledger filter can take (accounts, departments, entities, "
                         "customers, vendors, entry types, months) and the governed metrics.", _p({})),
+    "get_vendor_concentration": (get_vendor_concentration, "Vendor concentration: trailing billed spend (AP) by vendor, share and "
+                                 "cumulative share, top-1 / top-3 share, HHI, remaining commitment and contract end.",
+                                 _p({"months": {"type": "integer"}})),
+    "get_driver_correlation": (get_driver_correlation, "How operating drivers move together: correlation of monthly "
+                               "changes (audio hours, customers, price and cost per hour, revenue, cost, payroll, opex, "
+                               "headcount, idle GPU, EBITDA) with the strongest pairs.", _p({"months": {"type": "integer"}})),
+    "get_decisions_needed": (get_decisions_needed, "Decisions leadership or the board must make now (renewal save plans, "
+                             "second GPU vendor, forecast assumptions, funding plan, margin-floor repricing, covenants), each "
+                             "with evidence, options, owner and deadline.", _p({})),
     "get_contracts": (get_contracts, "Committed-use customer contracts: RPO, current RPO (next 12 months), contracted ARR "
                       "vs run-rate ARR, burn pace (usage vs commitment), projected shortfall / overage, renewal base, "
                       "revenue at risk, prepaid credit pools; per contract and as a monthly trend.",
@@ -2271,7 +2613,13 @@ TOOLS = {
     "get_forecast_changes": (get_forecast_changes, "How the forecast changed since the previous close: this close's "
                              "forecast vs the one as of last close (same engine and levers), by month, with the starting-point "
                              "drivers that moved, and stored daily snapshots.", _p({"scenario": SCENARIO})),
-    "get_forecast_accuracy": (get_forecast_accuracy, "How accurate past forecasts were (error by line and months ahead).", _p({})),
+    "get_forecast_error_by_driver": (get_forecast_error_by_driver, "Forecast error by DRIVER: the engine re-run as of each "
+                                     "of the last closes vs actuals in DOLLARS, split into existing customers, new customers, services, "
+                                     "cost volume vs cost rate, payroll and other opex, with bias and average error per driver.",
+                                     _p({"versions": {"type": "integer"}, "horizon": {"type": "integer"}})),
+    "get_forecast_accuracy": (get_forecast_accuracy, "How accurate and biased past forecasts were: % error and % bias by P&L "
+                              "line (revenue, cogs, opex, ebitda) and months ahead. Use for 'how biased / accurate were our "
+                              "forecasts'. For which DRIVER caused the error in dollars, use get_forecast_error_by_driver.", _p({})),
     "get_headcount_plan": (get_headcount_plan, "Headcount plan and loaded payroll by month, the open/approved roles, and "
                            "the risk-adjusted workforce plan (hiring probability, start slippage, attrition and backfills, "
                            "merit increases, recruiting and equipment cost) vs plan.",
@@ -2297,13 +2645,16 @@ TOOLS = {
                         "the comp plan version, plus year to date and the customer credits behind them. For plan versions, "
                         "splits, SPIFF programs and deferred commissions (ASC 340-40) use get_commissions_dashboard.", _p({"rep_id": {"type": "string"}, "month": MONTH})),
     "price_deal": (price_deal, "Deal desk pricing check (read-only): revenue, cost and gross margin per product at a "
-                   "discount, the guardrail checks (discount band, margin floor, term, commit) and whether it would "
-                   "auto-approve or need Finance.",
+                   "discount, the guardrail checks (discount band, margin floor, term, commit, payment terms, SLA, unlimited "
+                   "usage, non-standard terms), revenue-recognition flags, the risk view, and who must approve.",
                    _p({"customer": {"type": "string"},
                        "lines": {"type": "array", "items": {"type": "object", "additionalProperties": False,
                                  "properties": {"product_id": {"type": "string", "enum": ["batch_base", "batch_pro", "stream"]},
                                                 "hours_per_month": {"type": "number"}}, "required": ["product_id", "hours_per_month"]}},
-                       "discount_pct": {"type": "number"}, "term_months": {"type": "integer"}, "monthly_commit": {"type": "number"}},
+                       "discount_pct": {"type": "number"}, "term_months": {"type": "integer"}, "monthly_commit": {"type": "number"},
+                       "payment_terms_days": {"type": "integer"}, "sla": {"type": "string", "description": "standard or a description of the custom SLA"},
+                       "unlimited_usage": {"type": "boolean"}, "prepaid_credits": {"type": "boolean"}, "free_months": {"type": "integer"},
+                       "custom_terms": {"type": "string"}},
                       ["customer", "lines"])),
     "get_customer_detail": (get_customer_detail, "Everything about one customer (IDs like SS-001, MM-003, EN-002, FD-001): monthly revenue and margin, invoices "
                             "(open, paid, disputed), payments, lifecycle events, projects and open alerts.",

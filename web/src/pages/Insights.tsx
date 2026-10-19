@@ -119,6 +119,8 @@ function DriversBody() {
         </Card>
       </div>
       <DriverTree />
+      <DriverCorrelation />
+      <VendorConcentration />
       <Card title="Headcount bridge" sub="By department: opening + hires − leavers = closing">
         <DataTable rows={hc} columns={[{ key: 'department_id', label: 'Department' }, { key: 'opening', unit: 'count' }, { key: 'hires', unit: 'count' }, { key: 'leavers', unit: 'count' }, { key: 'closing', unit: 'count' }, { key: 'hires_ytd', label: 'Hires YTD', unit: 'count' }, { key: 'leavers_ytd', label: 'Leavers YTD', unit: 'count' }]} />
         <Source data={d.data} />
@@ -196,6 +198,7 @@ export function CeoOnePager() {
         <Card title="Top 5 opportunities" sub="Upside in dollars a year">{list((d.data.opportunities ?? []) as Row[], 'var(--good)')}</Card>
         <Card title="Top 5 risks" sub="Exposure in dollars">{list((d.data.risks ?? []) as Row[], 'var(--bad)')}</Card>
       </div>
+      <Decisions />
       <Source data={d.data} />
     </div>
   )
@@ -232,6 +235,92 @@ export function DriverTree() {
         )
       })}
       <Source data={d.data} />
+    </Card>
+  )
+}
+
+// Vendor concentration: how much of spend sits with one or two vendors, and what is still committed to them.
+export function VendorConcentration() {
+  const d = useTool('get_vendor_concentration')
+  if (!d.data) return <Card title="Vendor concentration"><Loading state={d} /></Card>
+  const sm = d.data.summary as Row
+  return (
+    <Card title="Vendor concentration" sub={`Billed spend over ${String(d.data.months)} months · top vendor ${(Number(sm.top1_share) * 100).toFixed(1)}% · HHI ${Number(sm.hhi).toLocaleString()} (${String(sm.concentration)}; above 2,500 is high)`}>
+      <div className="grid cols-2">
+        <Donut rows={(d.data.rows ?? []) as Row[]} dim="vendor_id" measure="spend" />
+        <DataTable rows={(d.data.rows ?? []) as Row[]} columns={[{ key: 'vendor_id' }, { key: 'spend', unit: 'usd' }, { key: 'share', unit: 'ratio' }, { key: 'cumulative_share', label: 'Cumulative', unit: 'ratio' }, { key: 'remaining_commitment', label: 'Still committed', unit: 'usd' }, { key: 'contract_end' }]} />
+      </div>
+      <Source data={d.data} />
+    </Card>
+  )
+}
+
+// Driver correlation: which operating drivers move together, month over month.
+export function DriverCorrelation() {
+  const d = useTool('get_driver_correlation')
+  if (!d.data) return <Card title="How drivers move together"><Loading state={d} /></Card>
+  const cols = (d.data.columns ?? []) as { key: string; label: string }[]
+  const cell = (v: unknown) => {
+    if (v == null) return <span className="muted">—</span>
+    const n = Number(v)
+    const bg = n >= 0 ? `rgba(47, 158, 107, ${Math.abs(n) * 0.55})` : `rgba(209, 73, 91, ${Math.abs(n) * 0.55})`
+    return <span style={{ display: 'block', textAlign: 'center', background: bg, borderRadius: 4, padding: '2px 0' }}>{n.toFixed(2)}</span>
+  }
+  return (
+    <Card title="How drivers move together" sub={`Correlation of month-over-month changes over ${String(d.data.months)} months · green moves together, red moves opposite · not causation`}>
+      <div className="grid cols-2">
+        <DataTable rows={(d.data.strongest_pairs ?? []) as Row[]} columns={[{ key: 'driver_a', label: 'Driver' }, { key: 'driver_b', label: 'Moves with' }, { key: 'correlation', render: (r) => cell(r.correlation) }, { key: 'strength', chip: true }]} />
+        <div style={{ overflowX: 'auto' }}>
+          <table className="cohort">
+            <thead><tr><th />{cols.map((c) => <th key={c.key} title={c.label}>{c.label.split(' ').map((w) => w[0]).join('')}</th>)}</tr></thead>
+            <tbody>{((d.data.rows ?? []) as Row[]).map((r) => (
+              <tr key={String(r.driver)}><th style={{ textAlign: 'left', whiteSpace: 'nowrap' }}>{String(r.driver)}</th>{cols.map((c) => <td key={c.key}>{cell(r[c.key])}</td>)}</tr>
+            ))}</tbody>
+          </table>
+        </div>
+      </div>
+      <Source data={d.data} />
+    </Card>
+  )
+}
+
+// Forecast error by driver: which assumption the forecast keeps getting wrong.
+export function ForecastErrorByDriver() {
+  const d = useTool('get_forecast_error_by_driver')
+  if (!d.data) return <Card title="Forecast error by driver"><Loading state={d} /></Card>
+  const label: Record<string, string> = { existing_customers: 'Existing customers (retention, expansion)', new_customers: 'New customers (pipeline)', services: 'Services',
+    cost_volume: 'Cost: volume', cost_rate: 'Cost: rate per revenue $', payroll: 'Payroll (hiring)', other_opex: 'Other opex', revenue: 'Revenue (total)', ebitda: 'EBITDA (total)' }
+  const summary = ((d.data.summary ?? []) as Row[]).map((r) => ({ ...r, driver_label: label[String(r.driver)] ?? r.driver }))
+  return (
+    <Card title="Forecast error by driver" sub={`The forecast re-run as of each of the last ${String(d.data.versions)} closes vs what closed, ${String(d.data.horizon)} months ahead · positive = forecast too high · biggest miss: ${label[String(d.data.biggest_driver)] ?? ''}`}>
+      <div className="grid cols-2">
+        <Bars rows={summary.filter((r) => !['revenue', 'ebitda'].includes(String(r.driver)))} dim="driver_label" measure="avg_abs_error" />
+        <DataTable rows={summary} columns={[{ key: 'driver_label', label: 'Driver' }, { key: 'bias', label: 'Bias (avg)', unit: 'usd' }, { key: 'avg_abs_error', label: 'Avg abs error', unit: 'usd' }, { key: 'share_of_abs_ebitda_error', label: 'Share of error', unit: 'ratio' }]} />
+      </div>
+      <DataTable title="forecast_error_by_driver" rows={(d.data.rows ?? []) as Row[]} columns={[{ key: 'as_of' }, { key: 'month' }, { key: 'months_ahead', label: 'Ahead' }, { key: 'existing_customers', label: 'Existing', unit: 'usd' }, { key: 'new_customers', label: 'New', unit: 'usd' },
+        { key: 'services', unit: 'usd' }, { key: 'cost_volume', unit: 'usd' }, { key: 'cost_rate', unit: 'usd' }, { key: 'payroll', unit: 'usd' }, { key: 'other_opex', unit: 'usd' }, { key: 'ebitda', label: 'EBITDA', unit: 'usd' }, { key: 'revenue_error_pct', label: 'Revenue error %', unit: 'ratio' }]} />
+      <Source data={d.data} />
+    </Card>
+  )
+}
+
+// Decisions needed now: each with its evidence, options, owner and deadline (the same list the board pack prints).
+function Decisions() {
+  const d = useTool('get_decisions_needed')
+  if (!d.data) return <Card title="Decisions needed"><Loading state={d} /></Card>
+  return (
+    <Card title="Decisions needed" sub="Built from rules over the governed numbers; the board pack prints the same list">
+      {((d.data.rows ?? []) as Row[]).map((x, i) => (
+        <div key={String(x.decision)} className="onepager-item">
+          <span className="rank">{i + 1}</span>
+          <div>
+            <div><b>{String(x.decision)}</b> <span className="muted">· {String(x.owner)} · by {String(x.by)}</span></div>
+            <div className="muted">{String(x.evidence)}</div>
+            <div className="muted">Options: {String(x.options)}</div>
+          </div>
+          <span className="amt">{x.amount != null ? usd(Number(x.amount)) : ''}</span>
+        </div>
+      ))}
     </Card>
   )
 }

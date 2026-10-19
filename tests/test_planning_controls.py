@@ -87,3 +87,51 @@ def test_explore_ledger_totals_tie(wh):
     assert by_acct["total"] == by_month["total"] > 0
     assert [r["month"] for r in by_month["rows"]] == ["2026-04", "2026-05", "2026-06"]
     assert tools.explore_ledger(wh, group_by="nope")["rows"] == []
+
+
+def test_new_stress_presets(wh):
+    churn = tools.run_stress_test(wh, preset="largest_customer_churn")
+    assert churn["preset_detail"]["customer_id"] and churn["scenario"]["revenue_12m"] < churn["baseline"]["revenue_12m"]
+    late = tools.run_stress_test(wh, preset="fundraise_delayed")
+    assert late["preset_detail"]["delayed_close"] > late["preset_detail"]["planned_close"]
+    for p in ("severe_downside", "gpu_price_shock"):
+        r = tools.run_stress_test(wh, preset=p)
+        assert r["scenario"]["ebitda_12m"] < r["baseline"]["ebitda_12m"]
+
+
+def test_employee_workforce_ties_to_department_plan(wh):
+    first = wh.query("""select (select sum(expected_loaded_cost) from marts.fct_workforce_employee_monthly
+                                where month = (select min(month) from marts.fct_workforce_employee_monthly)) as emp,
+                               (select sum(expected_payroll) from marts.fct_workforce_plan_monthly
+                                where month = (select min(month) from marts.fct_workforce_plan_monthly)) as dept""")[0]
+    assert abs(first["emp"] - first["dept"]) < 1
+    assert tools.get_headcount_plan(wh)["workforce_next_12m"]["promotion_cost"] > 0
+
+
+def test_deal_desk_non_standard_terms(wh):
+    r = tools.price_deal(wh, "New Co", [{"product_id": "stream", "hours_per_month": 30000}], payment_terms_days=90,
+                         unlimited_usage=True, prepaid_credits=True)
+    failed = {c["rule"] for c in r["checks"] if not c["passed"]}
+    assert {"PAYMENT-TERMS", "UNLIMITED"} <= failed and "CFO" in r["approvers"]
+    assert {f["flag"] for f in r["revrec_flags"]} >= {"Stand-ready obligation", "Breakage on prepaid credits"}
+
+
+def test_forecast_error_by_driver_adds_up(wh):
+    r = tools.get_forecast_error_by_driver(wh)
+    assert r["rows"]
+    for x in r["rows"]:
+        assert abs(x["existing_customers"] + x["new_customers"] + x["services"] - x["revenue"]) < 1
+
+
+def test_vendor_concentration_and_correlation(wh):
+    v = tools.get_vendor_concentration(wh)["summary"]
+    assert 0 < v["top1_share"] <= 1 and 0 < v["hhi"] <= 10000
+    c = tools.get_driver_correlation(wh)
+    assert all(-1 <= p["correlation"] <= 1 for p in c["strongest_pairs"])
+
+
+def test_decisions_and_evidence_drill(wh):
+    d = tools.get_decisions_needed(wh)["rows"]
+    assert d and all(x["owner"] and x["options"] for x in d)
+    ev = tools.answer_evidence(wh, "Revenue rose", [("get_customer_detail", {"customer_id": "EN-001"}, {})], [])
+    assert any(x["args"].get("customer_id") == "EN-001" for x in ev["drill"])

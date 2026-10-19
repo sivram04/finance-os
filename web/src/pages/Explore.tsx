@@ -48,11 +48,21 @@ function Ledger() {
   const opts = useTool('explore_options')
   const o = (opts.data ?? {}) as Record<string, unknown>
   const months = (o.months ?? []) as string[]
-  const [q, setQ] = useState<Q>({ group_by: 'account', account_type: 'opex' })
+  // a link (e.g. "Show transactions" under an assistant answer) can open Explore with filters: #explore?customer_id=EN-001
+  const fromLink = (): Q | null => {
+    const qs = location.hash.split('?')[1]
+    return qs ? { group_by: 'account', ...Object.fromEntries(new URLSearchParams(qs)) } : null
+  }
+  const [q, setQ] = useState<Q>(() => fromLink() ?? { group_by: 'account', account_type: 'opex' })
   const [run, setRun] = useState<Q>(q)
   useEffect(() => {  // default range: the last 12 months
     if (months.length && !q.start_month) { const next = { ...q, start_month: months[Math.max(0, months.length - 12)], end_month: months.at(-1)! }; setQ(next); setRun(next) }
   }, [months.length])  // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const onHash = () => { const l = fromLink(); if (l) { setQ(l); setRun(l) } }
+    window.addEventListener('hashchange', onHash)
+    return () => window.removeEventListener('hashchange', onHash)
+  }, [])
   const args = useMemo(() => Object.fromEntries(Object.entries(run).filter(([, v]) => v)), [run])
   const r = useTool('explore_ledger', args)
   const set = (k: string) => (v: string) => setQ({ ...q, [k]: v })

@@ -18,6 +18,14 @@ and adds the risk view a deal desk reviews (risk(), informational, not a guardra
   commission impact           first-year commission at the plan in effect, as a share of first-year gross margin,
                               and months of gross margin to earn it back
   discount distribution       where this discount sits among the discounts customers actually got (last 12 months)
+and the non-standard terms a quote may carry (each one outside policy routes it to its approver):
+  PAYMENT-TERMS  payment terms within the policy maximum (seeds/deal_policy.csv MAX-PAYMENT-DAYS)
+  SLA            standard SLA only; a custom SLA (service credits, uptime promises) goes to Finance and Legal
+  UNLIMITED      no unlimited-usage clause, ever auto-approved (cost has no ceiling)
+  CUSTOM-TERMS   any free-text non-standard term goes to Legal
+plus revenue-recognition flags (ASC 606) the controller reviews before signature: unlimited usage (stand-ready
+obligation, ratable), prepaid credits that expire (breakage), free months or ramps (variable consideration spread over
+the term), SLA service credits (variable consideration), payment terms over a year (significant financing component).
 Inside every guardrail → auto-approved. Outside any → routed to Finance with the reasons (an approval card in the
 workspace, decided and audited like every other action). quote_pdf() renders the quote / order form.
 """
@@ -155,6 +163,13 @@ def evaluate(wh, deal):
     floor = (sum(_d(l["floor_pct"]) * _d(l["monthly_revenue"]) for l in lines) / rev if rev else Decimal(0)) + policy.get("MARGIN-BUFFER", Decimal(0))
     band = next((b for b in bands if _d(b["min_hours_month"]) <= hours < _d(b["max_hours_month"])), bands[-1])
     max_disc = _d(band["max_discount_pct"])
+    pay_days = int(deal.get("payment_terms_days") or 30)
+    sla = (deal.get("sla") or "standard").lower()
+    unlimited = bool(deal.get("unlimited_usage"))
+    prepaid = bool(deal.get("prepaid_credits"))
+    free_months = int(deal.get("free_months") or 0)
+    custom = (deal.get("custom_terms") or "").strip()
+    max_pay = int(policy.get("MAX-PAYMENT-DAYS", Decimal(45)))
     checks = [
         {"rule": "DISCOUNT", "passed": disc <= max_disc,
          "detail": f"{disc:.1%} discount vs {max_disc:.0%} allowed for {hours:,.0f} hours/month ({band['band_id']})"},
@@ -164,7 +179,28 @@ def evaluate(wh, deal):
          "detail": f"{term} months vs {int(policy['MAX-TERM-MONTHS'])} max"},
         {"rule": "COMMIT", "passed": disc == 0 or commit >= rev * policy["MIN-COMMIT-PCT"],
          "detail": f"minimum commit {_money(commit)}/month vs {_money(rev * policy['MIN-COMMIT-PCT'])} required for a discount"},
+        {"rule": "PAYMENT-TERMS", "passed": pay_days <= max_pay, "approver": "Finance",
+         "detail": f"net {pay_days} days vs net {max_pay} policy"},
+        {"rule": "SLA", "passed": sla == "standard", "approver": "Finance + Legal",
+         "detail": "standard SLA" if sla == "standard" else f"custom SLA ({sla}): service credits and uptime promises need review"},
+        {"rule": "UNLIMITED", "passed": not unlimited, "approver": "CFO",
+         "detail": "usage is metered" if not unlimited else "unlimited usage: cost to serve has no ceiling"},
+        {"rule": "CUSTOM-TERMS", "passed": not custom, "approver": "Legal",
+         "detail": "no non-standard terms" if not custom else f"non-standard terms: {custom}"},
     ]
+    revrec = []
+    if unlimited:
+        revrec.append({"flag": "Stand-ready obligation", "detail": "Unlimited usage is recognized ratably over the term, not as used; margin falls if usage grows."})
+    if prepaid:
+        revrec.append({"flag": "Breakage on prepaid credits", "detail": "Credits that expire unused: estimate breakage and recognize it in proportion to usage (ASC 606-10-55-48)."})
+    if free_months:
+        revrec.append({"flag": "Free months: variable consideration", "detail": f"{free_months} free month(s): total consideration is spread over the full {term}-month term; revenue in free months is not zero."})
+    if sla != "standard":
+        revrec.append({"flag": "SLA service credits", "detail": "Expected service credits reduce the transaction price (variable consideration, constrained)."})
+    if pay_days > 365:
+        revrec.append({"flag": "Significant financing component", "detail": "Payment more than a year after delivery: separate the interest element."})
+    if commit and term > 12:
+        revrec.append({"flag": "RPO disclosure", "detail": f"Committed minimum of {_money(commit)}/month for {term} months is remaining performance obligation."})
     failed = [c for c in checks if not c["passed"]]
     out = {
         "customer": deal.get("customer"), "lines": lines, "discount_pct": float(disc), "term_months": term,
@@ -173,6 +209,10 @@ def evaluate(wh, deal):
         "annual_revenue": float(rev * 12), "contract_value": float(rev * term), "band": band["band_id"],
         "checks": checks, "route": "finance_review" if failed else "auto_approve",
         "reasons": [c["detail"] for c in failed],
+        "approvers": sorted({c.get("approver", "Finance") for c in failed}),
+        "terms": {"payment_terms_days": pay_days, "sla": sla, "unlimited_usage": unlimited, "prepaid_credits": prepaid,
+                  "free_months": free_months, "custom_terms": custom or None},
+        "revrec_flags": revrec,
     }
     out["risk"] = risk(wh, out, policy)
     return out

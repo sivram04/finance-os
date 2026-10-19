@@ -108,11 +108,13 @@ def stress_test(base, levers, months=24):
           wins), cycle_days (+30 = deals close a month later), price_pct (applies to all usage revenue), cogs_pts
           (cost to serve as share of revenue), hiring_pct (share of planned new payroll that happens, 1 = plan),
           opex_pct (other opex change), opex_growth_monthly (when set, other opex grows from today's run rate at this
-          rate instead of following the plan), services_pct (services revenue change), raise_amount and raise_month (YYYY-MM).
+          rate instead of following the plan), services_pct (services revenue change), raise_amount and raise_month
+          (YYYY-MM), lost_mrr + lost_month (a customer worth lost_mrr of today's MRR leaves in that month).
     New sales-led customers ramp usage over three months (1/3, 2/3, full) starting the month after close.
     """
     lv = {"nrr_pts": 0.0, "win_rate_pct": 0.0, "cycle_days": 0, "price_pct": 0.0, "cogs_pts": 0.0, "hiring_pct": 1.0,
-          "opex_pct": 0.0, "opex_growth_monthly": None, "services_pct": 0.0, "raise_amount": 0.0, "raise_month": None, **{k: v for k, v in (levers or {}).items() if v is not None}}
+          "opex_pct": 0.0, "opex_growth_monthly": None, "services_pct": 0.0, "raise_amount": 0.0, "raise_month": None,
+          "lost_mrr": 0.0, "lost_month": None, **{k: v for k, v in (levers or {}).items() if v is not None}}
     shown, months = months, max(months, RUNWAY_HORIZON)
     y, m = int(base["start_month"][:4]), int(base["start_month"][5:7])
     labels = []
@@ -142,6 +144,8 @@ def stress_test(base, levers, months=24):
     rows, cohort = [], []
     for i, lab in enumerate(labels):
         existing *= 1 + monthly_net
+        if lv["lost_month"] == lab:  # the lost customer, grown at the same net rate since today
+            existing -= min(existing, lv["lost_mrr"] * (1 + monthly_net) ** (i + 1))
         existing += base["self_serve_new_mrr"]
         cohort.append(new_arr[i] / 12)
         sales_led = sum(c * min(1.0, (i - k) / 3) for k, c in enumerate(cohort) if i - k >= 1)
@@ -161,14 +165,16 @@ def stress_test(base, levers, months=24):
         rows.append({"month": lab, "revenue": round(revenue, 2), "arr": round(usage * 12, 2), "new_arr_booked": round(new_arr[i], 2),
                      "cogs": round(cogs, 2), "payroll": round(payroll, 2), "other_opex": round(opex_other, 2),
                      "ebitda": round(ebitda, 2), "financing": financing, "cash": round(cash, 2),
-                     "cash_no_raise": round(cash_no_raise, 2)})
+                     "cash_no_raise": round(cash_no_raise, 2),
+                     "existing_usage": round(existing * (1 + lv["price_pct"]), 2), "new_usage": round(sales_led * (1 + lv["price_pct"]), 2),
+                     "services": round(base["services"] * (1 + lv["services_pct"]), 2)})
     out = next((i for i, r in enumerate(rows) if r["cash"] < 0), None)
     out_month = rows[out]["month"] if out is not None else None
     out_nr = next((i for i, r in enumerate(rows) if r["cash_no_raise"] < 0), None)
     full, rows = rows, rows[:shown]
     return {"rows": rows, "levers": lv, "summary": {
         "revenue_12m": round(sum(r["revenue"] for r in rows[:12]), 2), "ebitda_12m": round(sum(r["ebitda"] for r in rows[:12]), 2),
-        "arr_end": rows[-1]["arr"], "arr_12m": rows[min(11, months - 1)]["arr"], "min_cash": min(r["cash"] for r in rows),
+        "arr_end": rows[-1]["arr"], "arr_12m": rows[min(11, len(rows) - 1)]["arr"], "min_cash": min(r["cash"] for r in rows),
         "cash_end": rows[-1]["cash"], "cash_out_month": out_month,
         "runway_months": out + 1 if out is not None else None,
         "runway_months_no_raise": out_nr + 1 if out_nr is not None else None,

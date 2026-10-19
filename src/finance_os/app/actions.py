@@ -71,19 +71,22 @@ def propose_cash_application_fix(wh: Warehouse, state: AppState, cid, payment_id
 
 
 def submit_deal(wh: Warehouse, state: AppState, cid, customer, lines, discount_pct, term_months, monthly_commit,
-                note="Submitted from the deal desk"):
+                note="Submitted from the deal desk", payment_terms_days=30, sla="standard", unlimited_usage=False,
+                prepaid_credits=False, free_months=0, custom_terms=None):
     """Price the deal, store it, and route it: inside the guardrails it is approved by the rules (audited);
     outside them it becomes a pending approval card for Finance with the reasons."""
     from finance_os import dealdesk
     deal = {"customer": customer, "lines": lines, "discount_pct": discount_pct, "term_months": term_months,
-            "monthly_commit": monthly_commit}
+            "monthly_commit": monthly_commit, "payment_terms_days": payment_terms_days, "sla": sla,
+            "unlimited_usage": unlimited_usage, "prepaid_credits": prepaid_credits, "free_months": free_months,
+            "custom_terms": custom_terms}
     ev = dealdesk.evaluate(wh, deal)
     if ev.get("error"):
         return ev
     did = state.save_deal(customer, deal, ev)
     preview = (f"Deal {did} for {customer}: {ev['discount_pct']:.1%} off, {ev['term_months']} months, "
                f"${ev['monthly_revenue']:,.2f}/month at {ev['gross_margin_pct']:.1%} gross margin. "
-               + ("Inside all guardrails." if ev["route"] == "auto_approve" else "Needs Finance: " + "; ".join(ev["reasons"])))
+               + ("Inside all guardrails." if ev["route"] == "auto_approve" else f"Needs {', '.join(ev['approvers'])}: " + "; ".join(ev["reasons"])))
     aid = state.propose(cid, "deal_approval", did, {"evaluation": ev, "note": note}, preview)
     state.link_deal_action(did, aid)
     if ev["route"] == "auto_approve":
@@ -92,16 +95,23 @@ def submit_deal(wh: Warehouse, state: AppState, cid, customer, lines, discount_p
             "status": "approved by the rules" if ev["route"] == "auto_approve" else "pending: approval card shown to Finance"}
 
 
-def propose_commission_dispute(wh: Warehouse, state: AppState, cid, rep_id, month, customer_id, claim):
-    """A rep disputes a statement line (FR-10.3): recorded as an approval card for Finance to resolve."""
+def propose_commission_dispute(wh: Warehouse, state: AppState, cid, rep_id, month, customer_id, claim, claimed_amount=None):
+    """A rep disputes a statement line (FR-10.3): recorded as an approval card for Finance to resolve. The card carries
+    what the statement credited the rep for that customer and month, so the reviewer sees both sides."""
     rows = wh.query("""select rep_id, month, commission_total from marts.fct_commission_statement_monthly
                        where rep_id = ? and month = ?::date""", [rep_id, f"{month}-01" if len(month) == 7 else month])
     if not rows:
         return {"error": f"No statement for {rep_id} in {month}. Use get_commissions to list statements."}
-    preview = f"Commission dispute from {rep_id} for {month} on {customer_id}: {claim}"
-    return _proposed(state, cid, "commission_dispute", f"{rep_id}/{month}/{customer_id}",
-                     {"rep_id": rep_id, "month": month, "customer_id": customer_id, "claim": claim,
-                      "statement_total": rows[0]["commission_total"]}, preview)
+    m = f"{month}-01" if len(month) == 7 else month
+    credit = wh.query("""select coalesce(sum(credited_arr), 0) as credited_arr, coalesce(sum(comp_credit), 0) as comp_credit
+                         from marts.int_sales_credits where rep_id = ? and month = ?::date and customer_id = ?""", [rep_id, m, customer_id])[0]
+    preview = (f"Commission dispute from {rep_id} for {month[:7]} on {customer_id}: {claim}"
+               + (f" (claims ${float(claimed_amount):,.2f})" if claimed_amount else "")
+               + f". Statement credited ${float(credit['credited_arr']):,.2f} ARR for this customer.")
+    return _proposed(state, cid, "commission_dispute", f"{rep_id}/{month[:7]}/{customer_id}",
+                     {"rep_id": rep_id, "month": month[:7], "customer_id": customer_id, "claim": claim,
+                      "claimed_amount": claimed_amount, "statement_total": rows[0]["commission_total"],
+                      "credited_arr": credit["credited_arr"], "comp_credit": credit["comp_credit"]}, preview)
 
 
 DECISION = {"type": "string", "enum": ["approve", "reject"]}
@@ -113,7 +123,10 @@ DEAL_LINES = {"type": "array", "items": {"type": "object", "additionalProperties
                                         "required": ["product_id", "hours_per_month"]}}
 DEAL_PROPS = {"customer": {"type": "string"}, "lines": DEAL_LINES,
               "discount_pct": {"type": "number", "description": "0.15 = 15% off list"},
-              "term_months": {"type": "integer"}, "monthly_commit": {"type": "number", "description": "Monthly minimum commit in $"}}
+              "term_months": {"type": "integer"}, "monthly_commit": {"type": "number", "description": "Monthly minimum commit in $"},
+              "payment_terms_days": {"type": "integer"}, "sla": {"type": "string", "description": "standard or a description of the custom SLA"},
+                       "unlimited_usage": {"type": "boolean"}, "prepaid_credits": {"type": "boolean"}, "free_months": {"type": "integer"},
+                       "custom_terms": {"type": "string"}}
 
 ACTIONS = {
     "propose_commission_dispute": (

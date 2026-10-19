@@ -36,6 +36,7 @@ export interface UploadedDoc {
 }
 
 export interface Evidence {
+  drill?: { label: string; args: Record<string, string> }[]
   sources: string[]
   filters: { tool: string; args: Record<string, unknown> }[]
   metrics: { metric: string; label: string; version: number; effective_from: string; owner: string }[]

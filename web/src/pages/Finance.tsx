@@ -7,6 +7,7 @@ import { Area, AreaChart, Bar, BarChart, CartesianGrid, Legend, Line, LineChart,
 import { api, fmt, type Row } from '../api'
 import { Bars, Columns, Dash, Donut, GroupedBars, KpiRow, Trend, useFiltered } from '../components/Dash'
 import { AskButton, Card, Chip, DataTable, Loading, Source, useTool, useWorkspace, type Page } from '../components/common'
+import { ForecastErrorByDriver } from './Insights'
 
 const AXIS = { tick: { fontSize: 11, fill: 'var(--faint)' }, tickLine: false, axisLine: false } as const
 const TIP = { contentStyle: { background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 } }
@@ -87,6 +88,7 @@ export function Plan() {
         <Source data={f.data} />
       </Card>
       <ForecastChanges scenario={scenario} />
+      <ForecastErrorByDriver />
       <div className="grid cols-2">
         <Card title="Forecast accuracy" sub="Past base forecasts vs what actually closed · positive = forecast too high">
           {acc.data ? <DataTable rows={acc.data.rows} columns={[{ key: 'line' }, { key: 'months_ahead', label: 'Months ahead' }, { key: 'n', label: 'Versions' }, { key: 'avg_error_pct', label: 'Avg error (bias)', unit: 'ratio' }, { key: 'avg_abs_error_pct', label: 'Avg abs error', unit: 'ratio' }]} /> : <Loading state={acc} />}
@@ -102,6 +104,13 @@ export function Plan() {
             <DataTable rows={hc.data.workforce_by_department as Row[]} columns={[{ key: 'department_id', label: 'Dept' }, { key: 'attrition_rate', label: 'Attrition (planning)', unit: 'ratio' }, { key: 'measured_attrition', label: 'Measured', unit: 'ratio' }, { key: 'plan_headcount', label: 'Plan heads (12 mo)', unit: 'count' }, { key: 'expected_headcount', label: 'Expected heads' }, { key: 'variance_to_plan', label: 'Monthly cost vs plan', unit: 'usd' }]} />
           </div>
           <Source data={hc.data} />
+        </Card>
+      ) : null}
+      {hc.data?.employees ? (
+        <Card title="By employee and open role" sub={`Next 12 months, probability-weighted · promotions ${usd((hc.data.workforce_next_12m as Row).promotion_cost)} · employer tax on vesting equity ${usd((hc.data.workforce_next_12m as Row).equity_employer_cost)} · all-in people cost ${usd((hc.data.workforce_next_12m as Row).expected_people_cost_all_in)}`}>
+          <DataTable title="workforce_employees" rows={hc.data.employees as Row[]} columns={[{ key: 'employee_id', label: 'ID' }, { key: 'employee_name', label: 'Name' }, { key: 'department_id', label: 'Dept', chip: true }, { key: 'title' }, { key: 'kind', chip: true },
+            { key: 'stay_or_fill_probability', label: 'Stay / fill prob.', unit: 'ratio' }, { key: 'salary_after_review', label: 'Salary after review', unit: 'usd' }, { key: 'expected_cost_12m', label: 'Expected cost (12 mo)', unit: 'usd' },
+            { key: 'promotion_cost_12m', label: 'Promotions', unit: 'usd' }, { key: 'equity_employer_cost_12m', label: 'Equity tax', unit: 'usd' }]} />
         </Card>
       ) : null}
       <div className="grid cols-2">
@@ -500,11 +509,12 @@ export function DealDesk() {
   const [discount, setDiscount] = useState(10)
   const [term, setTerm] = useState(24)
   const [commit, setCommit] = useState(5000)
+  const [terms, setTerms] = useState({ payment_terms_days: 30, sla: 'standard', unlimited_usage: false, prepaid_credits: false, free_months: 0, custom_terms: '' })
   const [ev, setEv] = useState<Row | null>(null)
   const [msg, setMsg] = useState<string>()
   const [deals, setDeals] = useState<Row[]>([])
   const { refreshKey, refresh } = useWorkspace()
-  const body = () => ({ customer, discount_pct: discount / 100, term_months: term, monthly_commit: commit,
+  const body = () => ({ customer, discount_pct: discount / 100, term_months: term, monthly_commit: commit, ...terms, custom_terms: terms.custom_terms || null,
     lines: PRODUCTS.filter((p) => hours[p] > 0).map((p) => ({ product_id: p, hours_per_month: hours[p] })) })
   const post = (url: string) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body()) }).then((r) => r.json())
   const check = () => post('/api/deals/evaluate').then(setEv)
@@ -523,6 +533,12 @@ export function DealDesk() {
           <label>Discount %<br />{num(discount, setDiscount)}</label>
           <label>Term (months)<br />{num(term, setTerm)}</label>
           <label>Monthly minimum commit $<br />{num(commit, setCommit)}</label>
+          <label>Payment terms (days)<br />{num(terms.payment_terms_days, (n) => setTerms({ ...terms, payment_terms_days: n }))}</label>
+          <label>SLA<br /><select value={terms.sla === 'standard' ? 'standard' : 'custom'} onChange={(e) => setTerms({ ...terms, sla: e.target.value === 'standard' ? 'standard' : '99.99% uptime with service credits' })}><option value="standard">Standard</option><option value="custom">Custom (uptime + credits)</option></select></label>
+          <label>Free months<br />{num(terms.free_months, (n) => setTerms({ ...terms, free_months: n }))}</label>
+          <label><input type="checkbox" checked={terms.unlimited_usage} onChange={(e) => setTerms({ ...terms, unlimited_usage: e.target.checked })} /> Unlimited usage</label>
+          <label><input type="checkbox" checked={terms.prepaid_credits} onChange={(e) => setTerms({ ...terms, prepaid_credits: e.target.checked })} /> Prepaid credits (expire)</label>
+          <label>Other non-standard terms<br /><input value={terms.custom_terms} placeholder="e.g. MFN pricing, termination for convenience" onChange={(e) => setTerms({ ...terms, custom_terms: e.target.value })} /></label>
         </div>
         <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
           <button className="btn" onClick={check}>Check deal</button>
@@ -537,17 +553,22 @@ export function DealDesk() {
             <Kpi label="Gross margin" value={`${((ev.gross_margin_pct as number) * 100).toFixed(1)}%`} note={`floor ${((ev.floor_pct as number) * 100).toFixed(1)}%`}
               tone={(ev.gross_margin_pct as number) < (ev.floor_pct as number) ? 'bad' : 'good'} />
             <Kpi label="Contract value" value={usd(ev.contract_value)} note={`${ev.term_months} months`} />
-            <Kpi label="Routing" value={ev.route === 'auto_approve' ? 'Auto-approve' : 'Finance review'} tone={ev.route === 'auto_approve' ? 'good' : 'bad'} />
+            <Kpi label="Routing" value={ev.route === 'auto_approve' ? 'Auto-approve' : `Needs ${((ev.approvers ?? []) as string[]).join(', ')}`} tone={ev.route === 'auto_approve' ? 'good' : 'bad'} />
           </div>
           <div className="grid cols-2">
             <Card title="Guardrails">
-              <DataTable rows={checks} columns={[{ key: 'rule' }, { key: 'passed', render: (r) => <Chip value={r.passed ? 'pass' : 'fail'} /> }, { key: 'detail' }]} />
+              <DataTable rows={checks} columns={[{ key: 'rule' }, { key: 'passed', render: (r) => <Chip value={r.passed ? 'pass' : 'fail'} /> }, { key: 'approver', label: 'If not, approver', render: (r) => String(r.approver ?? 'Finance') }, { key: 'detail' }]} />
             </Card>
             <Card title="Pricing by product">
               <DataTable rows={ev.lines as Row[]} columns={[{ key: 'product_id' }, { key: 'hours_per_month', unit: 'count' }, { key: 'net_price', label: '$/hr', render: (r) => (r.net_price as number).toFixed(4) },
                 { key: 'monthly_revenue', unit: 'usd' }, { key: 'gross_margin_pct', unit: 'ratio' }, { key: 'floor_pct', label: 'Floor', unit: 'ratio' }]} />
             </Card>
           </div>
+          {((ev.revrec_flags ?? []) as Row[]).length ? (
+            <Card title="Revenue recognition flags" sub="For the controller before signature (ASC 606)">
+              <DataTable rows={ev.revrec_flags as Row[]} columns={[{ key: 'flag' }, { key: 'detail' }]} />
+            </Card>
+          ) : null}
           {ev.risk ? <DealRisk risk={ev.risk as Row} /> : null}
         </>
       ) : null}
@@ -637,6 +658,7 @@ function CommissionsBody() {
       <Card title="Credits this year" sub="Which customers earned the credit · split accounts show each rep's share">
         <DataTable rows={(c.data.credits ?? []) as Row[]} columns={[{ key: 'rep_id' }, { key: 'customer_id' }, { key: 'credit_type', chip: true }, { key: 'split_pct', label: 'Split', unit: 'ratio' }, { key: 'billed_revenue', unit: 'usd' }, { key: 'credited_arr', unit: 'usd' }, { key: 'comp_credit', label: 'Comp credit', unit: 'usd' }]} />
       </Card>
+      <Disputes reps={[...new Set(all.map((r) => String(r.rep_id)))].sort()} months={months} credits={(c.data.credits ?? []) as Row[]} />
       <div className="grid cols-2">
         <Card title="Deferred commissions (ASC 340-40)" sub={`Capitalized when earned, amortized over 48 months (new logos, SPIFFs) or 36 (expansion) · balance ${usd(Number((c.data.deferred_summary as Row | undefined)?.balance ?? 0))}, current portion ${usd(Number((c.data.deferred_summary as Row | undefined)?.current_portion ?? 0))}`}>
           <Trend rows={(c.data.deferred ?? []) as Row[]} x="month" series={[{ key: 'deferred_commission_balance', label: 'Deferred balance' }, { key: 'amortization', label: 'Amortization (expense)', color: '#c98a1b' }]} />
@@ -648,6 +670,48 @@ function CommissionsBody() {
         </Card>
       </div>
     </div>
+  )
+}
+
+// Commission disputes: a rep raises one against a statement line; Finance reviews it with both sides on the card
+// (the claim and what the statement credited) and records the resolution. Every step is in the audit log.
+function Disputes({ reps, months, credits }: { reps: string[]; months: string[]; credits: Row[] }) {
+  const [list, setList] = useState<Row[]>([])
+  const [form, setForm] = useState({ rep_id: reps[0] ?? '', month: months.at(-1) ?? '', customer_id: '', claim: '', claimed_amount: '' })
+  const [note, setNote] = useState<Record<string, string>>({})
+  const [msg, setMsg] = useState<string>()
+  const load = () => fetch('/api/commission-disputes').then((r) => r.json()).then(setList)
+  useEffect(() => { load() }, [])
+  useEffect(() => { if (!form.rep_id && reps[0]) setForm((f) => ({ ...f, rep_id: reps[0], month: months.at(-1) ?? '' })) }, [reps.length])  // eslint-disable-line react-hooks/exhaustive-deps
+  const customers = [...new Set(credits.filter((c) => c.rep_id === form.rep_id).map((c) => String(c.customer_id)))].sort()
+  const raise = () => fetch('/api/commission-disputes', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...form, claimed_amount: form.claimed_amount ? Number(form.claimed_amount) : null }) })
+    .then(async (r) => { const j = await r.json(); setMsg(r.ok ? 'Dispute raised: it is waiting for Finance.' : String(j.detail)); load() })
+  const decide = (id: string, d: 'approve' | 'reject') => fetch(`/api/actions/${id}/${d}`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ note: note[id] || (d === 'approve' ? 'Upheld: statement to be adjusted' : 'Not upheld: statement stands') }) }).then(load)
+  return (
+    <Card title="Commission disputes" sub="Reps raise a dispute against a statement line; Finance reviews both sides and records the resolution (audited)">
+      <div className="explore-grid" style={{ marginBottom: 10 }}>
+        <label className="explore-field">Rep<select value={form.rep_id} onChange={(e) => setForm({ ...form, rep_id: e.target.value, customer_id: '' })}>{reps.map((r) => <option key={r}>{r}</option>)}</select></label>
+        <label className="explore-field">Statement month<select value={form.month} onChange={(e) => setForm({ ...form, month: e.target.value })}>{[...months].reverse().map((m) => <option key={m}>{m}</option>)}</select></label>
+        <label className="explore-field">Customer<select value={form.customer_id} onChange={(e) => setForm({ ...form, customer_id: e.target.value })}><option value="">Pick…</option>{customers.map((c) => <option key={c}>{c}</option>)}</select></label>
+        <label className="explore-field">Amount claimed $<input type="number" value={form.claimed_amount} onChange={(e) => setForm({ ...form, claimed_amount: e.target.value })} /></label>
+        <label className="explore-field" style={{ gridColumn: 'span 2' }}>What is wrong<input value={form.claim} placeholder="e.g. expansion credited at 50%, my plan says 75%" onChange={(e) => setForm({ ...form, claim: e.target.value })} /></label>
+      </div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
+        <button className="btn" disabled={!form.customer_id || !form.claim} onClick={raise}>Raise dispute</button>
+        {msg && <span className="muted">{msg}</span>}
+      </div>
+      <DataTable rows={list} empty="No disputes raised." columns={[{ key: 'raised_at', label: 'Raised', render: (r) => String(r.raised_at).slice(0, 10) }, { key: 'rep_id' }, { key: 'month' }, { key: 'customer_id' }, { key: 'claim' },
+        { key: 'claimed_amount', label: 'Claimed', unit: 'usd' }, { key: 'credited_arr', label: 'Statement credit (ARR)', unit: 'usd' }, { key: 'status', chip: true },
+        { key: 'resolution', label: 'Resolution', render: (r) => (r.status === 'pending'
+          ? <span style={{ display: 'flex', gap: 4 }}>
+              <input className="table-search" style={{ width: 160 }} placeholder="Resolution note" value={note[String(r.id)] ?? ''} onChange={(e) => setNote({ ...note, [String(r.id)]: e.target.value })} />
+              <button className="btn small" onClick={() => decide(String(r.id), 'approve')}>Uphold</button>
+              <button className="btn small" onClick={() => decide(String(r.id), 'reject')}>Reject</button>
+            </span>
+          : String(r.resolution ?? '')) }]} />
+    </Card>
   )
 }
 
@@ -961,7 +1025,7 @@ export function Scenarios() {
   const [levers, setLevers] = useState<Record<string, number>>(() => Object.fromEntries(LEVERS.map((l) => [l.key, l.base])))
   const [raise, setRaise] = useState({ amount: 0, month: '2027-06' })
   const [preset, setPreset] = useState<string | null>(null)
-  const args = useMemo(() => ({ ...levers, ...(raise.amount ? { raise_amount: raise.amount, raise_month: raise.month } : {}) }), [levers, raise])
+  const args = useMemo(() => ({ ...levers, ...(preset ? { preset } : {}), ...(raise.amount ? { raise_amount: raise.amount, raise_month: raise.month } : {}) }), [levers, raise, preset])
   const r = useTool('run_stress_test', args)
   const presets = (r.data?.presets ?? {}) as Record<string, Record<string, number | string>>
   const apply = (key: string) => {
@@ -983,6 +1047,12 @@ export function Scenarios() {
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
           {Object.entries(presets).map(([k, p]) => <button key={k} className={`btn ${preset === k ? 'primary' : ''}`} onClick={() => apply(k)}>{String(p.label)}</button>)}
         </div>
+        {preset && presets[preset]?.note ? (
+          <p className="muted" style={{ margin: '0 0 12px' }}>
+            {String(presets[preset].note)}
+            {r.data?.preset_detail ? ` · ${Object.entries(r.data.preset_detail as Row).map(([k, v]) => `${k.replace(/_/g, ' ')}: ${typeof v === 'number' && Math.abs(v) > 1000 ? usd(v) : String(v)}`).join(' · ')}` : ''}
+          </p>
+        ) : null}
         <div className="lever-grid">
           {LEVERS.map((l) => (
             <label key={l.key} className="lever">

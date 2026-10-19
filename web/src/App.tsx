@@ -21,7 +21,7 @@ const SECTIONS: { name: string; pages: [Page, string][] }[] = [
 ]
 
 export default function App() {
-  const [page, setPage] = useState<Page>(() => (location.hash.slice(1) as Page) || 'home')
+  const [page, setPage] = useState<Page>(() => (location.hash.slice(1).split('?')[0] as Page) || 'home')
   const [pending, setPending] = useState<{ text: string; n: number } | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [asOf, setAsOf] = useState<string>()
@@ -45,7 +45,7 @@ export default function App() {
 
   useEffect(() => { api.health().then((h) => { setAsOf(h.data_through); setLiveThrough(h.live_through) }).catch(() => setDown(true)) }, [])
   useEffect(() => {  // links and the Back button change the hash; follow it
-    const onHash = () => setPage((location.hash.slice(1) as Page) || 'home')
+    const onHash = () => setPage((location.hash.slice(1).split('?')[0] as Page) || 'home')
     window.addEventListener('hashchange', onHash)
     return () => window.removeEventListener('hashchange', onHash)
   }, [])

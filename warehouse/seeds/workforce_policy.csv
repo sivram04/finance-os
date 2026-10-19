@@ -1,6 +1,6 @@
-department_id,attrition_benchmark,backfill_lag_months,recruiting_fee_pct,equipment_per_hire,merit_pct,comp_review_month
-ENG,0.13,3,0.20,4500,0.045,4
-INF,0.12,3,0.20,4500,0.045,4
-SAL,0.25,2,0.15,2500,0.035,4
-PS,0.15,2,0.15,2500,0.035,4
-GA,0.12,2,0.12,2500,0.035,4
+department_id,attrition_benchmark,backfill_lag_months,recruiting_fee_pct,equipment_per_hire,merit_pct,comp_review_month,promotion_rate,promotion_uplift_pct,equity_grant_pct,equity_employer_tax_pct
+ENG,0.13,3,0.20,4500,0.045,4,0.15,0.12,0.40,0.0765
+INF,0.12,3,0.20,4500,0.045,4,0.12,0.12,0.35,0.0765
+SAL,0.25,2,0.15,2500,0.035,4,0.10,0.10,0.20,0.0765
+PS,0.15,2,0.15,2500,0.035,4,0.10,0.10,0.15,0.0765
+GA,0.12,2,0.12,2500,0.035,4,0.08,0.10,0.20,0.0765
