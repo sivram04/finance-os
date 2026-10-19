@@ -3,7 +3,8 @@
 -- GPU cost = forecast hours × the rate effective in the forecast month; committed contracts add any shortfall.
 -- Cloud cost grows at its own trend. Growth is computed in floating point; amounts are rounded to cents.
 with last_month as (
-    select max(job_month) as base_month from {{ ref('int_gpu_cost_jobs') }}
+    -- the last closed month: the open month is partial and would read as a fall in usage
+    select {{ closed_through() }} as base_month
 ),
 
 horizon as (

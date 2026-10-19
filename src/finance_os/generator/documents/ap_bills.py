@@ -77,11 +77,13 @@ def build_ap_truth(cfg, bills, bill_lines, sub_bills):
     return docs, doc_lines
 
 
-def render_ap_pdfs(cfg, docs, doc_lines, out_dir: Path, clear=True):
-    """clear=False adds documents to the inbox (the live simulator) instead of replacing it."""
+def render_ap_pdfs(cfg, docs, doc_lines, out_dir: Path, clear=True, keep=()):
+    """clear=False adds documents to the inbox (the live simulator) instead of replacing it. With clear=True, files
+    named in `keep` (documents the live company received) are never deleted: only history documents are replaced."""
     out_dir.mkdir(parents=True, exist_ok=True)
     for old in out_dir.glob("*.pdf") if clear else ():
-        old.unlink()
+        if old.name not in keep:
+            old.unlink()
     layouts = cfg["ap_documents"]["layouts"]
     lines_by_doc = {}
     for l in doc_lines:

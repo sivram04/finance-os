@@ -293,3 +293,25 @@ table.cohort { border-collapse: collapse; font-size: 12px; font-variant-numeric:
 table.cohort th, table.cohort td { padding: 4px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
 table.cohort th { position: sticky; top: 0; background: var(--card); color: var(--faint); font-weight: 500; }
 table.cohort td.num, table.cohort th.num { text-align: right; }
+
+/* Cross-filter dashboards */
+.filter-bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 12px; min-height: 30px; position: sticky; top: 0; z-index: 4;
+  background: var(--bg); padding: 4px 0; }
+.filter-bar.empty { color: var(--faint); }
+.filter-chip { border: 1px solid var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--text); border-radius: 999px;
+  padding: 3px 10px; font: inherit; cursor: pointer; }
+.filter-chip span { margin-left: 4px; color: var(--faint); }
+.donut { display: flex; flex-direction: column; gap: 8px; }
+.donut-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; font-size: 12px; }
+.donut-center b { font-size: 16px; }
+.legend-list { display: flex; flex-direction: column; gap: 2px; }
+.legend-item { display: flex; align-items: center; gap: 8px; font: inherit; font-size: 12px; background: none; border: 0; padding: 3px 6px; border-radius: 6px;
+  color: var(--text); cursor: pointer; text-align: left; text-transform: capitalize; }
+.legend-item:hover, .legend-item.on { background: var(--chip, rgba(127,127,127,.12)); }
+.legend-item i { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+.legend-item span { margin-left: auto; color: var(--faint); font-variant-numeric: tabular-nums; text-transform: none; }
+.kpi-row .card.kpi .note { font-size: 11px; }
+
+/* chart cards never scroll sideways; wide tables scroll inside their own .table-wrap */
+.card-body { overflow-x: hidden; }
+.recharts-wrapper:focus, .recharts-surface:focus, .recharts-wrapper *:focus { outline: none; }

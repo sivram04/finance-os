@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { applyFilters, FilterContext } from './Dash'
 import { api, fmt, label, type Row, type ToolResult } from '../api'
 
 // ---- app context: navigation and handing questions to the assistant ------------------------------
@@ -91,6 +92,10 @@ const PAGE = 15
 export function DataTable({ rows, columns, onRow, empty = 'Nothing here.', title = 'export' }:
   { rows: Row[]; columns: Column[]; onRow?: (r: Row) => void; empty?: string; title?: string }) {
   const { inspect } = useWorkspace()
+  // inside a <Dash> page, the page's cross-filters apply to any table whose rows carry the filtered field
+  const pageFilters = useContext(FilterContext)?.filters
+  const allRows = rows
+  rows = useMemo(() => (pageFilters ? applyFilters(allRows, pageFilters) : allRows), [allRows, pageFilters])
   const [q, setQ] = useState('')
   const [sort, setSort] = useState<{ key: string; dir: 1 | -1 } | null>(null)
   const [filters, setFilters] = useState<Record<string, string>>({})
@@ -117,7 +122,7 @@ export function DataTable({ rows, columns, onRow, empty = 'Nothing here.', title
     return out
   }, [rows, columns, q, filters, sort])
   useEffect(() => setPg(0), [q, filters, sort, rows])
-  if (!rows.length) return <div className="muted">{empty}</div>
+  if (!rows.length) return <div className="muted">{allRows.length ? 'No rows match the page filter.' : empty}</div>
   const numeric = (c: Column) => !c.chip && !c.flag && !c.render && typeof rows.find((r) => r[c.key] != null)?.[c.key] === 'number'
   const toggleSort = (key: string) => setSort((s) => (s?.key === key ? (s.dir === 1 ? { key, dir: -1 } : null) : { key, dir: 1 }))
   const exportCsv = () => {

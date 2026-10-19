@@ -221,10 +221,13 @@ def create_app(state: AppState | None = None, wh: tools.Warehouse | None = None,
         """The workspace reads through the same read-only tools as the assistant, so both show the same numbers."""
         if tool not in tools.TOOLS:
             raise HTTPException(404, f"unknown tool {tool}")
+        token = tools.FULL_ROWS.set(True)  # pages show every row; the 40-row cap is for the assistant's context
         try:
             return tools.run_tool(wh, tool, args or {})
         except TypeError as e:
             raise HTTPException(422, f"bad arguments: {e}")
+        finally:
+            tools.FULL_ROWS.reset(token)
 
     @app.get("/api/workspace/overview")
     def overview():

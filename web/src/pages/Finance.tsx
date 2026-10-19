@@ -1,10 +1,11 @@
 // FP&A, treasury, close, pricing, capital and tax pages. Like the module pages, each reads the same read-only
 // tools the assistant uses, so a number on a page and in an answer always agree.
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { api, fmt, type Row } from '../api'
+import { Bars, Columns, Dash, Donut, GroupedBars, KpiRow, Trend, useFiltered } from '../components/Dash'
 import { AskButton, Card, Chip, DataTable, Loading, Source, useTool, useWorkspace, type Page } from '../components/common'
 
 const AXIS = { tick: { fontSize: 11, fill: 'var(--faint)' }, tickLine: false, axisLine: false } as const
@@ -169,28 +170,59 @@ export function Cash() {
 
 // ---- Close: checklist, accruals, prepaids, revenue recognition ----------------------------------------
 
+// Close (docs/dashboard_spec.md section 5): will we close on time, and what's blocking it?
+const STATE_COLORS: Record<string, string> = { complete: '#2f9e6b', review: '#c98a1b', in_progress: '#3b6fd8', blocked: '#d1495b', overdue: '#d1495b', exceptions: '#d1495b', not_started: '#7a8699' }
+
 export function Close() {
+  return <Dash><CloseBody /></Dash>
+}
+
+function CloseBody() {
+  const cd = useTool('get_close_dashboard')
   const cs = useTool('get_close_status')
   const rr = useTool('get_revenue_recognition')
   const { ask } = useWorkspace()
-  const tasks = (cs.data?.rows ?? []) as Row[]
-  const done = tasks.filter((t) => t.status === 'complete' || t.status === 'not_applicable').length
+  const all = (cd.data?.rows ?? []) as Row[]
+  const rows = useFiltered(all)
+  const recon = (cd.data?.recon ?? []) as Row[]
+  const passing = recon.filter((r) => r.status === 'pass').length
+  const done = rows.filter((t) => t.state === 'complete').length
+  const stuck = rows.filter((t) => t.state !== 'complete')
+  const lastWorkday = Math.max(0, ...all.filter((t) => t.state !== 'complete').map((t) => Number(t.workday)))
+  if (!cd.data) return <div className="page"><Loading state={cd} /></div>
   return (
     <div className="page">
-      <Head title="Month-end close" sub="Close checklist driven by the reconciliations, accruals, prepaid amortization and ASC 606 revenue."
-        ask="Where are we in the month-end close? What's blocking sign-off and what entries still need to be booked?" />
-      <div className="grid cols-4">
-        <Kpi label="Close period" value={cs.data ? String(cs.data.month).slice(0, 7) : '…'} />
-        <Kpi label="Tasks complete" value={cs.data ? `${done} / ${tasks.length}` : '…'} tone={cs.data && done === tasks.length ? 'good' : undefined} />
-        <Kpi label="Accrued, not yet billed" value={cs.data ? usd((cs.data.accruals as Row[]).reduce((a, r) => a + (r.accrued_amount as number), 0)) : '…'} />
-        <Kpi label="ASC 606 adjustment" value={rr.data ? usd((rr.data.rows as Row[])[0]?.revenue_adjustment) : '…'} note="vs revenue booked in the GL" />
+      <Head title="Month-end close" sub={`Will we close ${String(cd.data.month)} on time, and what's blocking it? Click a slice or bar to filter`}
+        ask="Where are we in the month-end close? What's blocking sign-off, who owns it, and what entries still need to be booked?" />
+      <KpiRow items={[
+        { label: 'Close period', value: String(cd.data.month), note: `books as of ${String(cd.data.as_of)}` },
+        { label: 'Tasks complete', value: `${done} / ${rows.length}`, note: `${rows.length ? Math.round((done / rows.length) * 100) : 0}% done`, tone: done === rows.length ? 'good' : 'ok' },
+        { label: 'Blocked or overdue', value: String(stuck.filter((t) => t.state === 'blocked' || t.state === 'overdue').length), note: 'need a decision today', tone: stuck.some((t) => t.state === 'blocked' || t.state === 'overdue') ? 'bad' : 'good' },
+        { label: 'Open items', value: String(rows.reduce((a, t) => a + Number(t.open_items ?? 0), 0)), note: 'exceptions inside open tasks' },
+        { label: 'Reconciliations', value: `${passing} / ${recon.length}`, note: 'passing for the period', tone: passing === recon.length ? 'good' : 'bad' },
+        { label: 'Critical path', value: lastWorkday ? `WD ${lastWorkday}` : 'done', note: 'latest workday with open work', tone: lastWorkday > 5 ? 'bad' : null },
+      ]} />
+      <div className="grid cols-3">
+        <Card title="Where the close stands" sub="Tasks by status · click to filter"><Donut rows={all} dim="state" colors={STATE_COLORS} /></Card>
+        <Card title="Who has open work" sub="Open tasks by owner · click an owner to filter">
+          <Bars rows={all.filter((t) => t.state !== 'complete')} dim="owner"
+            stack={{ key: 'state', values: ['blocked', 'overdue', 'review', 'in_progress', 'not_started', 'exceptions'], colors: STATE_COLORS }} />
+        </Card>
+        <Card title="Workdays to close" sub="Last workday with a completed task, past closes">
+          <Columns rows={(cd.data.history ?? []) as Row[]} x="month" y="last_workday_done" unit="count" color="#3b6fd8" />
+        </Card>
       </div>
       <Card title="Checklist" sub="Status comes from the evidence (reconciliations, schedules, BvA alerts) · click a task to ask about it">
-        {cs.data ? <DataTable rows={tasks} onRow={(r) => ask(`Close task ${r.task_id} (${r.task}) is ${r.status}. What does it need?`)}
-          columns={[{ key: 'task_id', label: '#' }, { key: 'due_date' }, { key: 'owner' }, { key: 'task' }, { key: 'status', render: (r) => <Chip value={String(r.status)} kind={r.status === 'complete' ? 'good' : r.status === 'exceptions' || r.status === 'blocked' ? 'bad' : r.status === 'not_applicable' ? undefined : 'warn'} /> }, { key: 'open_items', unit: 'count' }]} /> : <Loading state={cs} />}
-        <Source data={cs.data} />
+        <DataTable title="close_checklist" rows={all} onRow={(r) => ask(`Close task ${r.task_id} (${r.task}) is ${r.state}. What does it need and who should act?`)}
+          columns={[{ key: 'task_id', label: '#' }, { key: 'workday', label: 'WD' }, { key: 'due_date' }, { key: 'owner' }, { key: 'task' },
+            { key: 'state', label: 'Status', render: (r) => <Chip value={String(r.state).replace('_', ' ')} kind={r.state === 'complete' ? 'good' : r.state === 'blocked' || r.state === 'overdue' || r.state === 'exceptions' ? 'bad' : 'warn'} /> },
+            { key: 'open_items', unit: 'count' }, { key: 'evidence' }]} />
+        <Source data={cd.data} />
       </Card>
-      <div className="grid cols-2">
+      <div className="grid cols-3">
+        <Card title="Reconciliations" sub="This period">
+          <DataTable rows={recon} columns={[{ key: 'check_name' }, { key: 'status', chip: true }]} />
+        </Card>
         <Card title="Accruals" sub="Costs booked before the invoice arrived">
           {cs.data ? <DataTable rows={cs.data.accruals as Row[]} empty="No accruals this month." columns={[{ key: 'vendor_id' }, { key: 'bill_id' }, { key: 'accrued_amount', unit: 'usd' }, { key: 'true_up', unit: 'usd' }]} /> : <Loading state={cs} />}
         </Card>
@@ -200,10 +232,6 @@ export function Close() {
       </div>
       <Card title="Deferred revenue roll-forward (ASC 606)" sub="Opening + billings − revenue = closing">
         {rr.data ? <DataTable rows={rr.data.rows} columns={[{ key: 'month' }, { key: 'opening_net_deferred', label: 'Opening', unit: 'usd' }, { key: 'billings', unit: 'usd' }, { key: 'asc606_revenue', label: 'ASC 606 revenue', unit: 'usd' }, { key: 'closing_net_deferred', label: 'Closing', unit: 'usd' }, { key: 'contract_asset', unit: 'usd' }, { key: 'gl_revenue', label: 'GL revenue', unit: 'usd' }, { key: 'revenue_adjustment', label: 'Adjustment', unit: 'usd' }]} /> : <Loading state={rr} />}
-      </Card>
-      <Card title="Project revenue detail" sub={rr.data ? `Month ${rr.data.month}` : ''}>
-        {rr.data ? <DataTable rows={rr.data.project_detail as Row[]} empty="No project activity." columns={[{ key: 'project_id' }, { key: 'obligation', chip: true }, { key: 'billed', unit: 'usd' }, { key: 'asc606_revenue', label: 'Earned', unit: 'usd' }, { key: 'adjustment_needed', unit: 'usd' }, { key: 'contract_asset', unit: 'usd' }, { key: 'contract_liability', unit: 'usd' }]} /> : <Loading state={rr} />}
-        <Source data={rr.data} />
       </Card>
     </div>
   )
@@ -244,65 +272,137 @@ export function Pricing() {
   )
 }
 
-// ---- Capital ---------------------------------------------------------------------------------------------
+// ---- Capital: fully diluted ownership by default, pre/post-round dilution per scenario --------------------
 
 export function Capital() {
+  return <Dash><CapitalBody /></Dash>
+}
+
+function CapitalBody() {
   const c = useTool('get_cap_table_and_fundraise')
-  const rounds = (c.data?.fundraise_scenarios ?? []) as Row[]
+  const all = (c.data?.rows ?? []) as Row[]
+  const rows = useFiltered(all)
+  const sc = (c.data?.fundraise_scenarios ?? []) as Row[]
+  const fd = all.reduce((a, r) => a + Number(r.shares), 0)
+  const share = (pred: (r: Row) => boolean) => all.filter(pred).reduce((a, r) => a + Number(r.shares), 0) / (fd || 1)
+  const base = sc.find((s) => s.scenario === 'base')
+  const lastPrice = Math.max(0, ...all.map((r) => Number(r.price_per_share ?? 0)))
+  if (!c.data) return <div className="page"><Loading state={c} /></div>
   return (
     <div className="page">
-      <Head title="Cap table & fundraising" sub="Who owns what today, and what each fundraising scenario does to price, dilution and runway."
-        ask="Given our runway, which fundraising scenario makes sense, when do we need to start, and what does it cost the founders?" />
-      {rounds.some((r) => r.runs_out_before_close) && (
-        <div className="error">Cash runs out before the round closes in {rounds.filter((r) => r.runs_out_before_close).map((r) => r.scenario).join(', ')}: a bridge, debt or cuts are needed first.</div>
-      )}
+      <Head title="Cap table & fundraising" sub="Who owns what (fully diluted, the basis investors price on), and what each round does to ownership and runway · click to filter"
+        ask="Walk me through our ownership and each fundraise scenario: price, dilution, the option pool shuffle and runway." />
+      <KpiRow items={[
+        { label: 'Fully diluted shares', value: fd.toLocaleString(), note: `${rows.length} holdings shown` },
+        { label: 'Founders', value: `${(share((r) => String(r.holder).startsWith('Founder')) * 100).toFixed(1)}%`, note: 'fully diluted' },
+        { label: 'Investors', value: `${(share((r) => String(r.security_class).startsWith('series')) * 100).toFixed(1)}%` },
+        { label: 'Option pool unallocated', value: `${(share((r) => r.security_class === 'options unallocated' || r.security_class === 'options_unallocated') * 100).toFixed(1)}%`, note: 'room to hire before the next round' },
+        { label: 'Last price per share', value: lastPrice ? `$${lastPrice.toFixed(2)}` : '—' },
+        { label: 'Base case: Series B', value: base ? fmt('amount', Number(base.raise_amount), 'usd') : '—', note: base ? `at ${fmt('amount', Number(base.pre_money), 'usd')} pre · founders → ${(Number(base.founders_pct_after) * 100).toFixed(1)}%` : '' },
+      ]} />
+      <div className="grid cols-3">
+        <Card title="Ownership by holder" sub="Fully diluted · click to filter"><Donut rows={all} dim="holder" measure="shares" unit="count" /></Card>
+        <Card title="By security class"><Donut rows={all} dim="security_class" measure="shares" unit="count" /></Card>
+        <Card title="Founders before and after each round" sub="Includes the option pool top-up (the shuffle)">
+          <GroupedBars rows={sc} dim="scenario" unit="ratio" series={[{ key: 'founders_pct_before', label: 'Founders before', color: '#3b6fd8' }, { key: 'founders_pct_after', label: 'Founders after', color: '#c98a1b' }, { key: 'new_investor_pct', label: 'New investor', color: '#2f9e6b' }]} />
+        </Card>
+      </div>
       <Card title="Fundraise scenarios" sub="Option pool topped up pre-money to the target · runway from the base forecast">
-        {c.data ? <DataTable rows={rounds} columns={[{ key: 'scenario' }, { key: 'round_name', chip: true }, { key: 'close_month' }, { key: 'pre_money', unit: 'usd' }, { key: 'raise_amount', unit: 'usd' }, { key: 'price_per_share', render: (r) => `$${(r.price_per_share as number).toFixed(2)}` }, { key: 'new_investor_pct', unit: 'ratio' }, { key: 'founders_pct_after', label: 'Founders after', unit: 'ratio' }, { key: 'forecast_cash_before_close', label: 'Cash at close', unit: 'usd' }, { key: 'runs_out_before_close', label: 'Too late', flag: 'bad' }]} /> : <Loading state={c} />}
-        <Source data={c.data} />
+        <DataTable rows={sc} columns={[{ key: 'scenario', chip: true }, { key: 'round_name' }, { key: 'close_month' }, { key: 'pre_money', unit: 'usd' }, { key: 'raise_amount', unit: 'usd' }, { key: 'price_per_share', unit: 'usd' }, { key: 'option_pool_topup', label: 'Pool top-up', unit: 'count' }, { key: 'new_investor_pct', unit: 'ratio' }, { key: 'founders_pct_after', label: 'Founders after', unit: 'ratio' }, { key: 'forecast_cash_before_close', label: 'Cash at close', unit: 'usd' }, { key: 'runs_out_before_close', label: 'Too late', flag: 'bad' }]} />
       </Card>
       <Card title="Cap table (fully diluted)">
-        {c.data ? <DataTable rows={c.data.rows} columns={[{ key: 'holder' }, { key: 'security_class', chip: true }, { key: 'shares', unit: 'count' }, { key: 'fully_diluted_pct', label: 'Ownership', unit: 'ratio' }, { key: 'invested', unit: 'usd' }, { key: 'issue_date' }]} /> : <Loading state={c} />}
+        <DataTable title="cap_table" rows={all} columns={[{ key: 'holder' }, { key: 'security_class', chip: true }, { key: 'shares', unit: 'count' }, { key: 'fully_diluted_pct', label: 'Ownership', unit: 'ratio' }, { key: 'invested', unit: 'usd' }, { key: 'issue_date' }]} />
+        <Source data={c.data} />
       </Card>
     </div>
   )
 }
 
-// ---- Tax & FX ----------------------------------------------------------------------------------------------
+// ---- Tax & FX: what we owe each tax authority and what currencies cost us ---------------------------------------
 
 export function TaxFx() {
-  const t = useTool('get_tax_and_fx')
+  return <Dash><TaxBody /></Dash>
+}
+
+function TaxBody() {
+  const t = useTool('get_tax_dashboard')
+  const all = (t.data?.rows ?? []) as Row[]
+  const rows = useFiltered(all)
+  const months = [...new Set(rows.map((r) => String(r.month)))].sort()
+  const last = months.at(-1), year = last?.slice(0, 4)
+  const sum = (rs: Row[], k: string) => rs.reduce((a, r) => a + Number(r[k] ?? 0), 0)
+  const ytd = rows.filter((r) => String(r.month).startsWith(year ?? '')), lm = rows.filter((r) => r.month === last)
+  const usd = (v: number) => fmt('amount', v, 'usd')
+  const byMonth = months.map((m) => { const rs = rows.filter((r) => r.month === m); return { month: m, tax: sum(rs, 'tax_collected_usd'), realized: sum(rs, 'realized_fx'), unrealized: sum(rs, 'unrealized_fx_on_open_ar') } })
+  const nonUsd = sum(lm.filter((r) => r.currency !== 'USD'), 'billings_usd')
+  if (!t.data) return <div className="page"><Loading state={t} /></div>
   return (
     <div className="page">
-      <Head title="Tax & FX" sub="Sales tax, VAT and GST collected and due, and FX gains and losses on receivables, by billing currency."
-        ask="How much indirect tax do we owe this month, by regime, and how exposed are we to FX on open receivables?" />
-      <Card title="This month" sub={t.data ? `Invoices in ${String(t.data.month).slice(0, 7)}` : ''}>
-        {t.data ? <DataTable rows={t.data.rows} empty="No invoices this month." columns={[{ key: 'currency', chip: true }, { key: 'tax_regime' }, { key: 'invoices', unit: 'count' }, { key: 'billings_usd', label: 'Billings (USD)', unit: 'usd' }, { key: 'billings_local', label: 'Billings (local)', render: (r) => (r.billings_local as number).toLocaleString(undefined, { maximumFractionDigits: 2 }) }, { key: 'tax_collected_usd', label: 'Tax to remit', unit: 'usd' }, { key: 'tax_remit_due', label: 'Due' }, { key: 'realized_fx', unit: 'usd' }]} /> : <Loading state={t} />}
+      <Head title="Tax & FX" sub={`What we owe each tax authority, and what currencies cost us · ${last ?? ''} · click a currency or regime to filter`}
+        ask="What sales tax, VAT and GST do we owe and to whom, and how much did FX cost or earn us this year?" />
+      <KpiRow items={[
+        { label: 'Tax to remit', value: usd(sum(lm, 'tax_collected_usd')), note: `collected in ${last ?? ''} · due by ${String(lm[0]?.tax_remit_due ?? '—')}`, tone: sum(lm, 'tax_collected_usd') > 0 ? 'ok' : null },
+        { label: 'Tax collected YTD', value: usd(sum(ytd, 'tax_collected_usd')), note: `${year ?? ''}` },
+        { label: 'Billings outside USD', value: usd(nonUsd), note: `${sum(lm, 'billings_usd') ? ((nonUsd / sum(lm, 'billings_usd')) * 100).toFixed(1) : 0}% of last month` },
+        { label: 'Realized FX YTD', value: usd(sum(ytd, 'realized_fx')), tone: sum(ytd, 'realized_fx') < 0 ? 'bad' : 'good' },
+        { label: 'Unrealized FX on open AR', value: usd(sum(lm, 'unrealized_fx_on_open_ar')), note: 'if rates stay where they are', tone: sum(lm, 'unrealized_fx_on_open_ar') < 0 ? 'bad' : 'good' },
+        { label: 'Currencies', value: String(new Set(rows.map((r) => r.currency)).size) },
+      ]} />
+      <div className="grid cols-3">
+        <Card title="Billings by currency" sub="Click to filter"><Donut rows={all} dim="currency" measure="billings_usd" /></Card>
+        <Card title="Tax collected by regime" sub="Sales tax, VAT, GST · click to filter"><Bars rows={all} dim="tax_regime" measure="tax_collected_usd" /></Card>
+        <Card title="FX gains and losses" sub="By month">
+          <Trend rows={byMonth} x="month" series={[{ key: 'realized', label: 'Realized', color: '#3b6fd8' }, { key: 'unrealized', label: 'Unrealized on open AR', color: '#c98a1b', dashed: true }]} refs={[{ y: 0, label: '' }]} />
+        </Card>
+      </div>
+      <Card title="Tax collected by month" sub="Filtered with the page"><Columns rows={byMonth} x="month" y="tax" color="#8a63d2" /></Card>
+      <Card title="By month, currency and regime">
+        <DataTable title="tax_fx" rows={all} columns={[{ key: 'month' }, { key: 'currency', chip: true }, { key: 'tax_regime', chip: true }, { key: 'invoices', unit: 'count' }, { key: 'billings_usd', unit: 'usd' }, { key: 'tax_collected_usd', unit: 'usd' }, { key: 'tax_remit_due', label: 'Remit by' }, { key: 'realized_fx', unit: 'usd' }, { key: 'unrealized_fx_on_open_ar', label: 'Unrealized FX', unit: 'usd' }]} />
         <Source data={t.data} />
-      </Card>
-      <Card title="All time by currency">
-        {t.data ? <DataTable rows={t.data.all_time_by_currency as Row[]} columns={[{ key: 'currency', chip: true }, { key: 'billings_usd', label: 'Billings (USD)', unit: 'usd' }, { key: 'tax_collected_usd', label: 'Tax collected', unit: 'usd' }, { key: 'realized_fx', unit: 'usd' }, { key: 'unrealized_fx', label: 'Unrealized FX (open AR)', unit: 'usd' }]} /> : <Loading state={t} />}
       </Card>
     </div>
   )
 }
 
-// ---- Alerts --------------------------------------------------------------------------------------------------
+// ---- Alerts: what needs action, by severity and age ---------------------------------------------------------
 
 export function Alerts() {
+  return <Dash><AlertsBody /></Dash>
+}
+
+function AlertsBody() {
   const [status, setStatus] = useState('open')
-  const [rows, setRows] = useState<Row[] | null>(null)
+  const [rowsAll, setRows] = useState<Row[] | null>(null)
   const [error, setError] = useState<string>()
   const { go, refreshKey } = useWorkspace()
   const load = () => api.alerts(status === 'all' ? undefined : status).then(setRows).catch((e) => setError(String(e)))
   useEffect(() => { load() }, [status, refreshKey])  // eslint-disable-line react-hooks/exhaustive-deps
   const ack = (key: string) => api.ackAlert(key).then(load).catch((e) => setError(String(e)))
+  const all = useMemo(() => (rowsAll ?? []).map((r) => ({ ...r, area: String(r.page ?? 'other'), week: String(r.first_seen ?? '').slice(0, 10) })), [rowsAll])
+  const rows = useFiltered(all)
+  const now = Date.now()
+  const age = (r: Row) => Math.floor((now - new Date(String(r.first_seen)).getTime()) / 864e5)
+  const open = rows.filter((r) => r.status === 'open')
+  const ruleCounts = rows.reduce<Record<string, number>>((a, r) => { a[String(r.rule_id)] = (a[String(r.rule_id)] ?? 0) + 1; return a }, {})
   return (
     <div className="page">
-      <Head title="Alerts" sub="What the morning run flagged: delivered once as a digest (Slack, email or Telegram), logged here until acknowledged or resolved."
+      <Head title="Alerts" sub="What needs action today? Flagged by the morning run, delivered once as a digest, logged here until acknowledged or resolved · click to filter"
         ask="Which alerts need action today, and what should each owner do?" />
+      <KpiRow items={[
+        { label: 'Open', value: String(open.length), tone: open.length ? 'ok' : 'good' },
+        { label: 'High severity open', value: String(open.filter((r) => r.severity === 'high').length), tone: open.some((r) => r.severity === 'high') ? 'bad' : 'good' },
+        { label: 'Oldest open', value: open.length ? `${Math.max(...open.map(age))} d` : '—', note: 'escalate past 30 days', tone: open.some((r) => age(r) > 30) ? 'bad' : null },
+        { label: 'Recurring rules', value: String(Object.values(ruleCounts).filter((n) => n > 1).length), note: 'the same rule firing more than once' },
+        { label: 'Showing', value: String(rows.length), note: `${status} alerts` },
+      ]} />
+      <div className="grid cols-3">
+        <Card title="By severity" sub="Click to filter"><Donut rows={all} dim="severity" colors={{ high: '#d1495b', medium: '#c98a1b', low: '#7a8699' }} /></Card>
+        <Card title="By area" sub="Which page owns it · click to filter"><Bars rows={all} dim="area" /></Card>
+        <Card title="By rule" sub="Click to filter"><Bars rows={all} dim="rule_id" top={10} /></Card>
+      </div>
       <Card title="Alert log" right={<div className="segmented">{['open', 'acknowledged', 'resolved', 'all'].map((s) => <button key={s} className={status === s ? 'on' : ''} onClick={() => setStatus(s)}>{s}</button>)}</div>}>
         {error && <div className="error">{error}</div>}
-        {rows ? <DataTable rows={rows} empty="No alerts here." columns={[
+        {rowsAll ? <DataTable title="alerts" rows={all} empty="No alerts here." columns={[
           { key: 'severity', chip: true }, { key: 'rule_id', label: 'Rule' }, { key: 'message' }, { key: 'recipients', label: 'For' },
           { key: 'first_seen', render: (r) => String(r.first_seen ?? '').slice(0, 10) },
           { key: 'page', label: '', render: (r) => <button className="btn small" onClick={() => go(r.page as Page)}>Open</button> },
@@ -384,31 +484,55 @@ export function DealDesk() {
   )
 }
 
-// ---- Commissions -----------------------------------------------------------------------------------------------
+// ---- Commissions: are we paying for the right results? Attainment, effective rate, clawbacks ------------------
 
 export function Commissions() {
-  const c = useTool('get_commissions')
-  const { ask } = useWorkspace()
+  return <Dash><CommissionsBody /></Dash>
+}
+
+function CommissionsBody() {
+  const c = useTool('get_commissions_dashboard')
+  const all = (c.data?.rows ?? []) as Row[]
+  const rows = useFiltered(all)
+  const months = [...new Set(all.map((r) => String(r.month)))].sort()
+  const last = months.at(-1), year = last?.slice(0, 4)
+  const lm = rows.filter((r) => r.month === last), ytd = rows.filter((r) => String(r.month).startsWith(year ?? ''))
+  const sum = (rs: Row[], k: string) => rs.reduce((a, r) => a + Number(r[k] ?? 0), 0)
+  const usd = (v: number) => fmt('amount', v, 'usd')
+  const credited = sum(lm, 'ytd_credited_arr'), paid = sum(ytd, 'commission_total')
+  const byMonth = months.filter((m) => m.startsWith(year ?? '')).map((m) => { const rs = rows.filter((r) => r.month === m); return { month: m, commission: sum(rs, 'commission_total') } })
+  const lmAll = all.filter((r) => r.month === last)
+  if (!c.data) return <div className="page"><Loading state={c} /></div>
   return (
     <div className="page">
-      <Head title="Sales commissions" sub="Monthly statements from billed revenue: credited ARR above each account's previous peak, quota attainment, accelerators and clawbacks."
-        ask="Summarize this month's commission statements: who earned what, who is above quota, and why." />
-      <Card title="Year to date" sub={c.data ? `Through ${String(c.data.month).slice(0, 7)}` : ''}>
-        {c.data ? <DataTable rows={c.data.year_to_date as Row[]} columns={[{ key: 'rep_id' }, { key: 'rep_name' }, { key: 'commission_ytd', unit: 'usd' }, { key: 'attainment', label: 'Quota attainment', unit: 'ratio' }]} /> : <Loading state={c} />}
-      </Card>
-      <Card title="This month's statements" sub="Click a rep to ask about their statement">
-        {c.data ? <DataTable rows={c.data.rows} onRow={(r) => ask(`Explain ${r.rep_id}'s commission statement for ${String(r.month).slice(0, 7)}.`)}
-          columns={[{ key: 'rep_id' }, { key: 'segment_focus', chip: true }, { key: 'new_arr', unit: 'usd' }, { key: 'expansion_arr', unit: 'usd' }, { key: 'clawback_arr', unit: 'usd' },
-            { key: 'quota_attainment_pct', label: 'YTD attainment', unit: 'ratio' }, { key: 'commission_base', unit: 'usd' }, { key: 'commission_accelerator', unit: 'usd' }, { key: 'commission_total', unit: 'usd' }]} /> : <Loading state={c} />}
+      <Head title="Sales commissions" sub={`Are we paying for the right results? ${last ?? ''} · statements from billed revenue · click a rep to filter`}
+        ask="Are commissions paying for the right results? Cover attainment by rep, the effective rate, accelerators and clawbacks." />
+      <KpiRow items={[
+        { label: 'Commission YTD', value: usd(paid), note: `${year ?? ''}` },
+        { label: 'Credited ARR YTD', value: usd(credited) },
+        { label: 'Effective rate', value: credited ? `${((paid / credited) * 100).toFixed(1)}%` : '—', note: 'commission / credited ARR (not the headline rate)' },
+        { label: 'Average attainment', value: lm.length ? `${((sum(lm, 'quota_attainment_pct') / lm.length) * 100).toFixed(0)}%` : '—', note: 'year to date vs annual quota' },
+        { label: 'Reps at or above quota', value: `${lm.filter((r) => Number(r.quota_attainment_pct) >= 1).length} / ${lm.length}` },
+        { label: 'Clawbacks YTD', value: usd(-sum(ytd, 'commission_clawback')), note: 'churn inside the clawback window', tone: sum(ytd, 'commission_clawback') < 0 ? 'bad' : null },
+      ]} />
+      <div className="grid cols-3">
+        <Card title="Attainment by rep" sub="Year to date vs annual quota · click to filter">
+          <Bars rows={lmAll} dim="rep_id" measure="quota_attainment_pct" valueFormat={(v) => `${Math.round(v * 100)}%`} refX={[{ x: 1, label: '100%' }]} />
+        </Card>
+        <Card title="Commission by month" sub="Filtered with the page"><Columns rows={byMonth} x="month" y="commission" color="#8a63d2" /></Card>
+        <Card title="Credits by type" sub="New logos vs expansion, this year"><Donut rows={(c.data.credits ?? []) as Row[]} dim="credit_type" measure="credited_arr" /></Card>
+      </div>
+      <Card title="Statements" sub="Latest month · filtered with the page">
+        <DataTable title="commission_statements" rows={lmAll} columns={[{ key: 'rep_id' }, { key: 'rep_name' }, { key: 'segment_focus', chip: true }, { key: 'new_arr', unit: 'usd' }, { key: 'expansion_arr', unit: 'usd' }, { key: 'clawback_arr', unit: 'usd' },
+          { key: 'ytd_credited_arr', unit: 'usd' }, { key: 'annual_quota_arr', unit: 'usd' }, { key: 'quota_attainment_pct', label: 'Attainment', unit: 'ratio' }, { key: 'commission_total', unit: 'usd' }]} />
         <Source data={c.data} />
       </Card>
-      <Card title="Credits behind this month">
-        {c.data ? <DataTable rows={c.data.credits as Row[]} empty="No credits this month." columns={[{ key: 'rep_id' }, { key: 'customer_id' }, { key: 'credit_type', chip: true }, { key: 'billed_revenue', unit: 'usd' }, { key: 'credited_arr', unit: 'usd' }]} /> : <Loading state={c} />}
+      <Card title="Credits this year" sub="Which customers earned the credit">
+        <DataTable rows={(c.data.credits ?? []) as Row[]} columns={[{ key: 'rep_id' }, { key: 'customer_id' }, { key: 'credit_type', chip: true }, { key: 'billed_revenue', unit: 'usd' }, { key: 'credited_arr', unit: 'usd' }]} />
       </Card>
     </div>
   )
 }
-
 
 // ---- Recurring reports ---------------------------------------------------------------------------------------
 

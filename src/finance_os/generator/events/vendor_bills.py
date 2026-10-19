@@ -28,7 +28,7 @@ def _next_month(m):
 
 def build_vendor_bills(cfg, gpu_jobs, cloud_costs, rng):
     rates = read_seed("gpu_rates")
-    contracts = {c["vendor_id"]: c for c in read_seed("vendor_contracts")}
+    contracts = read_seed("vendor_contracts")  # a vendor can have several (a renewal replaces the last one)
     noise = Decimal(cfg["vendor_billing"]["metering_noise_pct"])
 
     # (vendor, month, gpu_type) -> [seconds, rate]; rate is constant within a month in the seed
@@ -54,7 +54,8 @@ def build_vendor_bills(cfg, gpu_jobs, cloud_costs, rng):
         factor = 1 + noise / 2 * Decimal(rng.randint(-100, 100)) / 100
         lines.append(("gcp", month, "cloud_services", None, None, (cost * factor).quantize(CENTS)))
 
-    for vendor, c in contracts.items():
+    for c in contracts:
+        vendor = c["vendor_id"]
         if not c["committed_gpu_hours_month"]:
             continue
         committed = Decimal(c["committed_gpu_hours_month"])

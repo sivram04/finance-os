@@ -1,0 +1,2 @@
+run,id,persona,passed,checks,unverified,stopped,steps,tools,prompt_tokens,completion_tokens,latency_s,answer
+1,close-blocker,Controller,True,tool get_close_status|get_close_dashboard=ok; text budget|BvA|variance=ok,,answered,1,get_close_dashboard,10687,74,5.0,"Sign-off of the month-end close is blocked because the ""Review budget vs actuals variances"" task (owner: FP&A) is overdue with 5 open items. The Controller cannot sign off and lock the period until this review is complete.  Sources: marts.fct_close_status, recon.recon_status"

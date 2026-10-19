@@ -34,6 +34,8 @@ from finance_os.generator.events.stripe import build_stripe
 from finance_os.generator.events.usage import build_usage
 from finance_os.generator.events.vendor_bills import build_vendor_bills
 
+from finance_os.paths import ROOT  # noqa: E402
+
 CONFIG = Path(__file__).with_name("config.yaml")
 
 
@@ -139,7 +141,9 @@ def main():
     tables = generate(a.seed, a.scale)
     write_csvs(tables, Path(a.out))
     cfg = load_config(a.scale)
-    render_ap_pdfs(cfg, tables["ap_document_truth"], tables["ap_document_truth_lines"], Path(a.inbox))
+    live_docs = ROOT / "data" / "live" / "ap_documents.jsonl"  # bills the live company received: never delete them
+    keep = {json.loads(l)["doc_file"] for l in live_docs.read_text(encoding="utf-8").splitlines() if l.strip()} if live_docs.exists() else set()
+    render_ap_pdfs(cfg, tables["ap_document_truth"], tables["ap_document_truth_lines"], Path(a.inbox), keep=keep)
     print(f"vendor bill PDFs: {len(tables['ap_document_truth'])} -> {a.inbox}")
     for name, rows in tables.items():
         print(f"{name}: {len(rows)} rows")

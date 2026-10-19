@@ -4,6 +4,7 @@ parameterised query over the marts, recon tables or metric catalog, and every re
 Results are JSON-ready: decimals become floats, dates ISO strings. Long results are cut to MAX_ROWS with a
 note, so the model is told it is seeing part of the data rather than guessing.
 """
+import contextvars
 import datetime as dt
 from decimal import Decimal
 from pathlib import Path
@@ -52,9 +53,13 @@ def _month(m, wh):
     return min(m, latest)
 
 
+FULL_ROWS = contextvars.ContextVar("full_rows", default=False)  # set by the workspace API, not the assistant
+
+
 def _result(rows, source, note=None, **extra):
-    out = {"source": source, "row_count": len(rows), "rows": rows[:MAX_ROWS], **extra}
-    if len(rows) > MAX_ROWS:
+    cap = len(rows) if FULL_ROWS.get() else MAX_ROWS
+    out = {"source": source, "row_count": len(rows), "rows": rows[:cap], **extra}
+    if len(rows) > cap:
         out["note"] = f"Showing {MAX_ROWS} of {len(rows)} rows; narrow the filters to see the rest."
     if note:
         out["note"] = (out.get("note", "") + " " + note).strip()
@@ -1042,6 +1047,206 @@ def get_product_unit_economics(wh, months=12):
                    note="Revenue and cost to serve per audio hour by product (COGS = GPU + shared GPU + unused commit + cloud).")
 
 
+def get_receivables_dashboard(wh):
+    """Everything the Receivables page cross-filters: every open invoice (with segment, bucket, route and the
+    recommended action), the 12-month DSO / CEI / days-delinquent trend, and expected receipts by week."""
+    invoices = wh.query("""
+        select a.invoice_ref, a.customer_id, a.segment, a.invoice_type, i.invoice_date, i.due_date, a.balance,
+               a.days_past_due, a.aging_bucket, coalesce(i.is_disputed, false) as is_disputed,
+               coalesce(q.is_on_hold, false) as is_on_hold,
+               coalesce(q.route, case when a.days_past_due = 0 then 'not_due' end) as route,
+               coalesce(q.recommended_action, case when a.days_past_due = 0 then 'Not due yet' end) as recommended_action
+        from marts.fct_ar_aging_snapshot a
+        left join marts.fct_ar_invoices i on i.invoice_ref = a.invoice_ref
+        left join marts.fct_collections_queue q on q.invoice_ref = a.invoice_ref
+        where a.snapshot_date = (select max(snapshot_date) from marts.fct_ar_aging_snapshot)
+        order by a.balance desc""")
+    trend = wh.query("""
+        select strftime(month, '%Y-%m') as month, ending_ar, ending_current_ar, ar_over_60, sales, dso_days, cei,
+               -- best possible DSO: what DSO would be if nothing were late; the gap is average days delinquent
+               round(ending_current_ar / nullif(sales, 0) * day(last_day(month)), 1) as best_possible_dso,
+               round(dso_days - ending_current_ar / nullif(sales, 0) * day(last_day(month)), 1) as avg_days_delinquent
+        from marts.fct_ar_monthly where month <= (select max(month) from marts.fct_kpi_monthly)
+        order by month desc limit 12""")[::-1]
+    receipts = wh.query("""select week, strftime(week_start, '%Y-%m-%d') as week_start, inflows
+                           from marts.fct_cash_forecast_13w order by week""")
+    terms = {r["segment"]: r for r in wh.query("select * from seeds.ar_policy")}
+    return {"source": "marts.fct_collections_queue, fct_ar_aging_snapshot, fct_ar_monthly, fct_cash_forecast_13w, seeds.ar_policy",
+            "row_count": len(invoices), "rows": invoices, "trend": trend, "receipts": receipts,
+            "terms_days": {k: v.get("payment_terms_days") for k, v in terms.items()},
+            "note": "Open invoices today; DSO and CEI by closed month; receipts are the 13-week forecast's customer inflows."}
+
+
+# ---- Dashboard tools (docs/dashboard_spec.md): detail rows to cross-filter + trends, one call per page ----------
+
+def get_budget_dashboard(wh, month=None):
+    """Budget vs actual for a closed month. fav_variance is signed so positive is always good (revenue above budget,
+    costs below budget). Also the 12-month actual vs budget trend and the budget-to-actual EBITDA bridge."""
+    m = _month(month, wh)
+    rows = wh.query("""
+        select b.department_id, case when b.department_id = 'NONE' then 'Company' else coalesce(d.department_name, 'Company') end as department,
+               coalesce(d.owner_title, 'VP Finance') as owner,
+               b.account_id, b.account_name, a.account_type, a.rollup, b.actual, b.budget,
+               case when a.account_type = 'revenue' then b.actual - b.budget else b.budget - b.actual end as fav_variance,
+               b.variance_pct, b.ytd_actual, b.ytd_budget,
+               case when a.account_type = 'revenue' then b.ytd_actual - b.ytd_budget else b.ytd_budget - b.ytd_actual end as ytd_fav_variance,
+               b.fy_budget, b.fy_forecast,
+               case when a.account_type = 'revenue' then b.fy_forecast - b.fy_budget else b.fy_budget - b.fy_forecast end as fy_fav_variance,
+               b.is_alert, al.alert_id, al.commentary_draft, al.commentary_status
+        from marts.fct_bva_monthly b
+        join seeds.gl_accounts a using (account_id)
+        left join seeds.departments d on d.department_id = b.department_id
+        left join marts.fct_bva_alerts al on al.month = b.month and al.department_id = b.department_id and al.account_id = b.account_id
+        where b.month = ?::date
+        order by abs(case when a.account_type = 'revenue' then b.actual - b.budget else b.budget - b.actual end) desc""", [m])
+    for r in rows:
+        r["direction"] = "favorable" if (r["fav_variance"] or 0) >= 0 else "unfavorable"
+    trend = wh.query("""
+        select strftime(b.month, '%Y-%m') as month,
+               sum(case when a.account_type = 'revenue' then b.actual end) as revenue_actual,
+               sum(case when a.account_type = 'revenue' then b.budget end) as revenue_budget,
+               sum(case when a.account_type in ('cogs', 'opex') then b.actual end) as cost_actual,
+               sum(case when a.account_type in ('cogs', 'opex') then b.budget end) as cost_budget,
+               sum(case when a.account_type = 'revenue' then b.actual else -b.actual end) as ebitda_actual,
+               sum(case when a.account_type = 'revenue' then b.budget else -b.budget end) as ebitda_budget
+        from marts.fct_bva_monthly b join seeds.gl_accounts a using (account_id)
+        where b.month <= ?::date and b.month > ?::date - interval 12 month and b.account_id <> '6600'
+        group by 1 order by 1""", [m, m])
+    return {"source": "marts.fct_bva_monthly, fct_bva_alerts, seeds.gl_accounts, seeds.departments", "month": m[:7],
+            "row_count": len(rows), "rows": rows, "trend": trend,
+            "note": "fav_variance > 0 is favorable for every line (revenue above budget, costs below)."}
+
+
+def get_spend_dashboard(wh, months=12):
+    """Tech spend detail for the last closed month (vendor, team, category, model, tagged), the monthly trend with
+    audio hours and cost per hour, GPU commit utilization, the forecast and contract renewals."""
+    m = _month(None, wh)
+    rows = wh.query("""
+        select vendor_id, coalesce(team, 'untagged') as team, category, coalesce(model, 'none') as model,
+               case when is_tagged then 'tagged' else 'untagged' end as tagging, sum(cost) as cost
+        from marts.fct_tech_spend_daily where spend_month = ?::date group by all order by cost desc""", [m])
+    trend = wh.query("""
+        with s as (select spend_month as month, sum(cost) as cost,
+                          sum(case when vendor_id = 'nimbus' then cost else 0 end) as gpu_cost,
+                          sum(case when vendor_id <> 'nimbus' then cost else 0 end) as cloud_cost
+                   from marts.fct_tech_spend_daily group by 1),
+             u as (select usage_month as month, sum(audio_hours) as audio_hours from staging.stg_synthetic__usage_daily group by 1)
+        select strftime(s.month, '%Y-%m') as month, s.cost, s.gpu_cost, s.cloud_cost, u.audio_hours,
+               s.cost / nullif(u.audio_hours, 0) as cost_per_hour
+        from s join u using (month) where s.month <= ?::date order by s.month desc limit ?""", [m, int(months)])[::-1]
+    capacity = wh.query("""select strftime(month, '%Y-%m') as month, gpu_type, used_hours, committed_hours,
+                                  commit_utilization_pct, shortfall_cost
+                           from marts.fct_gpu_capacity_monthly where month <= ?::date order by month desc limit ?""", [m, int(months)])[::-1]
+    forecast = wh.query("""select strftime(forecast_month, '%Y-%m') as month, sum(forecast_amount) as forecast
+                           from marts.fct_spend_forecast group by 1 order by 1""")
+    contracts = wh.query("select * from marts.fct_vendor_contracts order by end_date")
+    return {"source": "marts.fct_tech_spend_daily, stg_synthetic__usage_daily, fct_gpu_capacity_monthly, fct_spend_forecast, fct_vendor_contracts",
+            "month": m[:7], "row_count": len(rows), "rows": rows, "trend": trend, "capacity": capacity,
+            "forecast": forecast, "contracts": contracts}
+
+
+def get_ap_dashboard(wh):
+    """AP: every bill document with its route and issues (one row per issue for the exception breakdown), open bills
+    with due dates and discounts, and DPO by month."""
+    docs = wh.query("""select doc_file, vendor_id, coalesce(vendor_name, vendor_id) as vendor, vendor_invoice_number, invoice_date,
+                              total, route, issues, issue_count from marts.fct_ap_documents order by invoice_date desc""")
+    issues = [{"doc_file": d["doc_file"], "vendor": d["vendor"], "issue": i, "total": d["total"]}
+              for d in docs for i in (d["issues"] or [])]
+    for d in docs:
+        d["issues"] = ", ".join(d["issues"] or [])
+    open_bills = wh.query("""select bill_ref, vendor_id, bill_date, due_date, amount, priority, payment_run_date,
+                                    discount_captured, amount_to_pay, is_overdue,
+                                    strftime(date_trunc('week', due_date), '%Y-%m-%d') as due_week
+                             from marts.fct_payment_run_proposal order by due_date""")
+    dpo = wh.query("""select strftime(month, '%Y-%m') as month, dpo_days, ap_balance from marts.fct_working_capital_monthly
+                      where month <= (select max(month) from marts.fct_kpi_monthly) order by month desc limit 12""")[::-1]
+    terms = wh.query("select avg(payment_terms_days) as d from seeds.vendor_payment_terms")[0]["d"]
+    return {"source": "marts.fct_ap_documents, fct_payment_run_proposal, fct_working_capital_monthly, seeds.vendor_payment_terms",
+            "row_count": len(docs), "rows": docs, "issues": issues, "open_bills": open_bills, "dpo": dpo,
+            "avg_terms_days": float(terms or 30)}
+
+
+def get_close_dashboard(wh, month=None):
+    """The close checklist for the month being closed (status, owner, workday), reconciliation results for it, and
+    how many workdays each past close took."""
+    m = wh.query("select max(month) as m from marts.fct_close_status")[0]["m"]
+    tasks = wh.query("""select task_id, workday, due_date, owner, task, evidence, status, open_items
+                        from marts.fct_close_status where month = ? order by workday, task_id""", [m])
+    as_of = str(wh.query("select max(entry_date) as d from staging.stg_erp__journal_entries")[0]["d"])
+    for t in tasks:
+        t["overdue"] = t["status"] != "complete" and str(t["due_date"]) < as_of
+        t["state"] = "complete" if t["status"] == "complete" else ("overdue" if t["overdue"] else t["status"])
+    recon = wh.query("""select check_name, status, count(*) as periods from recon.recon_status
+                        where period = ? group by 1, 2 order by 1""", [m])
+    history = wh.query("""select strftime(month, '%Y-%m') as month, max(case when status = 'complete' then workday end) as last_workday_done,
+                                 count(*) as tasks, sum(case when status = 'complete' then 1 else 0 end) as done
+                          from marts.fct_close_status group by 1 order by 1 desc limit 12""")[::-1]
+    return {"source": "marts.fct_close_status, recon.recon_status", "month": str(m)[:7], "as_of": as_of,
+            "row_count": len(tasks), "rows": tasks, "recon": recon, "history": history}
+
+
+def get_projects_dashboard(wh):
+    """Every project's economics (budget, EAC, earned, billed, margin) and contract funding by CLIN, plus exceptions."""
+    projects = wh.query("""select project_id, project_name, project_type, customer_id, contract_value, budget, eac,
+                                  eac_pct_of_budget, variance_at_completion, pct_complete, earned_to_date, billed_to_date,
+                                  unbilled, deferred, cap_used_pct, is_over_budget, is_cap_alert,
+                                  (contract_value - eac) / nullif(contract_value, 0) as forecast_margin_pct
+                           from marts.fct_project_financials
+                           where month = (select max(month) from marts.fct_project_financials where month <= (select max(month) from marts.fct_kpi_monthly))
+                           order by project_id""")
+    for r in projects:
+        r["billing_position"] = ("underbilled" if (r["unbilled"] or 0) > 0 else "overbilled" if (r["deferred"] or 0) > 0 else "even")
+    funding = wh.query("""select contract_id, clin_id, ceiling, funded, billed_to_date, unbilled, funding_remaining,
+                                 funding_used_pct, is_federal, is_funding_alert_75, is_funding_alert_90
+                          from marts.fct_contract_funding
+                          where month = (select max(month) from marts.fct_contract_funding where month <= (select max(month) from marts.fct_kpi_monthly))
+                          order by contract_id, clin_id""")
+    exceptions = wh.query("select exception_type, project_id, reference_id, amount, detail from marts.fct_project_exceptions")
+    return {"source": "marts.fct_project_financials, fct_contract_funding, fct_project_exceptions",
+            "row_count": len(projects), "rows": projects, "funding": funding, "exceptions": exceptions}
+
+
+def get_commissions_dashboard(wh):
+    """Commission statements for every rep and closed month (attainment, credited ARR, commission, clawbacks) and
+    this year's credits by customer. Effective rate = commission / credited ARR."""
+    rows = wh.query("""select rep_id, rep_name, segment_focus, strftime(month, '%Y-%m') as month, new_arr, expansion_arr,
+                              clawback_arr, ytd_credited_arr, annual_quota_arr, quota_attainment_pct, commission_base,
+                              commission_accelerator, commission_clawback, commission_total
+                       from marts.fct_commission_statement_monthly
+                       where month <= (select max(month) from marts.fct_kpi_monthly) order by month, rep_id""")
+    credits = wh.query("""select rep_id, customer_id, credit_type, sum(billed_revenue) as billed_revenue, sum(credited_arr) as credited_arr
+                          from marts.int_sales_credits
+                          where extract(year from month) = (select extract(year from max(month)) from marts.fct_kpi_monthly)
+                          group by 1, 2, 3 order by credited_arr desc""")
+    return {"source": "marts.fct_commission_statement_monthly, marts.int_sales_credits", "row_count": len(rows), "rows": rows,
+            "credits": credits}
+
+
+def get_tax_dashboard(wh):
+    """Sales tax / VAT / GST and FX by month, currency and regime: billings, tax collected, tax due to each
+    authority, realized FX and unrealized FX on open receivables."""
+    rows = wh.query("""select strftime(month, '%Y-%m') as month, currency, tax_regime, invoices, billings_usd, billings_local,
+                              tax_collected_usd, tax_remit_due, realized_fx, unrealized_fx_on_open_ar
+                       from marts.fct_tax_fx_monthly where month <= (select max(month) from marts.fct_kpi_monthly)
+                       order by month, currency""")
+    return {"source": "marts.fct_tax_fx_monthly", "row_count": len(rows), "rows": rows}
+
+
+def get_trust_dashboard(wh):
+    """Every reconciliation result by check and period (pass/fail, expected vs actual), the pass rate by period, and
+    the open failures. Data quality score = checks passing / checks run."""
+    rows = wh.query("""select check_name, strftime(period, '%Y-%m') as period, entity_id, expected, actual, variance, status,
+                              explanation from recon.recon_status order by period, check_name""")
+    by_period = {}
+    for r in rows:
+        b = by_period.setdefault(r["period"], {"period": r["period"], "checks": 0, "passing": 0})
+        b["checks"] += 1
+        b["passing"] += r["status"] == "pass"
+    trend = [{**b, "pass_rate": b["passing"] / b["checks"]} for b in sorted(by_period.values(), key=lambda b: b["period"])]
+    return {"source": "recon.recon_status", "row_count": len(rows), "rows": rows, "trend": trend,
+            "failures": [r for r in rows if r["status"] != "pass"]}
+
+
 def _p(props, required=()):
     return {"type": "object", "properties": props, "required": list(required), "additionalProperties": False}
 
@@ -1114,6 +1319,27 @@ TOOLS = {
                      "deals, monthly bookings and win rates by segment.", _p({})),
     "get_product_unit_economics": (get_product_unit_economics, "Revenue and cost to serve per audio hour and gross margin by "
                                    "product, by month.", _p({"months": {"type": "integer"}})),
+    "get_receivables_dashboard": (get_receivables_dashboard, "Receivables in full: every open invoice with segment, aging "
+                                  "bucket, route and recommended action; DSO, CEI and average days delinquent by month; "
+                                  "expected customer receipts by week.", _p({})),
+    "get_budget_dashboard": (get_budget_dashboard, "Budget vs actual by department and account for a closed month with "
+                             "favorable/unfavorable variances (signed so positive is good), YTD and full-year forecast, owners, "
+                             "alerts and commentary, and the 12-month actual vs budget trend.", _p({"month": MONTH})),
+    "get_spend_dashboard": (get_spend_dashboard, "Tech spend by vendor, team, category, model and tagging; monthly trend "
+                            "with audio hours and cost per audio hour; GPU commit utilization; forecast; contract renewals.",
+                            _p({"months": {"type": "integer"}})),
+    "get_ap_dashboard": (get_ap_dashboard, "AP: every vendor bill with route and issues, exceptions by reason, open bills "
+                         "by due date with early-pay discounts, and DPO by month.", _p({})),
+    "get_close_dashboard": (get_close_dashboard, "Month-end close: checklist by owner, workday and status (overdue "
+                            "flagged), reconciliation results, and past closes.", _p({})),
+    "get_projects_dashboard": (get_projects_dashboard, "Projects: budget, EAC, % complete, earned vs billed (under/over "
+                               "billing), forecast margin, funding by CLIN and exceptions.", _p({})),
+    "get_commissions_dashboard": (get_commissions_dashboard, "Commissions by rep and month: attainment vs quota, credited "
+                                  "ARR, commission (base, accelerator, clawback), and this year's credits by customer.", _p({})),
+    "get_tax_dashboard": (get_tax_dashboard, "Sales tax / VAT / GST and FX by month, currency and regime: billings, tax "
+                          "collected, tax due, realized and unrealized FX.", _p({})),
+    "get_trust_dashboard": (get_trust_dashboard, "Reconciliation results by check and period with pass rate trend and "
+                            "open failures (the data quality score).", _p({})),
     "get_budget_vs_actual": (get_budget_vs_actual, "Company budget vs. actual for a month by DEPARTMENT and GL ACCOUNT (not "
                              "projects: for a project's budget or overrun use get_projects), with alerts, "
                              "and THIS fiscal year's full-year forecast vs budget (fy_forecast, fy_forecast_variance). "

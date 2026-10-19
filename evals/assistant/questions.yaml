@@ -5,7 +5,7 @@
 #   expect_text:   every regex must match the answer (case-insensitive)
 #   expect_refusal: the answer declines and calls no tools
 #   expect_proposal: a pending action of this kind is created (and nothing is executed)
-#   expect_tools:  each tool must have been called (the right source, not a lucky number)
+#   expect_tools:  each tool must have been called (the right source, not a lucky number); "a|b" = either one
 # Every answer is also checked for unverified numbers (numbers no tool returned).
 
 questions:
@@ -191,7 +191,7 @@ questions:
     persona: Controller
     ask: What's blocking sign-off of the month-end close?
     expect_text: ["'budget|BvA|variance'"]
-    expect_tools: [get_close_status]
+    expect_tools: ["get_close_status|get_close_dashboard"]
   - id: pricing-stream
     persona: VP Finance
     ask: What would raising streaming prices by 8% do to gross margin over a year?

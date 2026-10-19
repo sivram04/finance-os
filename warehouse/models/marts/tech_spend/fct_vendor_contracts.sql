@@ -1,5 +1,5 @@
 -- FR-3.5: vendor spend summary with contract end dates and renewal flags, as of the last day of data.
--- Flag when the contract ends within its notice period plus 30 days of lead time.
+-- Flag when the contract ends within its notice period plus 30 days of lead time. Expired contracts are left out.
 with as_of as (
     select max(spend_date) as as_of_date from {{ ref('fct_tech_spend_daily') }}
 ),
@@ -34,3 +34,4 @@ select
 from {{ ref('vendor_contracts') }} c
 cross join as_of a
 left join t3m t using (vendor_id)
+where c.end_date is null or c.end_date >= a.as_of_date  -- active contracts only: a renewal replaces the expired one

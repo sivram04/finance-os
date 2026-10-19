@@ -51,8 +51,8 @@ def run_question(q, wh, model):
         for sql in q.get("expect_values", []):
             expected = _scalar(wh, sql)
             checks.append((f"value {expected}", expected is not None and _value_found(answer["text"], float(expected))))
-        for tool in q.get("expect_tools", []):
-            checks.append((f"tool {tool}", tool in tools_called))
+        for tool in q.get("expect_tools", []):  # "a|b": either tool is a valid source
+            checks.append((f"tool {tool}", any(t in tools_called for t in tool.split("|"))))
         for sql in q.get("expect_text", []):
             pattern = sql.strip("'") if sql.startswith("'") else _scalar(wh, sql)
             checks.append((f"text {pattern}", bool(pattern) and re.search(str(pattern), answer["text"], re.I) is not None))
