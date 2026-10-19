@@ -38,14 +38,14 @@ api_requests:
 
 # Starting monthly audio hours per customer (range), and monthly growth (range).
 segments:
-  self_serve:  {count: 90, start_hours: [20, 400],       growth: ["-0.02", "0.06"]}
-  mid_market:  {count: 11, start_hours: [1500, 9000],    growth: ["0.00", "0.05"]}
-  enterprise:  {count: 4,  start_hours: [30000, 110000], growth: ["0.01", "0.04"]}
+  self_serve:  {count: 90, start_hours: [90, 1800],       growth: ["0.00", "0.08"]}
+  mid_market:  {count: 11, start_hours: [9000, 45000],    growth: ["0.02", "0.07"]}
+  enterprise:  {count: 4,  start_hours: [220000, 630000], growth: ["0.02", "0.05"]}
 
 # --- Customer lifecycle (raw_synth.lifecycle_events). What an AI API business lives with. ---
 # Random monthly events per customer after signup. Multipliers scale usage from the event date on.
 lifecycle:
-  churn_prob_monthly:   {self_serve: "0.045", mid_market: "0.010", enterprise: "0"}
+  churn_prob_monthly:   {self_serve: "0.025", mid_market: "0.006", enterprise: "0"}
   involuntary_share:    {self_serve: "0.35",  mid_market: "0.10",  enterprise: "0"}   # payment failed, not a decision
   reactivation_prob: "0.30"          # share of involuntary churners who come back (win-back)
   reactivation_months: [1, 3]
@@ -68,9 +68,9 @@ market_events:
 # --- Infra (raw_infra). Design doc §7.1, §7.6 ---
 # GPU seconds per audio hour and GPU type per model. Rates live in warehouse/seeds/gpu_rates.csv.
 gpu_profile:
-  echo-base:   {gpu_type: L4,   seconds_per_hour: 90}
-  echo-pro:    {gpu_type: A100, seconds_per_hour: 150}
-  echo-stream: {gpu_type: H100, seconds_per_hour: 180}
+  echo-base:   {gpu_type: L4,   seconds_per_hour: 55}
+  echo-pro:    {gpu_type: A100, seconds_per_hour: 85}
+  echo-stream: {gpu_type: H100, seconds_per_hour: 95}
 shared_gpu_pct: "0.12"          # idle / warm-pool seconds, as a share of direct seconds per model per day
 requests_per_hour:              # API requests per audio hour (drives overhead allocation)
   batch: [3, 5]
@@ -124,7 +124,7 @@ anomalies:
     customer_id: EN-002
     start: 2026-02-01
     mix: {batch_pro: "0.20", stream: "0.80"}
-    gpu_seconds_multiplier: "1.8"   # low-concurrency real-time sessions
+    gpu_seconds_multiplier: "3.4"   # low-concurrency real-time sessions
     description: Enterprise customer moves most volume to streaming with low GPU utilization; gross margin falls below the floor.
     expected_detection: fct_customer_margin_monthly.is_below_floor = true for EN-002 from 2026-02
   - anomaly_id: A-M3-01
@@ -256,6 +256,15 @@ one_off_expenses:
   - {date: 2026-03-20, account: "6400", department: GA, amount: "45000.00", memo: Outside counsel - customer contract dispute}
   - {date: 2026-04-18, account: "6400", department: GA, amount: "32000.00", memo: Outside counsel - customer contract dispute}
   - {date: 2026-05-22, account: "6400", department: GA, amount: "26000.00", memo: Outside counsel - settlement review}
+
+# Fixed assets bought for cash (Dr 1500 / Cr cash) and depreciated straight-line from the month after purchase
+# (Dr 6600 depreciation / Cr 1510 accumulated depreciation), at month end, until fully depreciated.
+capex:
+  - {date: 2025-01-15, account_class: it_equipment, department: GA,  amount: "180000.00", life_months: 36, memo: Laptops and office IT}
+  - {date: 2025-06-10, account_class: servers,      department: INF, amount: "1200000.00", life_months: 48, memo: Inference servers (colocation)}
+  - {date: 2025-11-05, account_class: leasehold,    department: GA,  amount: "350000.00", life_months: 60, memo: Office build-out}
+  - {date: 2026-04-12, account_class: servers,      department: INF, amount: "900000.00", life_months: 48, memo: Inference servers, second rack}
+  - {date: 2026-08-20, account_class: it_equipment, department: GA,  amount: "90000.00",  life_months: 36, memo: Laptops for new hires}
 
 # --- Projects (raw_projects, M6). Implementation work for enterprise and federal customers. ---
 # Labor category by employee title; bill rates are per contract.

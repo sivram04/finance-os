@@ -1,6 +1,8 @@
 account_id,account_name,account_type,statement,rollup
 1000,Cash - operating,asset,balance_sheet,Cash
 1200,Accounts receivable,asset,balance_sheet,Accounts receivable
+1500,Fixed assets at cost,asset,balance_sheet,Fixed assets
+1510,Accumulated depreciation,asset,balance_sheet,Fixed assets
 2000,Accounts payable,liability,balance_sheet,Accounts payable
 2100,Payroll taxes payable,liability,balance_sheet,Payroll liabilities
 2110,Benefits and deductions payable,liability,balance_sheet,Payroll liabilities
@@ -21,3 +23,4 @@ account_id,account_name,account_type,statement,rollup
 6300,Rent and facilities,opex,income_statement,Facilities
 6400,Professional fees,opex,income_statement,Professional fees
 6500,Marketing and travel,opex,income_statement,Sales and marketing
+6600,Depreciation,opex,income_statement,Depreciation

@@ -4,13 +4,13 @@ import { Assistant } from './components/Assistant'
 import { Drawer } from './components/Drawer'
 import { WorkspaceContext, type Entity, type Page } from './components/common'
 import { Home } from './pages/Home'
-import { Alerts, Reports, Capital, Cash, Close, Commissions, DealDesk, Plan, Pricing, TaxFx } from './pages/Finance'
+import { Alerts, Analysis, Financials, Reports, Capital, Cash, Close, Commissions, DealDesk, Plan, Pricing, TaxFx } from './pages/Finance'
 import { AP, AR, Billing, Budget, Projects, Revenue, Spend, Trust } from './pages/Modules'
 
 // pages grouped into sections: the top row picks a section, the second row its pages
 const SECTIONS: { name: string; pages: [Page, string][] }[] = [
-  { name: 'Overview', pages: [['home', 'Home'], ['alerts', 'Alerts'], ['reports', 'Reports']] },
-  { name: 'Plan & cash', pages: [['plan', 'Plan'], ['cash', 'Cash'], ['capital', 'Capital'], ['pricing', 'Pricing']] },
+  { name: 'Overview', pages: [['home', 'Home'], ['financials', 'Financials'], ['alerts', 'Alerts'], ['reports', 'Reports']] },
+  { name: 'Plan & cash', pages: [['plan', 'Plan'], ['analysis', 'Analysis'], ['cash', 'Cash'], ['capital', 'Capital'], ['pricing', 'Pricing']] },
   { name: 'Revenue', pages: [['revenue', 'Revenue'], ['deals', 'Deal desk'], ['comp', 'Commissions'], ['billing', 'Billing'], ['ar', 'Receivables']] },
   { name: 'Spend', pages: [['spend', 'Tech spend'], ['ap', 'AP inbox'], ['budget', 'Budget'], ['projects', 'Projects']] },
   { name: 'Close & control', pages: [['close', 'Close'], ['tax', 'Tax & FX'], ['trust', 'Trust']] },
@@ -67,6 +67,8 @@ export default function App() {
               {page === 'trust' && <Trust />}
               {page === 'alerts' && <Alerts />}
               {page === 'reports' && <Reports />}
+              {page === 'financials' && <Financials />}
+              {page === 'analysis' && <Analysis />}
               {page === 'deals' && <DealDesk />}
               {page === 'comp' && <Commissions />}
               {page === 'plan' && <Plan />}

@@ -195,7 +195,9 @@ def test_every_read_tool_runs_against_the_warehouse():
     needs = {"get_kpi_trend": {"metric": "revenue"}, "get_metric_definition": {"metric": "arr"},
              "get_variance_drivers": {"alert_id": "none"}, "get_customer_detail": {"customer_id": "EN-001"},
              "get_vendor_detail": {"vendor_id": "gcp"}, "get_project_detail": {"project_id": "P-101"},
-             "price_deal": {"customer": "Test", "lines": [{"product_id": "stream", "hours_per_month": 1000}]}}
+             "price_deal": {"customer": "Test", "lines": [{"product_id": "stream", "hours_per_month": 1000}]},
+             "evaluate_business_case": {"investment": 500000, "annual_inflows": [200000, 250000, 250000]},
+             "evaluate_marketing_campaign": {"spend": 500000, "new_customers": 40}}
     for name in TOOLS:
         result = run_tool(wh, name, needs.get(name, {}))
         assert "source" in result, name

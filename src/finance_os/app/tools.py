@@ -105,6 +105,129 @@ def get_pnl(wh, start_month=None, end_month=None, group_by="rollup"):
     return _result(rows, "marts.fct_gl_monthly", start_month=s, end_month=e, group_by=group_by)
 
 
+def get_financial_statements(wh, period="month", periods=12, end_month=None):
+    """Income statement, balance sheet and cash flow (indirect) from the GL, one column per period. Flows are summed
+    over the period; balances are taken at its end. Equity = preferred stock + retained earnings (cumulative net
+    income); the balance check is assets − liabilities − equity and must be 0."""
+    e = _month(end_month, wh)
+    gl = wh.query("""select strftime(month, '%Y-%m') as m, account_id, account_name, account_type, rollup,
+                            sum(natural_amount) as amt
+                     from marts.fct_gl_monthly where month <= ?::date group by all order by m""", [e])
+    months = sorted({r["m"] for r in gl})
+    key = {"month": lambda m: m, "quarter": lambda m: f"{m[:4]}-Q{(int(m[5:]) - 1) // 3 + 1}", "year": lambda m: m[:4]}[period]
+    accounts = {r["account_id"]: (r["account_name"], r["account_type"], r["rollup"]) for r in gl}
+    flow = {}  # (account, month) -> amount
+    for r in gl:
+        flow[(r["account_id"], r["m"])] = flow.get((r["account_id"], r["m"]), 0) + float(r["amt"] or 0)
+    cols = []
+    for m in months:
+        if not cols or cols[-1][0] != key(m):
+            cols.append((key(m), []))
+        cols[-1][1].append(m)
+    cols = cols[-int(periods):]
+    first = cols[0][1][0] if cols else None
+
+    def f(acct, ms):  # flow over months
+        return sum(flow.get((acct, m), 0) for m in ms)
+
+    def bal(acct, through):  # balance at the end of a month
+        return sum(v for (a, m), v in flow.items() if a == acct and m <= through)
+
+    def ni(ms):
+        return sum(f(a, ms) * (1 if t == "revenue" else -1) for a, (_, t, _) in accounts.items() if t in ("revenue", "cogs", "opex"))
+
+    def cum_ni(through):
+        return sum(ni([m]) for m in months if m <= through)
+
+    by_type = lambda t: sorted(a for a, (_, tt, _) in accounts.items() if tt == t)  # noqa: E731
+    rows = []
+
+    def add(sheet, line, style, fn, unit="usd"):
+        r = {"sheet": sheet, "line": line, "style": style, "unit": unit}
+        for label, ms in cols:
+            v = fn(ms)
+            r[label] = None if v is None else round(v, 4 if unit == "ratio" else 2)
+        rows.append(r)
+
+    IS, BS, CF = "Income statement", "Balance sheet", "Cash flow"
+    rev = lambda ms: sum(f(a, ms) for a in by_type("revenue"))  # noqa: E731
+    cogs = lambda ms: sum(f(a, ms) for a in by_type("cogs"))  # noqa: E731
+    DA = "6600"  # depreciation: below EBITDA, added back in the cash flow
+    opex = lambda ms: sum(f(a, ms) for a in by_type("opex") if a != DA)  # noqa: E731
+    ebitda = lambda ms: rev(ms) - cogs(ms) - opex(ms)  # noqa: E731
+    add(IS, "Revenue", "header", lambda ms: None)
+    for a in by_type("revenue"):
+        add(IS, accounts[a][0], "item", lambda ms, a=a: f(a, ms))
+    add(IS, "Total revenue", "subtotal", rev)
+    add(IS, "Cost of revenue", "header", lambda ms: None)
+    for a in by_type("cogs"):
+        add(IS, accounts[a][0], "item", lambda ms, a=a: f(a, ms))
+    add(IS, "Total cost of revenue", "subtotal", cogs)
+    add(IS, "Gross profit", "total", lambda ms: rev(ms) - cogs(ms))
+    add(IS, "Gross margin", "ratio", lambda ms: (rev(ms) - cogs(ms)) / rev(ms) if rev(ms) else None, "ratio")
+    add(IS, "Operating expenses", "header", lambda ms: None)
+    for a in by_type("opex"):
+        if a != DA:
+            add(IS, accounts[a][0], "item", lambda ms, a=a: f(a, ms))
+    add(IS, "Total operating expenses", "subtotal", opex)
+    add(IS, "EBITDA", "total", ebitda)
+    add(IS, "EBITDA margin", "ratio", lambda ms: ebitda(ms) / rev(ms) if rev(ms) else None, "ratio")
+    add(IS, "Depreciation", "item", lambda ms: f(DA, ms))
+    add(IS, "Operating income (EBIT)", "subtotal", ni)
+    add(IS, "Operating margin", "ratio", lambda ms: ni(ms) / rev(ms) if rev(ms) else None, "ratio")
+    add(IS, "Net income", "total", ni)
+
+    add(BS, "Assets", "header", lambda ms: None)
+    for a in by_type("asset"):
+        add(BS, accounts[a][0], "item", lambda ms, a=a: bal(a, ms[-1]))
+    assets = lambda ms: sum(bal(a, ms[-1]) for a in by_type("asset"))  # noqa: E731
+    add(BS, "Total assets", "total", assets)
+    add(BS, "Liabilities", "header", lambda ms: None)
+    for a in by_type("liability"):
+        add(BS, accounts[a][0], "item", lambda ms, a=a: bal(a, ms[-1]))
+    liab = lambda ms: sum(bal(a, ms[-1]) for a in by_type("liability"))  # noqa: E731
+    add(BS, "Total liabilities", "subtotal", liab)
+    add(BS, "Equity", "header", lambda ms: None)
+    for a in by_type("equity"):
+        add(BS, accounts[a][0], "item", lambda ms, a=a: bal(a, ms[-1]))
+    add(BS, "Retained earnings", "item", lambda ms: cum_ni(ms[-1]))
+    equity = lambda ms: sum(bal(a, ms[-1]) for a in by_type("equity")) + cum_ni(ms[-1])  # noqa: E731
+    add(BS, "Total equity", "subtotal", equity)
+    add(BS, "Total liabilities and equity", "total", lambda ms: liab(ms) + equity(ms))
+    add(BS, "Check (should be 0)", "check", lambda ms: assets(ms) - liab(ms) - equity(ms))
+
+    def delta(acct, ms):
+        prev = [m for m in months if m < ms[0]]
+        return bal(acct, ms[-1]) - (bal(acct, prev[-1]) if prev else 0)
+
+    FIXED = {"1500", "1510"}
+    wc_assets = [a for a in by_type("asset") if a != "1000" and a not in FIXED]
+    add(CF, "Operating activities", "header", lambda ms: None)
+    add(CF, "Net income", "item", ni)
+    add(CF, "Depreciation (non-cash, added back)", "item", lambda ms: -delta("1510", ms))
+    for a in wc_assets:
+        add(CF, f"Change in {accounts[a][0].lower()}", "item", lambda ms, a=a: -delta(a, ms))
+    for a in by_type("liability"):
+        add(CF, f"Change in {accounts[a][0].lower()}", "item", lambda ms, a=a: delta(a, ms))
+    cfo = lambda ms: ni(ms) - delta("1510", ms) - sum(delta(a, ms) for a in wc_assets) + sum(delta(a, ms) for a in by_type("liability"))  # noqa: E731
+    add(CF, "Cash from operations", "subtotal", cfo)
+    add(CF, "Investing activities", "header", lambda ms: None)
+    capex = lambda ms: -delta("1500", ms)  # noqa: E731
+    add(CF, "Capital expenditure", "item", capex)
+    add(CF, "Cash from investing", "subtotal", capex)
+    add(CF, "Free cash flow (operations + capex)", "ratio", lambda ms: cfo(ms) + capex(ms))
+    add(CF, "Financing activities", "header", lambda ms: None)
+    cff = lambda ms: sum(delta(a, ms) for a in by_type("equity"))  # noqa: E731
+    add(CF, "Equity raised", "item", cff)
+    add(CF, "Cash from financing", "subtotal", cff)
+    add(CF, "Net change in cash", "total", lambda ms: cfo(ms) + capex(ms) + cff(ms))
+    add(CF, "Opening cash", "item", lambda ms: bal("1000", [m for m in months if m < ms[0]][-1]) if ms[0] != months[0] else 0)
+    add(CF, "Closing cash", "total", lambda ms: bal("1000", ms[-1]))
+    # all three statements in full (not capped at MAX_ROWS): a statement missing lines would not add up
+    return {"source": "marts.fct_gl_monthly", "row_count": len(rows), "rows": rows, "periods": [c[0] for c in cols],
+            "period": period, "end_month": e, "note": f"Closed months through {e[:7]}; first column starts {first}."}
+
+
 def get_budget_vs_actual(wh, month=None, department=None, alerts_only=False):
     m = _month(month, wh)
     rows = wh.query("""
@@ -559,6 +682,82 @@ def get_project_detail(wh, project_id):
 
 # ---- registry: name → (function, description, JSON-schema parameters) -----------------------------
 
+# ---- FP&A: unit economics, cost behaviour, price/volume/mix, long-range plan, sensitivity, business cases --------
+
+def get_saas_metrics(wh, months=12):
+    rows = wh.query("""select strftime(month, '%Y-%m') as month, revenue, arr, sm_spend, new_customers, cac, arpa,
+                              monthly_logo_churn, ltv, ltv_to_cac, cac_payback_months, revenue_growth_yoy, ebitda_margin,
+                              rule_of_40, free_cash_flow, fcf_margin
+                       from marts.fct_saas_metrics_monthly order by month desc limit ?""", [int(months)])
+    return _result(rows[::-1], "marts.fct_saas_metrics_monthly",
+                   note="CAC = S&M spend / new customers (trailing 3 months); LTV = ARPA × gross margin / monthly churn; "
+                        "Rule of 40 = YoY revenue growth + EBITDA margin.")
+
+
+def get_cost_behavior(wh, months=12):
+    rows = wh.query("""select strftime(month, '%Y-%m') as month, revenue, variable_costs, fixed_costs, contribution_margin,
+                              cm_ratio, operating_income, breakeven_revenue, margin_of_safety, operating_leverage
+                       from marts.fct_cost_behavior_monthly order by month desc limit ?""", [int(months)])
+    accounts = wh.query("""select b.account_id, a.account_name, b.behavior, b.variable_share, b.note
+                           from seeds.cost_behavior b join seeds.gl_accounts a using (account_id) order by 1""")
+    return _result(rows[::-1], "marts.fct_cost_behavior_monthly, seeds.cost_behavior", accounts=accounts)
+
+
+def get_revenue_pvm(wh, month=None):
+    m = _month(month, wh)
+    rows = wh.query("""select product_id, audio_hours_prev, audio_hours, revenue_prev, revenue, revenue_change,
+                              price_effect, volume_effect, mix_effect
+                       from marts.fct_revenue_pvm_monthly where month = ?::date order by revenue desc""", [m])
+    total = {k: sum(float(r[k] or 0) for r in rows) for k in ("revenue_change", "price_effect", "volume_effect", "mix_effect")}
+    return _result(rows, "marts.fct_revenue_pvm_monthly", month=m, total=total,
+                   note="Usage revenue vs the month before. price + volume + mix = change.")
+
+
+def get_long_range_plan(wh):
+    rows = wh.query("select * from marts.fct_long_range_plan order by year")
+    return _result(rows, "marts.fct_long_range_plan, seeds.lrp_assumptions",
+                   note="Starts from the trailing 12 closed months; assumptions in seeds/lrp_assumptions.csv.")
+
+
+def _latest_unit_economics(wh):
+    r = wh.query("""select arpa, monthly_logo_churn from marts.fct_saas_metrics_monthly
+                    where arpa is not null order by month desc limit 1""")[0]
+    k = {x["metric_name"]: x["value"] for x in wh.query(
+        "select metric_name, value from marts.fct_kpi_monthly where month = (select max(month) from marts.fct_kpi_monthly)")}
+    return float(r["arpa"]), float(r["monthly_logo_churn"] or 0.02), k
+
+
+def get_runway_sensitivity(wh):
+    from finance_os import fpa
+    _, _, k = _latest_unit_economics(wh)
+    rev, cogs, opex = float(k["revenue"]), float(k["cogs"]), float(k["opex"])
+    base_growth = float(wh.query("""select avg(value) as g from (select value / lag(value) over (order by month) - 1 as value
+                                     from marts.fct_kpi_monthly where metric_name = 'revenue'
+                                     order by month desc limit 6) t""")[0]["g"] or 0)
+    base_growth = round(min(max(base_growth, -0.05), 0.10), 3)
+    table = fpa.runway_sensitivity(float(k["closing_cash"]), rev, cogs / rev, opex,
+                                   [-0.02, -0.01, 0, 0.01, 0.02, 0.03], [-0.20, -0.10, 0, 0.10], base_growth)
+    return _result(table, "marts.fct_kpi_monthly (last closed month) + finance_os.fpa.runway_sensitivity",
+                   base={"cash": float(k["closing_cash"]), "revenue": rev, "cogs_pct": round(cogs / rev, 4), "opex": opex,
+                         "revenue_growth_monthly": base_growth},
+                   note="Months until cash runs out, by monthly revenue growth (rows) and opex change (columns), "
+                        "without new funding. '60+' = not within five years.")
+
+
+def evaluate_business_case(wh, investment, annual_inflows, discount_rate=None, annual_costs=None, name="Business case"):
+    from finance_os import fpa
+    out = fpa.business_case(investment, annual_inflows, discount_rate or fpa.DEFAULT_DISCOUNT_RATE, annual_costs, name)
+    return {"source": "finance_os.fpa.business_case", **out}
+
+
+def evaluate_marketing_campaign(wh, spend, new_customers, years=3, discount_rate=None):
+    from finance_os import fpa
+    arpa, churn, k = _latest_unit_economics(wh)
+    out = fpa.campaign_case(spend, new_customers, arpa, float(k["gross_margin_pct"]), churn, years,
+                            discount_rate or fpa.DEFAULT_DISCOUNT_RATE)
+    return {"source": "finance_os.fpa.campaign_case + marts.fct_saas_metrics_monthly", **out}
+
+
 def _p(props, required=()):
     return {"type": "object", "properties": props, "required": list(required), "additionalProperties": False}
 
@@ -587,6 +786,32 @@ TOOLS = {
     "get_pnl": (get_pnl, "Income statement (revenue, COGS, opex) for a month range, grouped by account, rollup or department.",
                 _p({"start_month": MONTH, "end_month": MONTH,
                     "group_by": {"type": "string", "enum": ["account", "rollup", "department"]}})),
+    "get_financial_statements": (get_financial_statements,
+                                 "Three-statement view: income statement, balance sheet and cash flow (indirect), one column "
+                                 "per month, quarter or year. Use for 'show me the P&L / balance sheet / cash flow'.",
+                                 _p({"period": {"type": "string", "enum": ["month", "quarter", "year"]},
+                                     "periods": {"type": "integer"}, "end_month": MONTH})),
+    "get_saas_metrics": (get_saas_metrics, "SaaS unit economics by month: CAC, ARPA, LTV, LTV:CAC, CAC payback, YoY growth, "
+                         "EBITDA margin, Rule of 40, free cash flow and FCF margin.", _p({"months": {"type": "integer"}})),
+    "get_cost_behavior": (get_cost_behavior, "Fixed vs variable costs, contribution margin, breakeven revenue, margin of "
+                          "safety and operating leverage by month, with each account's classification. Use for cost-cut, "
+                          "breakeven and 'should we take this order' questions.", _p({"months": {"type": "integer"}})),
+    "get_revenue_pvm": (get_revenue_pvm, "Price / volume / mix bridge of usage revenue vs the prior month, by product.",
+                        _p({"month": MONTH})),
+    "get_long_range_plan": (get_long_range_plan, "Five-year long-range plan: revenue, margins, opex by function, EBITDA, "
+                            "capex, free cash flow, financing and cash by year.", _p({})),
+    "get_runway_sensitivity": (get_runway_sensitivity, "Sensitivity table: months of runway by revenue growth and opex "
+                               "change, from the last closed month.", _p({})),
+    "evaluate_business_case": (evaluate_business_case, "NPV, IRR and payback for an investment: amount spent today and "
+                               "the net cash it returns each year (build vs buy, hire vs outsource, capex).",
+                               _p({"investment": {"type": "number"}, "annual_inflows": {"type": "array", "items": {"type": "number"}},
+                                   "discount_rate": {"type": "number"}, "annual_costs": {"type": "array", "items": {"type": "number"}},
+                                   "name": {"type": "string"}}, ["investment", "annual_inflows"])),
+    "evaluate_marketing_campaign": (evaluate_marketing_campaign, "NPV, IRR and payback of a marketing campaign using the "
+                                    "company's current ARPA, gross margin and churn.",
+                                    _p({"spend": {"type": "number"}, "new_customers": {"type": "number"},
+                                        "years": {"type": "integer"}, "discount_rate": {"type": "number"}},
+                                       ["spend", "new_customers"])),
     "get_budget_vs_actual": (get_budget_vs_actual, "Company budget vs. actual for a month by DEPARTMENT and GL ACCOUNT (not "
                              "projects: for a project's budget or overrun use get_projects), with alerts, "
                              "and THIS fiscal year's full-year forecast vs budget (fy_forecast, fy_forecast_variance). "

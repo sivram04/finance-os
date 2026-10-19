@@ -24,3 +24,24 @@ def test_every_report_builds():
             assert text.startswith("#") and "None" not in text.splitlines()[0], name
     finally:
         con.close()
+
+
+def test_three_statements_tie_out():
+    """Balance sheet balances, and the cash flow ends at the balance sheet's cash, every period."""
+    from finance_os.app.tools import Warehouse, get_financial_statements
+    for period in ("month", "quarter", "year"):
+        fs = get_financial_statements(Warehouse(), period=period, periods=6)
+        line = {(r["sheet"], r["line"]): r for r in fs["rows"]}
+        for p in fs["periods"]:
+            assert abs(line[("Balance sheet", "Check (should be 0)")][p]) < 0.05, (period, p)
+            assert abs(line[("Cash flow", "Closing cash")][p] - line[("Balance sheet", "Cash - operating")][p]) < 0.05
+
+
+def test_finance_workbook_has_every_sheet():
+    import io
+    from openpyxl import load_workbook
+    from finance_os.app.tools import Warehouse
+    from finance_os.reports import workbook
+    wb = load_workbook(io.BytesIO(workbook.build(Warehouse(), "quarter", 4)))
+    assert {"Income statement", "Balance sheet", "Cash flow", "KPIs", "Unit economics", "Cost structure",
+            "Price volume mix", "Runway sensitivity", "Five-year plan"} <= set(wb.sheetnames)

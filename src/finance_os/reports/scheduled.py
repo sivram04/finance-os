@@ -116,7 +116,7 @@ def monthly_close(con, today):
     if rr:
         out += ["", f"ASC 606 adjustment to book: {_usd(rr[0][0])} (contract asset {_usd(rr[0][1])}, liability {_usd(rr[0][2])})."]
     out += [f"Costs accrued before their invoice arrived: {_usd(acc)}.", "", "## Budget variances to explain", ""]
-    out += [f"- {d} {a}: {_usd(v)} ({float(p) * 100:+.1f}%)" for d, a, v, p in bva] or ["None."]
+    out += [f"- {d} {a}: {_usd(v)} ({float(p) * 100:+.1f}%)" if p is not None else f"- {d} {a}: {_usd(v)} (no budget)" for d, a, v, p in bva] or ["None."]
     return "\n".join(out)
 
 

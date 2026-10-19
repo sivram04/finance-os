@@ -19,6 +19,9 @@ Postings:
 - subcontractor_bill  bill date: Dr project subcontractor COGS / Cr AP; subcontractor_payment +N days
 - project_odc         expense date: Dr project ODC COGS / Cr cash
 - funding        Dr cash / Cr equity
+- capex          on the date: Dr fixed assets (1500) / Cr cash
+- depreciation   month end, straight-line from the month after purchase: Dr depreciation (6600) / Cr
+                 accumulated depreciation (1510); depreciation_for_month() is shared with the live books
 """
 import calendar
 import random
@@ -76,6 +79,24 @@ def rate_usage_lines(cfg, customers, usage):
 def rate_usage(cfg, customers, usage):
     """Invoice amount per customer-month."""
     return {k: sum(l[3] for l in v) for k, v in rate_usage_lines(cfg, customers, usage).items()}
+
+
+def depreciation_for_month(cfg, month):
+    """[(department, amount, memo)] of straight-line depreciation for the month starting `month` (a date on the
+    1st). Each asset depreciates from the month after purchase for life_months; the last month takes the rounding."""
+    out = []
+    for a in cfg.get("capex", []):
+        bought = a["date"] if isinstance(a["date"], date) else date.fromisoformat(str(a["date"]))
+        start = (bought.replace(day=1) + timedelta(days=32)).replace(day=1)
+        n = (month.year - start.year) * 12 + month.month - start.month
+        life = int(a["life_months"])
+        if not 0 <= n < life:
+            continue
+        cost = Decimal(a["amount"])
+        monthly = (cost / life).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        amount = cost - monthly * (life - 1) if n == life - 1 else monthly
+        out.append((a["department"], amount, f"Depreciation {a['memo']}"))
+    return out
 
 
 def post_payroll(gl, pay_register, end):
@@ -244,6 +265,17 @@ def build_ledger(cfg, customers, usage, lifecycle, cloud_costs, bills, bill_line
         dims = {"department_id": "PS"}
         gl.post(o["expense_date"], "project_odc", f"ODC {o['project_id']}",
                 [("5210", o["amount"], 0, dims), ("1000", 0, o["amount"], dims)], o["expense_id"])
+
+    for a in cfg.get("capex", []):
+        amt = Decimal(a["amount"])
+        dims = {"department_id": a["department"]}
+        gl.post(a["date"], "capex", a["memo"], [("1500", amt, 0, dims), ("1000", 0, amt, dims)])
+    month = cfg["window"]["start"].replace(day=1)
+    while month <= end:
+        for dept, amt, memo in depreciation_for_month(cfg, month):
+            dims = {"department_id": dept}
+            gl.post(_month_end(month), "depreciation", memo, [("6600", amt, 0, dims), ("1510", 0, amt, dims)])
+        month = (month + timedelta(days=32)).replace(day=1)
 
     for o in cfg.get("one_off_expenses", []):
         amt = Decimal(o["amount"])

@@ -285,6 +285,14 @@ class Books:
         prod = sum((c["cost"] for c in cloud if c["label_team"] == "infra" and c["label_env"] == "prod"), Decimal(0))
         return prod / total if total else Decimal(0)
 
+    def depreciate(self):
+        """Month end: straight-line depreciation of the fixed-asset register (same schedule as the history)."""
+        from finance_os.generator.events.ledger import depreciation_for_month
+        today = self.day.today
+        for dept, amount, memo in depreciation_for_month(self.day.cfg, today.replace(day=1)):
+            dims = {"department_id": dept}
+            self.post(today, "depreciation", memo, [("6600", amount, 0, dims), ("1510", 0, amount, dims)])
+
     def accrue_vendors(self, jobs, cloud):
         """Month end: book this month's GPU and cloud cost from our own logs before the bills arrive."""
         today = self.day.today

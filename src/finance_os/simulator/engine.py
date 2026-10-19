@@ -269,6 +269,7 @@ class Day:
             self.books.payment_run(self.approvals)
         if self.today == month_end(self.today):
             self.books.payroll()
+            self.books.depreciate()
             self.books.accrue_vendors(*self.month_infra(self.today.replace(day=1)))
         if self.documents:
             render_ap_pdfs(self.cfg, [d for d, _ in self.documents], [l for _, ls in self.documents for l in ls],

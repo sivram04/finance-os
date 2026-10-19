@@ -442,3 +442,227 @@ export function Reports() {
     </div>
   )
 }
+
+
+// ---- Financials: the three statements as a spreadsheet, and the whole workbook as .xlsx ---------------------
+
+const SHEETS = ['Income statement', 'Balance sheet', 'Cash flow'] as const
+const colName = (i: number) => (i >= 26 ? String.fromCharCode(64 + Math.floor(i / 26)) : '') + String.fromCharCode(65 + (i % 26))
+
+function cell(v: unknown, unit: string) {
+  if (v == null) return ''
+  const n = v as number
+  if (unit === 'ratio') return `${(n * 100).toFixed(1)}%`
+  if (Math.abs(n) < 0.5) return '–'
+  const s = Math.round(Math.abs(n)).toLocaleString('en-US')
+  return n < 0 ? `(${s})` : s
+}
+
+export function Financials() {
+  const [period, setPeriod] = useState<'month' | 'quarter' | 'year'>('month')
+  const [sheet, setSheet] = useState<(typeof SHEETS)[number]>('Income statement')
+  const [sel, setSel] = useState<{ r: number; c: number } | null>(null)
+  const count = period === 'month' ? 12 : period === 'quarter' ? 8 : 3
+  const d = useTool('get_financial_statements', { period, periods: count })
+  const periods = (d.data?.periods as string[] | undefined) ?? []
+  const rows = ((d.data?.rows ?? []) as Row[]).filter((r) => r.sheet === sheet)
+  const selRow = sel ? rows[sel.r] : undefined
+  const selVal = sel && selRow ? (sel.c === 0 ? String(selRow.line) : selRow[periods[sel.c - 1]]) : undefined
+  const shown = selVal == null ? '' : typeof selVal === 'number'
+    ? (selRow?.unit === 'ratio' ? `${(selVal * 100).toFixed(2)}%` : selVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
+    : String(selVal)
+  return (
+    <div className="page">
+      <Head title="Financials" sub="Income statement, balance sheet and cash flow from the general ledger, closed months only. Download the full workbook for Excel."
+        ask="Walk me through the financial statements: what changed this quarter in revenue, margins, cash and working capital?" />
+      <Card
+        title={<div className="segmented">{SHEETS.map((s) => <button key={s} className={sheet === s ? 'on' : ''} onClick={() => { setSheet(s); setSel(null) }}>{s}</button>)}</div>}
+        right={
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <div className="segmented">{(['month', 'quarter', 'year'] as const).map((p) => <button key={p} className={period === p ? 'on' : ''} onClick={() => { setPeriod(p); setSel(null) }}>{p === 'month' ? 'Monthly' : p === 'quarter' ? 'Quarterly' : 'Annual'}</button>)}</div>
+            <a className="btn small primary" href={`/api/financials.xlsx?period=${period}&periods=${count}`}>Download Excel</a>
+          </div>}>
+        <div className="formula-bar">
+          <span className="ref">{sel ? `${colName(sel.c)}${sel.r + 1}` : ''}</span>
+          <span className="fx">fx</span>
+          <span>{shown}{sel && sel.c > 0 && selRow ? <span className="faint"> · {String(selRow.line)}, {periods[sel.c - 1]}</span> : null}</span>
+        </div>
+        {d.data ? (
+          <div className="sheet-wrap">
+            <table className="sheet">
+              <thead>
+                <tr><th className="corner" />{['', ...periods].map((_, i) => <th key={i} className="col-letter">{colName(i)}</th>)}</tr>
+                <tr><th className="rownum" /><th className="line">{sheet}</th>{periods.map((p) => <th key={p} className="num">{p}</th>)}</tr>
+              </thead>
+              <tbody>
+                {rows.map((r, ri) => (
+                  <tr key={ri} className={`s-${r.style}`}>
+                    <td className="rownum">{ri + 1}</td>
+                    <td className={`line ${sel?.r === ri && sel.c === 0 ? 'sel' : ''}`} onClick={() => setSel({ r: ri, c: 0 })}>{String(r.line)}</td>
+                    {periods.map((p, ci) => {
+                      const v = r[p] as number | null
+                      return <td key={p} className={`num ${v != null && v < 0 ? 'neg' : ''} ${sel?.r === ri && sel.c === ci + 1 ? 'sel' : ''}`}
+                        onClick={() => setSel({ r: ri, c: ci + 1 })}>{r.style === 'header' ? '' : cell(v, String(r.unit))}</td>
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : <Loading state={d} />}
+        <Source data={d.data} />
+      </Card>
+    </div>
+  )
+}
+
+
+// ---- Analysis: unit economics, cost structure, price/volume/mix, sensitivity, long-range plan, business cases ----
+
+const pct = (v: unknown) => (v == null ? '—' : `${((v as number) * 100).toFixed(1)}%`)
+
+function BusinessCase() {
+  const [mode, setMode] = useState<'campaign' | 'investment'>('campaign')
+  const [spend, setSpend] = useState(500000)
+  const [customers, setCustomers] = useState(40)
+  const [years, setYears] = useState(3)
+  const [inflows, setInflows] = useState('200000, 250000, 250000')
+  const [rate, setRate] = useState(15)
+  const [out, setOut] = useState<Row | null>(null)
+  const [err, setErr] = useState<string>()
+  const run = () => {
+    setErr(undefined)
+    const args = mode === 'campaign'
+      ? { tool: 'evaluate_marketing_campaign', a: { spend, new_customers: customers, years, discount_rate: rate / 100 } }
+      : { tool: 'evaluate_business_case', a: { investment: spend, annual_inflows: inflows.split(',').map((x) => Number(x.trim())).filter((x) => !Number.isNaN(x)), discount_rate: rate / 100 } }
+    api.data(args.tool, args.a).then((r) => setOut(r as unknown as Row)).catch((e) => setErr(String(e)))
+  }
+  useEffect(run, [])  // eslint-disable-line react-hooks/exhaustive-deps
+  const num = (v: number, set: (n: number) => void, step = 1000) => <input type="number" className="table-search" style={{ width: 130 }} step={step} value={v} onChange={(e) => set(Number(e.target.value))} />
+  return (
+    <Card title="Business case" sub="NPV, IRR and payback at the hurdle rate. A campaign uses today's ARPA, gross margin and churn."
+      right={<div className="segmented"><button className={mode === 'campaign' ? 'on' : ''} onClick={() => setMode('campaign')}>Marketing campaign</button><button className={mode === 'investment' ? 'on' : ''} onClick={() => setMode('investment')}>Investment</button></div>}>
+      <div className="form-row">
+        <label>{mode === 'campaign' ? 'Spend' : 'Investment today'} ($){num(spend, setSpend)}</label>
+        {mode === 'campaign'
+          ? <><label>New customers{num(customers, setCustomers, 1)}</label><label>Years{num(years, setYears, 1)}</label></>
+          : <label>Net cash back each year ($, comma separated)<input className="table-search" style={{ width: 260 }} value={inflows} onChange={(e) => setInflows(e.target.value)} /></label>}
+        <label>Hurdle rate (%){num(rate, setRate, 1)}</label>
+        <button className="btn primary" onClick={run}>Evaluate</button>
+      </div>
+      {err && <div className="muted">{err}</div>}
+      {out && (
+        <>
+          <div className="grid cols-4" style={{ margin: '12px 0' }}>
+            <Kpi label="NPV" value={usd(out.npv)} tone={(out.npv as number) > 0 ? 'good' : 'bad'} />
+            <Kpi label="IRR" value={out.irr == null ? 'n/a' : pct(out.irr)} />
+            <Kpi label="Payback" value={out.payback_years == null ? 'Never' : `${(out.payback_years as number).toFixed(1)} yrs`} />
+            <Kpi label="Verdict" value={(out.npv as number) > 0 ? 'Invest' : "Don't"} note={String(out.verdict)} tone={(out.npv as number) > 0 ? 'good' : 'bad'} />
+          </div>
+          <DataTable rows={out.rows as unknown as Row[]} columns={[{ key: 'year' }, { key: 'cash_flow', unit: 'usd' }, { key: 'discounted', label: 'Discounted', unit: 'usd' }, { key: 'cumulative', unit: 'usd' }]} />
+        </>
+      )}
+    </Card>
+  )
+}
+
+export function Analysis() {
+  const saas = useTool('get_saas_metrics', { months: 12 })
+  const cost = useTool('get_cost_behavior', { months: 12 })
+  const pvm = useTool('get_revenue_pvm')
+  const sens = useTool('get_runway_sensitivity')
+  const lrp = useTool('get_long_range_plan')
+  const last = (saas.data?.rows as Row[] | undefined)?.at(-1)
+  const lc = (cost.data?.rows as Row[] | undefined)?.at(-1)
+  const tot = (pvm.data?.total ?? {}) as Row
+  const bridge = pvm.data ? [{ step: 'Price', v: tot.price_effect }, { step: 'Volume', v: tot.volume_effect }, { step: 'Mix', v: tot.mix_effect }, { step: 'Total change', v: tot.revenue_change }] : []
+  return (
+    <div className="page">
+      <Head title="Analysis" sub="Unit economics, cost structure and breakeven, revenue bridge, runway sensitivity, the five-year plan and business cases."
+        ask="Give me a CFO read of our unit economics: CAC, LTV:CAC, payback, Rule of 40, breakeven and where the leverage is." />
+      <div className="grid cols-4">
+        <Kpi label="LTV : CAC" value={last?.ltv_to_cac != null ? `${(last.ltv_to_cac as number).toFixed(1)}x` : '—'} note={last ? `LTV ${usd(last.ltv)} · CAC ${usd(last.cac)}` : ''} tone={last && (last.ltv_to_cac as number) >= 3 ? 'good' : 'bad'} />
+        <Kpi label="CAC payback" value={last?.cac_payback_months != null ? `${(last.cac_payback_months as number).toFixed(1)} mo` : '—'} tone={last && (last.cac_payback_months as number) <= 18 ? 'good' : 'bad'} />
+        <Kpi label="Rule of 40" value={last ? `${((last.rule_of_40 as number) * 100).toFixed(0)}` : '—'} note={last ? `growth ${pct(last.revenue_growth_yoy)} + EBITDA margin ${pct(last.ebitda_margin)}` : ''} tone={last && (last.rule_of_40 as number) >= 0.4 ? 'good' : 'bad'} />
+        <Kpi label="Breakeven revenue / month" value={lc ? usd(lc.breakeven_revenue) : '—'} note={lc ? `revenue ${usd(lc.revenue)} · margin of safety ${pct(lc.margin_of_safety)}` : ''} />
+      </div>
+
+      <Card title="SaaS unit economics" sub="CAC on trailing 3 months; LTV = ARPA × gross margin / monthly churn">
+        {saas.data ? <DataTable title="saas_metrics" rows={[...saas.data.rows].reverse()} columns={[{ key: 'month' }, { key: 'arr', unit: 'usd' }, { key: 'new_customers', label: 'New' }, { key: 'cac', label: 'CAC', unit: 'usd' }, { key: 'arpa', label: 'ARPA', unit: 'usd' }, { key: 'ltv', label: 'LTV', unit: 'usd' }, { key: 'ltv_to_cac', label: 'LTV:CAC' }, { key: 'cac_payback_months', label: 'Payback (mo)' }, { key: 'revenue_growth_yoy', label: 'Growth YoY', unit: 'ratio' }, { key: 'rule_of_40', label: 'Rule of 40', unit: 'ratio' }, { key: 'free_cash_flow', label: 'Free cash flow', unit: 'usd' }]} /> : <Loading state={saas} />}
+      </Card>
+
+      <div className="grid cols-2" style={{ alignItems: 'start' }}>
+        <Card title="Cost structure and breakeven" sub="Fixed vs variable (seeds/cost_behavior.csv), contribution margin, operating leverage">
+          {cost.data ? (
+            <>
+              <div style={{ height: 220 }}>
+                <ResponsiveContainer>
+                  <BarChart data={cost.data.rows} margin={{ left: 8, right: 8, top: 8 }}>
+                    <CartesianGrid stroke="var(--border)" vertical={false} />
+                    <XAxis dataKey="month" {...AXIS} />
+                    <YAxis tickFormatter={usd} width={64} {...AXIS} />
+                    <Tooltip formatter={usd} {...TIP} />
+                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                    <Bar dataKey="variable_costs" name="Variable costs" stackId="c" fill="var(--accent)" fillOpacity={0.55} />
+                    <Bar dataKey="fixed_costs" name="Fixed costs" stackId="c" fill="var(--faint)" fillOpacity={0.6} radius={[3, 3, 0, 0]} />
+                    <Line dataKey="revenue" name="Revenue" stroke="var(--good, #2f9e6b)" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <DataTable rows={[...cost.data.rows].reverse()} columns={[{ key: 'month' }, { key: 'contribution_margin', unit: 'usd' }, { key: 'cm_ratio', label: 'CM %', unit: 'ratio' }, { key: 'breakeven_revenue', label: 'Breakeven', unit: 'usd' }, { key: 'operating_leverage', label: 'Op. leverage' }]} />
+            </>
+          ) : <Loading state={cost} />}
+        </Card>
+        <Card title="Revenue bridge: price, volume, mix" sub={pvm.data ? `Usage revenue, ${String(pvm.data.month).slice(0, 7)} vs the month before` : ''}>
+          {pvm.data ? (
+            <>
+              <div style={{ height: 220 }}>
+                <ResponsiveContainer>
+                  <BarChart data={bridge} margin={{ left: 8, right: 8, top: 8 }}>
+                    <CartesianGrid stroke="var(--border)" vertical={false} />
+                    <XAxis dataKey="step" {...AXIS} />
+                    <YAxis tickFormatter={usd} width={64} {...AXIS} />
+                    <Tooltip formatter={usd} {...TIP} />
+                    <ReferenceLine y={0} stroke="var(--faint)" />
+                    <Bar dataKey="v" name="Effect" fill="var(--accent)" radius={[3, 3, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <DataTable rows={pvm.data.rows} columns={[{ key: 'product_id' }, { key: 'revenue', unit: 'usd' }, { key: 'revenue_change', label: 'Change', unit: 'usd' }, { key: 'price_effect', label: 'Price', unit: 'usd' }, { key: 'volume_effect', label: 'Volume', unit: 'usd' }, { key: 'mix_effect', label: 'Mix', unit: 'usd' }]} />
+            </>
+          ) : <Loading state={pvm} />}
+        </Card>
+      </div>
+
+      <Card title="Runway sensitivity" sub={sens.data ? `Months until cash runs out with no new money. Rows: monthly revenue growth (today ${pct((sens.data.base as Row).revenue_growth_monthly)}). Columns: change in opex.` : ''}>
+        {sens.data ? <DataTable rows={sens.data.rows} columns={Object.keys(sens.data.rows[0] ?? {}).map((k) => k === 'revenue_growth_monthly'
+          ? { key: k, label: 'Revenue growth / month', unit: 'ratio' as const }
+          : { key: k, label: k, render: (r: Row) => (typeof r[k] === 'number' ? `${r[k]} months` : `${String(r[k])} months`) })} /> : <Loading state={sens} />}
+      </Card>
+
+      <Card title="Five-year plan" sub="From the trailing 12 months; assumptions in seeds/lrp_assumptions.csv; base-case raise included">
+        {lrp.data ? (
+          <>
+            <div style={{ height: 240 }}>
+              <ResponsiveContainer>
+                <BarChart data={lrp.data.rows} margin={{ left: 8, right: 8, top: 8 }}>
+                  <CartesianGrid stroke="var(--border)" vertical={false} />
+                  <XAxis dataKey="year" {...AXIS} />
+                  <YAxis tickFormatter={usd} width={70} {...AXIS} />
+                  <Tooltip formatter={usd} {...TIP} />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  <ReferenceLine y={0} stroke="var(--faint)" />
+                  <Bar dataKey="revenue" name="Revenue" fill="var(--accent)" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="ebitda" name="EBITDA" fill="var(--good, #2f9e6b)" radius={[3, 3, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <DataTable rows={lrp.data.rows} columns={[{ key: 'year' }, { key: 'revenue', unit: 'usd' }, { key: 'revenue_growth', label: 'Growth', unit: 'ratio' }, { key: 'gross_margin_pct', label: 'GM %', unit: 'ratio' }, { key: 'ebitda', unit: 'usd' }, { key: 'ebitda_margin', label: 'EBITDA %', unit: 'ratio' }, { key: 'free_cash_flow', unit: 'usd' }, { key: 'financing', unit: 'usd' }, { key: 'closing_cash', unit: 'usd' }, { key: 'rule_of_40', label: 'Rule of 40', unit: 'ratio' }]} />
+          </>
+        ) : <Loading state={lrp} />}
+      </Card>
+
+      <BusinessCase />
+    </div>
+  )
+}

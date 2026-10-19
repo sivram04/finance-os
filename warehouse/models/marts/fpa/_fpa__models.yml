@@ -1,0 +1,28 @@
+version: 2
+
+models:
+  - name: fct_saas_metrics_monthly
+    description: SaaS unit economics per closed month (CAC, ARPA, LTV, LTV:CAC, CAC payback, Rule of 40, free cash flow).
+    columns:
+      - name: month
+        data_tests: [unique, not_null]
+
+  - name: fct_cost_behavior_monthly
+    description: Fixed vs variable costs (seeds/cost_behavior.csv), contribution margin, breakeven and operating leverage.
+    columns:
+      - name: month
+        data_tests: [unique, not_null]
+      - name: revenue
+        data_tests: [not_null]
+
+  - name: fct_revenue_pvm_monthly
+    description: Month-over-month price / volume / mix bridge of usage revenue by product; the three effects sum to the change.
+    columns:
+      - name: product_id
+        data_tests: [not_null]
+
+  - name: fct_long_range_plan
+    description: Five-year plan from the trailing twelve closed months and seeds/lrp_assumptions.csv, with the base-case raise.
+    columns:
+      - name: year
+        data_tests: [unique, not_null]

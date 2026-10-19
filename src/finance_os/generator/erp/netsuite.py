@@ -17,8 +17,8 @@ TYPE = {"revenue": "CustInvc", "project_invoice": "CustInvc", "collection": "Cus
         "refund": "CustRfnd", "vendor_bill": "VendBill", "subcontractor_bill": "VendBill",
         "vendor_payment": "VendPymt", "subcontractor_payment": "VendPymt", "payroll": "Journal",
         "payment_fee": "Journal", "payroll_remittance": "Check", "opex": "Check", "one_off": "Check",
-        "project_odc": "Check", "funding": "Deposit"}
-ACCT_TYPE = {"1000": "Bank", "1200": "AcctRec", "2000": "AcctPay", "3000": "Equity"}
+        "project_odc": "Check", "funding": "Deposit", "capex": "Check", "depreciation": "Journal"}
+ACCT_TYPE = {"1000": "Bank", "1200": "AcctRec", "1500": "FixedAsset", "1510": "FixedAsset", "2000": "AcctPay", "3000": "Equity"}
 BY_CLASS = {"asset": "OthCurrAsset", "liability": "OthCurrLiab", "equity": "Equity", "revenue": "Income",
             "cogs": "COGS", "opex": "Expense"}
 LIVE_TXN_OFFSET = 1_000_000   # live entries (LJE000001…) get internal ids above the history's

@@ -187,6 +187,16 @@ def create_app(state: AppState | None = None, wh: tools.Warehouse | None = None,
             raise HTTPException(404, "no such report")
         return {"sent": scheduled.run(only=report_id, force=True)}
 
+    @app.get("/api/financials.xlsx")
+    def financials_xlsx(period: str = "month", periods: int = 12):
+        from fastapi.responses import Response
+        from finance_os.reports import workbook
+        if period not in ("month", "quarter", "year"):
+            raise HTTPException(422, "period must be month, quarter or year")
+        data = workbook.build(wh, period, max(1, min(periods, 36)))
+        return Response(data, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        headers={"Content-Disposition": f'attachment; filename="echo_labs_financials_{period}.xlsx"'})
+
     class AckBody(BaseModel):
         alert_key: str
         who: str | None = None

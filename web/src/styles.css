@@ -234,3 +234,30 @@ button.link { background: none; border: 0; padding: 0; font: inherit; color: var
 .scroll-box { max-height: 560px; overflow-y: auto; }
 .scroll-box.short { max-height: 220px; }
 .pager { display: flex; gap: 8px; align-items: center; justify-content: flex-end; padding-top: 8px; }
+
+/* Financials: a spreadsheet grid (column letters, row numbers, frozen first column, formula bar) */
+.formula-bar { display: flex; gap: 10px; align-items: center; border: 1px solid var(--border); border-radius: 6px; padding: 5px 10px; margin-bottom: 8px; font-size: 13px; min-height: 30px; font-variant-numeric: tabular-nums; }
+.formula-bar .ref { min-width: 44px; color: var(--faint); border-right: 1px solid var(--border); padding-right: 10px; }
+.formula-bar .fx { color: var(--faint); font-style: italic; }
+.sheet-wrap { overflow: auto; max-height: 640px; border: 1px solid var(--border); border-radius: 6px; }
+table.sheet { border-collapse: separate; border-spacing: 0; width: max-content; min-width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
+table.sheet th, table.sheet td { border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 4px 10px; white-space: nowrap; }
+table.sheet thead th { position: sticky; background: var(--card); z-index: 2; font-weight: 600; }
+table.sheet thead tr:first-child th { top: 0; height: 22px; color: var(--faint); font-weight: 400; font-size: 11px; text-align: center; }
+table.sheet thead tr:nth-child(2) th { top: 31px; }
+table.sheet .rownum { color: var(--faint); font-size: 11px; text-align: center; width: 36px; min-width: 36px; background: var(--card); position: sticky; left: 0; z-index: 1; }
+table.sheet .line { position: sticky; left: 57px; background: var(--card); z-index: 1; min-width: 260px; text-align: left; cursor: cell; }
+table.sheet thead .corner { position: sticky; left: 0; z-index: 3; }
+table.sheet thead .rownum, table.sheet thead .line { z-index: 3; }
+table.sheet td.num { text-align: right; min-width: 104px; cursor: cell; }
+table.sheet th.num { text-align: right; }
+table.sheet td.neg { color: var(--bad, #d1495b); }
+table.sheet td.sel { outline: 2px solid var(--accent); outline-offset: -2px; }
+table.sheet tr.s-item .line { padding-left: 26px; }
+table.sheet tr.s-header td, table.sheet tr.s-header .line { background: color-mix(in srgb, var(--card) 88%, #808080); font-weight: 600; }
+table.sheet tr.s-subtotal td { font-weight: 600; border-top: 1px solid var(--faint); }
+table.sheet tr.s-total td { font-weight: 700; border-top: 1px solid var(--faint); border-bottom: 3px double var(--faint); }
+table.sheet tr.s-ratio td, table.sheet tr.s-check td { color: var(--faint); font-style: italic; }
+
+.form-row { display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-end; }
+.form-row label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--faint); }

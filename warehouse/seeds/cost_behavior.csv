@@ -1,0 +1,15 @@
+account_id,behavior,variable_share,note
+5000,variable,1.00,GPU compute scales with audio hours served
+5010,semi,0.70,Cloud hosting: per-hour storage and egress plus a fixed base
+5100,variable,1.00,Card fees are a share of what is collected
+5200,variable,1.00,Subcontractors are hired per project
+5210,variable,1.00,Project travel and materials
+6000,fixed,0.00,Salaries
+6010,fixed,0.00,Employer payroll taxes
+6020,fixed,0.00,Benefits
+6100,semi,0.30,R&D cloud grows partly with experiments on production volume
+6200,fixed,0.00,Software subscriptions
+6300,fixed,0.00,Rent
+6400,fixed,0.00,Legal and accounting
+6500,semi,0.40,Marketing spend partly tied to acquisition volume
+6600,fixed,0.00,Depreciation
