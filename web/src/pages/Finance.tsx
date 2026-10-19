@@ -170,69 +170,89 @@ export function Cash() {
 
 // ---- Close: checklist, accruals, prepaids, revenue recognition ----------------------------------------
 
-// Close (docs/dashboard_spec.md section 5): will we close on time, and what's blocking it?
-const STATE_COLORS: Record<string, string> = { complete: '#2f9e6b', review: '#c98a1b', in_progress: '#3b6fd8', blocked: '#d1495b', overdue: '#d1495b', exceptions: '#d1495b', not_started: '#7a8699' }
+// Close: the controller's review (docs/dashboard_spec.md section 5). Is every number booked (accruals, prepaids,
+// depreciation), does every balance sheet account tie to its support, and why did each line move (flux)? The task
+// checklist supports this; it is not the headline.
 
 export function Close() {
   return <Dash><CloseBody /></Dash>
 }
 
 function CloseBody() {
-  const cd = useTool('get_close_dashboard')
-  const cs = useTool('get_close_status')
-  const rr = useTool('get_revenue_recognition')
+  const cr = useTool('get_close_review')
   const { ask } = useWorkspace()
-  const all = (cd.data?.rows ?? []) as Row[]
-  const rows = useFiltered(all)
-  const recon = (cd.data?.recon ?? []) as Row[]
-  const passing = recon.filter((r) => r.status === 'pass').length
-  const done = rows.filter((t) => t.state === 'complete').length
-  const stuck = rows.filter((t) => t.state !== 'complete')
-  const lastWorkday = Math.max(0, ...all.filter((t) => t.state !== 'complete').map((t) => Number(t.workday)))
-  if (!cd.data) return <div className="page"><Loading state={cd} /></div>
+  const d = cr.data
+  const usd = (v: unknown) => fmt('amount', v as number, 'usd')
+  const flux: Row[] = ((d?.rows ?? []) as Row[]).map((f) => ({ ...f, flag: f.needs_explanation ? 'needs explanation' : f.material ? 'material, explained' : 'below threshold' }))
+  const recs = (d?.reconciliations ?? []) as Row[]
+  const acc = (d?.accruals ?? []) as Row[]
+  const tasks = ((d?.tasks ?? []) as Row[]).map((t) => ({ ...t, state: t.status === 'complete' ? 'complete' : String(t.status) }))
+  const journals = (d?.journals ?? []) as Row[]
+  const rr = d?.revenue_rollforward as Row | null | undefined
+  const thisMonth = acc.filter((a) => a.month === d?.month), lastMonth = acc.filter((a) => a.month === d?.prior_month)
+  const trueUp = lastMonth.reduce((x, a) => x + Math.abs(Number(a.true_up ?? 0)), 0), lastAcc = lastMonth.reduce((x, a) => x + Number(a.accrued_amount), 0)
+  const recOk = recs.filter((r) => r.status === 'reconciled' || r.status === 'no activity').length
+  const toExplain = flux.filter((f) => f.needs_explanation).length
+  const manual = journals.filter((j) => j.is_manual)
+  const done = tasks.filter((t) => t.state === 'complete').length
+  if (!d) return <div className="page"><Loading state={cr} /></div>
   return (
     <div className="page">
-      <Head title="Month-end close" sub={`Will we close ${String(cd.data.month)} on time, and what's blocking it? Click a slice or bar to filter`}
-        ask="Where are we in the month-end close? What's blocking sign-off, who owns it, and what entries still need to be booked?" />
+      <Head title={`Month-end close · ${String(d.month)}`} sub="Is every number booked, reconciled and explained? Accruals, balance sheet reconciliations and flux first; the task list supports them"
+        ask={`Review the ${String(d.month)} close like a controller: what is not booked, which balance sheet accounts don't tie and why, which movements need explaining, and what blocks sign-off.`} />
       <KpiRow items={[
-        { label: 'Close period', value: String(cd.data.month), note: `books as of ${String(cd.data.as_of)}` },
-        { label: 'Tasks complete', value: `${done} / ${rows.length}`, note: `${rows.length ? Math.round((done / rows.length) * 100) : 0}% done`, tone: done === rows.length ? 'good' : 'ok' },
-        { label: 'Blocked or overdue', value: String(stuck.filter((t) => t.state === 'blocked' || t.state === 'overdue').length), note: 'need a decision today', tone: stuck.some((t) => t.state === 'blocked' || t.state === 'overdue') ? 'bad' : 'good' },
-        { label: 'Open items', value: String(rows.reduce((a, t) => a + Number(t.open_items ?? 0), 0)), note: 'exceptions inside open tasks' },
-        { label: 'Reconciliations', value: `${passing} / ${recon.length}`, note: 'passing for the period', tone: passing === recon.length ? 'good' : 'bad' },
-        { label: 'Critical path', value: lastWorkday ? `WD ${lastWorkday}` : 'done', note: 'latest workday with open work', tone: lastWorkday > 5 ? 'bad' : null },
+        { label: 'Accrued at month end', value: usd(thisMonth.reduce((x, a) => x + Number(a.accrued_amount), 0)), note: `${thisMonth.length} vendor accruals, auto-reversing` },
+        { label: 'Accrual accuracy', value: lastAcc ? `${(100 - (trueUp / lastAcc) * 100).toFixed(1)}%` : '—', note: `last month's true-ups ${usd(trueUp)}`, tone: lastAcc && trueUp / lastAcc > 0.05 ? 'bad' : 'good' },
+        { label: 'Balance sheet reconciled', value: `${recOk} / ${recs.length}`, note: `${recs.filter((r) => r.status === 'explained').length} explained differences`, tone: recs.some((r) => r.status === 'difference') ? 'bad' : recs.some((r) => r.status === 'explained') ? 'ok' : 'good' },
+        { label: 'Flux to explain', value: String(toExplain), note: `material: |change| ≥ $25K and ≥ 10% · ${flux.filter((f) => f.material).length} material`, tone: toExplain ? 'bad' : 'good' },
+        { label: 'Manual journals', value: String(manual.reduce((x, j) => x + Number(j.entries), 0)), note: manual.length ? usd(manual.reduce((x, j) => x + Number(j.amount), 0)) : 'none this month', tone: manual.length ? 'ok' : 'good' },
+        { label: 'ASC 606 entry to book', value: rr ? usd(rr.revenue_adjustment) : '—', note: 'recognized vs billed on projects' },
       ]} />
-      <div className="grid cols-3">
-        <Card title="Where the close stands" sub="Tasks by status · click to filter"><Donut rows={all} dim="state" colors={STATE_COLORS} /></Card>
-        <Card title="Who has open work" sub="Open tasks by owner · click an owner to filter">
-          <Bars rows={all.filter((t) => t.state !== 'complete')} dim="owner"
-            stack={{ key: 'state', values: ['blocked', 'overdue', 'review', 'in_progress', 'not_started', 'exceptions'], colors: STATE_COLORS }} />
+
+      <Card title="Balance sheet reconciliations" sub="Each account's GL balance against its independent support · differences must be explained before sign-off">
+        <DataTable rows={recs} columns={[{ key: 'account' }, { key: 'gl_balance', label: 'GL balance', unit: 'usd' }, { key: 'support', label: 'Reconciled to' }, { key: 'support_balance', label: 'Support balance', unit: 'usd' },
+          { key: 'difference', unit: 'usd' }, { key: 'status', render: (r) => <Chip value={String(r.status)} kind={r.status === 'reconciled' || r.status === 'no activity' ? 'good' : r.status === 'explained' ? 'warn' : 'bad'} /> },
+          { key: 'explanation', render: (r) => <span className="muted" style={{ whiteSpace: 'normal' }}>{String(r.explanation ?? '')}</span> }]} />
+      </Card>
+
+      <div className="grid cols-2">
+        <Card title={`What moved: ${String(d.prior_month)} to ${String(d.month)}`} sub="Largest movements, P&L and balance sheet · click an account to filter the flux table">
+          <Bars rows={flux} dim="account_name" measure="change" signed top={10} />
         </Card>
-        <Card title="Workdays to close" sub="Last workday with a completed task, past closes">
-          <Columns rows={(cd.data.history ?? []) as Row[]} x="month" y="last_workday_done" unit="count" color="#3b6fd8" />
+        <Card title="Accruals" sub="Booked at month end before the invoice arrives, reversed when it does; true-up = invoice minus accrual">
+          <GroupedBars rows={acc.map((a) => ({ ...a, key: `${a.vendor_id} ${String(a.month).slice(5)}` }))} dim="key"
+            series={[{ key: 'accrued_amount', label: 'Accrued', color: '#3b6fd8' }, { key: 'billed_amount', label: 'Invoiced', color: '#2f9e6b' }]} height={190} />
+          <DataTable rows={acc} columns={[{ key: 'month' }, { key: 'vendor_id', label: 'Vendor' }, { key: 'accrued_amount', label: 'Accrued', unit: 'usd' }, { key: 'billed_amount', label: 'Invoiced', unit: 'usd' }, { key: 'true_up', unit: 'usd' }, { key: 'status', chip: true }]} />
         </Card>
       </div>
-      <Card title="Checklist" sub="Status comes from the evidence (reconciliations, schedules, BvA alerts) · click a task to ask about it">
-        <DataTable title="close_checklist" rows={all} onRow={(r) => ask(`Close task ${r.task_id} (${r.task}) is ${r.state}. What does it need and who should act?`)}
-          columns={[{ key: 'task_id', label: '#' }, { key: 'workday', label: 'WD' }, { key: 'due_date' }, { key: 'owner' }, { key: 'task' },
-            { key: 'state', label: 'Status', render: (r) => <Chip value={String(r.state).replace('_', ' ')} kind={r.state === 'complete' ? 'good' : r.state === 'blocked' || r.state === 'overdue' || r.state === 'exceptions' ? 'bad' : 'warn'} /> },
-            { key: 'open_items', unit: 'count' }, { key: 'evidence' }]} />
-        <Source data={cd.data} />
+
+      <Card title="Flux analysis" sub="Every line vs last month · material movements (|change| ≥ $25K and ≥ 10%) need an explanation before sign-off · click a row to ask">
+        <DataTable title="flux" rows={flux} onRow={(r) => ask(`Explain the movement in ${r.account_name} from ${String(d.prior_month)} to ${String(d.month)}.`)} columns={[
+          { key: 'account_name', label: 'Account' }, { key: 'account_type', label: 'Type', chip: true }, { key: 'prior', unit: 'usd' }, { key: 'current', unit: 'usd' }, { key: 'change', unit: 'usd' }, { key: 'change_pct', label: 'Change %', unit: 'ratio' },
+          { key: 'flag', label: 'Materiality', render: (r) => <Chip value={String(r.flag)} kind={r.needs_explanation ? 'bad' : r.material ? 'warn' : undefined} /> },
+          { key: 'explanation', render: (r) => <span className="muted" style={{ whiteSpace: 'normal' }}>{String(r.explanation ?? (r.material ? 'needs explanation' : ''))}</span> }]} />
       </Card>
+
       <div className="grid cols-3">
-        <Card title="Reconciliations" sub="This period">
-          <DataTable rows={recon} columns={[{ key: 'check_name' }, { key: 'status', chip: true }]} />
+        <Card title="Prepaids and depreciation" sub="Amortized from the schedules">
+          <DataTable rows={(d.prepaids ?? []) as Row[]} empty="No prepaid amortization this month." columns={[{ key: 'prepaid_id' }, { key: 'vendor' }, { key: 'amortization', unit: 'usd' }, { key: 'closing_balance', unit: 'usd' }]} />
+          <div className="muted" style={{ marginTop: 8 }}>Depreciation booked: {usd(journals.find((j) => j.entry_type === 'depreciation')?.amount ?? 0)} ({String(journals.find((j) => j.entry_type === 'depreciation')?.entries ?? 0)} entries)</div>
         </Card>
-        <Card title="Accruals" sub="Costs booked before the invoice arrived">
-          {cs.data ? <DataTable rows={cs.data.accruals as Row[]} empty="No accruals this month." columns={[{ key: 'vendor_id' }, { key: 'bill_id' }, { key: 'accrued_amount', unit: 'usd' }, { key: 'true_up', unit: 'usd' }]} /> : <Loading state={cs} />}
-        </Card>
-        <Card title="Prepaid amortization">
-          {cs.data ? <DataTable rows={cs.data.prepaid_amortization as Row[]} empty="Nothing to amortize this month." columns={[{ key: 'prepaid_id' }, { key: 'vendor' }, { key: 'amortization', unit: 'usd' }, { key: 'closing_balance', unit: 'usd' }]} /> : <Loading state={cs} />}
+        <Card title="Journal entries this month" sub="Amount by type · click a type to filter"><Bars rows={journals} dim="entry_type" measure="amount" top={10} /></Card>
+        <Card title="Revenue recognition (ASC 606)" sub="Opening deferred + billings − revenue = closing">
+          {rr ? <DataTable rows={[
+            { line: 'Opening deferred', amount: rr.opening_net_deferred }, { line: 'Billings', amount: rr.billings }, { line: 'Recognized (ASC 606)', amount: rr.asc606_revenue },
+            { line: 'Closing deferred', amount: rr.closing_net_deferred }, { line: 'GL revenue', amount: rr.gl_revenue }, { line: 'Entry to book', amount: rr.revenue_adjustment }]}
+            columns={[{ key: 'line' }, { key: 'amount', unit: 'usd' }]} /> : <div className="muted">No roll-forward.</div>}
         </Card>
       </div>
-      <Card title="Deferred revenue roll-forward (ASC 606)" sub="Opening + billings − revenue = closing">
-        {rr.data ? <DataTable rows={rr.data.rows} columns={[{ key: 'month' }, { key: 'opening_net_deferred', label: 'Opening', unit: 'usd' }, { key: 'billings', unit: 'usd' }, { key: 'asc606_revenue', label: 'ASC 606 revenue', unit: 'usd' }, { key: 'closing_net_deferred', label: 'Closing', unit: 'usd' }, { key: 'contract_asset', unit: 'usd' }, { key: 'gl_revenue', label: 'GL revenue', unit: 'usd' }, { key: 'revenue_adjustment', label: 'Adjustment', unit: 'usd' }]} /> : <Loading state={rr} />}
+
+      <Card title={`Close checklist · ${done} of ${tasks.length} done`} sub="Status comes from the evidence above · click a task to ask about it">
+        <DataTable title="close_checklist" rows={tasks} onRow={(r) => ask(`Close task ${r.task_id} (${r.task}) is ${r.state}. What does it need and who should act?`)}
+          columns={[{ key: 'workday', label: 'WD' }, { key: 'due_date' }, { key: 'owner' }, { key: 'task' },
+            { key: 'state', label: 'Status', render: (r) => <Chip value={String(r.state).replace('_', ' ')} kind={r.state === 'complete' ? 'good' : r.state === 'blocked' || r.state === 'exceptions' ? 'bad' : 'warn'} /> }, { key: 'open_items', unit: 'count' }, { key: 'evidence' }]} />
       </Card>
+      <Source data={d} />
     </div>
   )
 }

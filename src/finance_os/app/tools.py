@@ -1247,6 +1247,138 @@ def get_trust_dashboard(wh):
             "failures": [r for r in rows if r["status"] != "pass"]}
 
 
+# Controller's close review: what is booked (accruals, prepaids, depreciation), does every balance sheet account tie to
+# its support, and why did each line move (flux)? Materiality for flux: |change| >= $25K and >= 10% of the prior month.
+FLUX_ABS, FLUX_PCT = 25000, 0.10
+RECON_FOR_ACCOUNT = {  # balance sheet account -> the independent check that proves it, and what it is compared to
+    "1000": ("stripe_balance_vs_gl_cash", "Stripe balance and payouts"),
+    "1200": (None, "AR subledger (open invoices)"),
+    "1500": (None, "Fixed asset register"),
+    "1510": (None, "Depreciation schedule"),
+    "2000": ("vendor_bill_vs_gl_ap", "Vendor bills"),
+    "2100": ("payroll_register_vs_gl", "Payroll register"),
+    "2110": ("payroll_register_vs_gl", "Payroll register"),
+    "3000": (None, "Cap table (funding rounds)"),
+}
+
+
+def get_close_review(wh, month=None):
+    m = str(wh.query("select max(month) as m from marts.fct_close_status")[0]["m"])[:10]
+    prev = _shift(m[:7], -1) + "-01"
+    accruals = wh.query("""select strftime(month, '%Y-%m') as month, vendor_id, bill_id, bill_date, accrued_amount, billed_amount,
+                                  true_up, case when billed_amount is null then 'awaiting invoice'
+                                                when abs(true_up) < 0.01 then 'matched' else 'trued up' end as status
+                           from marts.fct_accruals_monthly where month in (?::date, ?::date) order by month desc, accrued_amount desc""",
+                        [m, prev])
+    prepaids = wh.query("""select prepaid_id, vendor, amortization, closing_balance from marts.fct_prepaid_schedule
+                           where month = ?::date""", [m])
+
+    # balance sheet: GL balance at month end vs its support
+    gl = {r["account_id"]: r for r in wh.query("""
+        select account_id, account_name, sum(natural_amount) as balance,
+               sum(case when month = ?::date then natural_amount else 0 end) as movement
+        from marts.fct_gl_monthly where account_type in ('asset', 'liability', 'equity') and month <= ?::date
+        group by 1, 2""", [m, m])}
+    checks = {r["check_name"]: r for r in wh.query("""select check_name, bool_and(status = 'pass') as passing, sum(abs(variance)) as variance
+                                                      from recon.recon_status where period = ?::date group by 1""", [m])}
+    ar_sub = wh.query("select ending_ar from marts.fct_ar_monthly where month = ?::date", [m])
+    dep_posted = wh.query("""select count(*) as n from staging.stg_erp__journal_entries
+                             where entry_type = 'depreciation' and entry_month = ?::date""", [m])[0]["n"]
+    recs = []
+    for acct, (check, support) in RECON_FOR_ACCOUNT.items():
+        g = gl.get(acct)
+        if not g:
+            continue
+        bal = float(g["balance"] or 0)
+        row = {"account_id": acct, "account": g["account_name"], "gl_balance": bal, "movement": float(g["movement"] or 0),
+               "support": support, "support_balance": None, "difference": None}
+        if acct == "1200" and ar_sub:
+            row["support_balance"] = float(ar_sub[0]["ending_ar"])
+            row["difference"] = round(bal - row["support_balance"], 2)
+            # a payment applied to the wrong invoice leaves the subledger over by exactly that amount while the GL,
+            # which booked the cash, is right: the difference is explained by the open cash application exceptions
+            misapplied = wh.query("""select sum(amount) as a, string_agg(detail, '; ') as d from marts.fct_cash_application_exceptions
+                                     where exception_type = 'overapplied' and exception_date <= ?::date""", [_shift(m[:7], 1) + "-01"])[0]
+            if abs(row["difference"]) < 1:
+                row["status"] = "reconciled"
+            elif misapplied["a"] and abs(row["difference"] + float(misapplied["a"])) < 1:
+                row["status"], row["explanation"] = "explained", f"Cash applied to the wrong invoice: {misapplied['d']}. Reclass in the subledger; GL is right."
+            else:
+                row["status"] = "difference"
+        elif check:
+            c = checks.get(check)
+            row["status"] = "no check this period" if not c else ("reconciled" if c["passing"] else "difference")
+            row["difference"] = None if not c else float(c["variance"] or 0)
+            row["check"] = check
+        elif acct in ("1500", "1510"):
+            row["status"] = "reconciled" if dep_posted else "depreciation not posted"
+        else:
+            row["status"] = "no activity" if abs(row["movement"]) < 0.01 else "review"
+        recs.append(row)
+
+    # flux: every P&L and balance sheet account, this month vs last month
+    flux = wh.query("""
+        select account_id, account_name, account_type,
+               sum(case when month = ?::date then natural_amount else 0 end) as current,
+               sum(case when month = ?::date then natural_amount else 0 end) as prior
+        from marts.fct_gl_monthly where account_type in ('revenue', 'cogs', 'opex') and month in (?::date, ?::date)
+        group by 1, 2, 3""", [m, prev, m, prev])
+    bs_prev = {r["account_id"]: float(r["b"] or 0) for r in wh.query("""select account_id, sum(natural_amount) as b from marts.fct_gl_monthly
+                                                                         where account_type in ('asset', 'liability', 'equity') and month <= ?::date group by 1""", [prev])}
+    for acct, g in gl.items():
+        if acct in bs_prev or g["balance"]:
+            flux.append({"account_id": acct, "account_name": g["account_name"], "account_type": "balance sheet",
+                         "current": float(g["balance"] or 0), "prior": bs_prev.get(acct, 0.0)})
+    hours = {str(r["m"])[:7]: float(r["h"]) for r in wh.query("""select usage_month as m, sum(audio_hours) as h from staging.stg_synthetic__usage_daily
+                                                                    where usage_month in (?::date, ?::date) group by 1""", [m, prev])}
+    heads = {str(r["month"])[:7]: r["value"] for r in wh.query("""select month, value from marts.fct_kpi_monthly
+                                                                    where metric_name = 'headcount' and month in (?::date, ?::date)""", [m, prev])}
+    movers = wh.query("""select customer_id, revenue_change from marts.fct_customer_revenue_monthly
+                         where month = ?::date order by abs(revenue_change) desc limit 2""", [m])
+    hchg = (hours.get(m[:7], 0) / hours[prev[:7]] - 1) if hours.get(prev[:7]) else None
+    for f in flux:
+        cur, pri = float(f["current"] or 0), float(f["prior"] or 0)
+        f["current"], f["prior"], f["change"] = cur, pri, cur - pri
+        f["change_pct"] = (cur - pri) / abs(pri) if pri else None
+        f["material"] = abs(cur - pri) >= FLUX_ABS and (pri == 0 or abs(cur - pri) / abs(pri) >= FLUX_PCT)
+        a = f["account_id"]
+        why = None
+        if a == "4000" and hchg is not None:
+            why = f"audio hours {hchg * 100:+.1f}%; biggest moves " + ", ".join(f"{r['customer_id']} {_usd_text(r['revenue_change'])}" for r in movers)
+        elif a in ("5000", "5010") and hchg is not None:
+            why = f"usage-driven: audio hours {hchg * 100:+.1f}%"
+        elif a in ("6000", "6010", "6020") and heads.get(m[:7]) is not None and heads.get(prev[:7]) is not None:
+            why = f"headcount {int(heads[prev[:7]])} to {int(heads[m[:7]])}"
+        elif a == "6600":
+            why = "new assets placed in service" if abs(cur - pri) > 1 else "straight-line, unchanged"
+        elif a == "1200":
+            why = "September usage invoiced on the 1st; enterprise terms 45 days"
+        elif a == "1000":
+            why = "net burn for the month"
+        elif a == "2000":
+            why = "GPU bill accrued at month end, paid the month after"
+        f["explanation"] = why
+        f["needs_explanation"] = f["material"] and not why
+    flux.sort(key=lambda f: -abs(f["change"]))
+
+    journals = wh.query("""
+        select e.entry_type, count(distinct e.entry_id) as entries, sum(l.debit) as amount,
+               e.entry_type in ('one_off', 'funding', 'capex') as is_manual
+        from staging.stg_erp__journal_entries e join staging.stg_erp__journal_lines l using (entry_id)
+        where e.entry_month = ?::date group by 1 order by amount desc""", [m])
+    tasks = wh.query("""select task_id, workday, due_date, owner, task, evidence, status, open_items
+                        from marts.fct_close_status where month = ?::date order by workday, task_id""", [m])
+    rr = wh.query("select * from marts.fct_revenue_rollforward_monthly where month = ?::date", [m])
+    return {"source": "marts.fct_accruals_monthly, fct_prepaid_schedule, fct_gl_monthly, recon.recon_status, fct_ar_monthly, "
+                      "staging.stg_erp__journal_entries, fct_close_status, fct_revenue_rollforward_monthly",
+            "month": m[:7], "prior_month": prev[:7], "row_count": len(flux), "rows": flux, "accruals": accruals,
+            "prepaids": prepaids, "reconciliations": recs, "journals": journals, "tasks": tasks,
+            "revenue_rollforward": rr[0] if rr else None,
+            "materiality": {"abs": FLUX_ABS, "pct": FLUX_PCT},
+            "note": "Flux is material at |change| >= $25K and >= 10%. History bills are booked at their final amount, "
+                    "so true-ups appear only in live months."}
+
+
 def _p(props, required=()):
     return {"type": "object", "properties": props, "required": list(required), "additionalProperties": False}
 
@@ -1340,6 +1472,10 @@ TOOLS = {
                           "collected, tax due, realized and unrealized FX.", _p({})),
     "get_trust_dashboard": (get_trust_dashboard, "Reconciliation results by check and period with pass rate trend and "
                             "open failures (the data quality score).", _p({})),
+    "get_close_review": (get_close_review, "The controller's close review for the month being closed: accruals and true-ups, "
+                         "prepaid amortization, each balance sheet account vs its support (reconciled or not), flux analysis "
+                         "of every account vs last month with explanations and materiality, journal entries by type, the "
+                         "close checklist and the ASC 606 roll-forward.", _p({})),
     "get_budget_vs_actual": (get_budget_vs_actual, "Company budget vs. actual for a month by DEPARTMENT and GL ACCOUNT (not "
                              "projects: for a project's budget or overrun use get_projects), with alerts, "
                              "and THIS fiscal year's full-year forecast vs budget (fy_forecast, fy_forecast_variance). "

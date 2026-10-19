@@ -2,7 +2,7 @@
 // every KPI, chart and DataTable on the page by that value (rows that carry the same field). A chart never filters
 // itself: it highlights the selection and dims the rest, so the selection's share stays visible.
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
-import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, Rectangle, ReferenceLine, ResponsiveContainer, Sector, Tooltip, XAxis, YAxis } from 'recharts'
 import { fmt, label, type Row } from '../api'
 
 export type Filters = Record<string, string>
@@ -15,6 +15,13 @@ export const TONE = { good: 'var(--good, #2f9e6b)', ok: 'var(--warn, #c98a1b)', 
 const AXIS = { tick: { fontSize: 11, fill: 'var(--faint)' }, tickLine: false, axisLine: false } as const
 const TIP = { contentStyle: { background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 } }
 const pretty = (v: string) => v.replace(/_/g, ' ')
+
+// Recharts 3 ignores onClick on <Pie>/<Cell> in some layouts, so clicks are attached to the drawn SVG shape itself.
+type ShapeProps = Record<string, unknown> & { payload?: Record<string, unknown> }
+const clickableSector = (onPick: (p: ShapeProps) => void) => (p: unknown) =>
+  <Sector {...(p as object)} style={{ cursor: 'pointer' }} onClick={() => onPick(p as ShapeProps)} />
+const clickableBar = (onPick: (p: ShapeProps) => void) => (p: unknown) =>
+  <Rectangle {...(p as object)} style={{ cursor: 'pointer' }} onClick={() => onPick(p as ShapeProps)} />
 
 /** Rows matching every active filter whose field the rows carry; `except` skips one field (a chart's own). */
 export function applyFilters(rows: Row[], filters: Filters, except?: string) {
@@ -102,8 +109,9 @@ export function Donut(props: Breakdown) {
         <ResponsiveContainer>
           <PieChart>
             <Pie data={data} dataKey="value" nameKey="name" innerRadius="58%" outerRadius="88%" paddingAngle={1} isAnimationActive={false}
-              onClick={(d) => click(String((d as { name: string }).name))} style={{ cursor: 'pointer' }}>
-              {data.map((d, i) => <Cell key={d.name} fill={color(d.name, i)} fillOpacity={!selected || selected === d.name ? 1 : 0.25} stroke="var(--card)" />)}
+              shape={clickableSector((p) => click(String(p.payload?.name ?? p.name)))}>
+              {data.map((d, i) => <Cell key={d.name} fill={color(d.name, i)} fillOpacity={!selected || selected === d.name ? 1 : 0.25} stroke="var(--card)"
+                />)}
             </Pie>
             <Tooltip formatter={(v) => show(v as number)} {...TIP} />
           </PieChart>
@@ -142,18 +150,19 @@ export function Bars({ top = 8, stack, signed, refX, valueFormat, ...props }: Br
   return (
     <div style={{ height: props.height ?? Math.max(160, data.length * 30 + 30) }}>
       <ResponsiveContainer>
-        <BarChart data={data} layout="vertical" margin={{ left: 8, right: 16, top: 4, bottom: 4 }}
-          onClick={(e) => { const n = (e as { activeLabel?: string } | null)?.activeLabel; if (n) f?.toggle(props.dim, String(n)) }} style={{ cursor: 'pointer' }}>
+        <BarChart data={data} layout="vertical" margin={{ left: 8, right: 16, top: 4, bottom: 4 }} style={{ cursor: 'pointer' }}>
           <CartesianGrid stroke="var(--border)" horizontal={false} />
-          <XAxis type="number" tickFormatter={show} {...AXIS} />
-          <YAxis type="category" dataKey="name" width={110} tickFormatter={pretty} {...AXIS} />
+          <XAxis type="number" tickFormatter={show} allowDecimals={!!props.measure} {...AXIS} />
+          <YAxis type="category" dataKey="name" width={110} tickFormatter={pretty} {...AXIS} style={{ cursor: 'pointer' }}
+            onClick={(t: unknown) => { const v = (t as { value?: string })?.value; if (v != null) f?.toggle(props.dim, String(v)) }} />
           <Tooltip formatter={(v) => show(v)} labelFormatter={(l) => pretty(String(l))} {...TIP} />
           {stack ? stack.values.map((s, i) => (
-            <Bar key={s} dataKey={s} name={stack.labels?.[s] ?? pretty(s)} stackId="s" fill={stack.colors?.[s] ?? PALETTE[i]} isAnimationActive={false}>
+            <Bar key={s} dataKey={s} name={stack.labels?.[s] ?? pretty(s)} stackId="s" fill={stack.colors?.[s] ?? PALETTE[i]} isAnimationActive={false}
+              shape={clickableBar((p) => f?.toggle(props.dim, String(p.payload?.name)))}>
               {data.map((d) => <Cell key={String(d.name)} fillOpacity={opacity(d.name)} />)}
             </Bar>
           )) : (
-            <Bar dataKey="value" radius={[0, 3, 3, 0]} isAnimationActive={false}>
+            <Bar dataKey="value" radius={[0, 3, 3, 0]} isAnimationActive={false} shape={clickableBar((p) => f?.toggle(props.dim, String(p.payload?.name)))}>
               {data.map((d, i) => <Cell key={String(d.name)} fill={signed ? ((d.value as number) >= 0 ? TONE.good : TONE.bad) : props.colors?.[String(d.name)] ?? PALETTE[props.colors ? i : 0]} fillOpacity={opacity(d.name)} />)}
             </Bar>
           )}
@@ -257,8 +266,7 @@ export function GroupedBars({ rows, dim, series, unit = 'usd', height = 240, ref
   return (
     <div style={{ height }}>
       <ResponsiveContainer>
-        <BarChart data={own} margin={{ left: 8, right: 16, top: 8 }} style={{ cursor: 'pointer' }}
-          onClick={(e) => { const n = (e as { activeLabel?: string } | null)?.activeLabel; if (n) f?.toggle(dim, String(n)) }}>
+        <BarChart data={own} margin={{ left: 8, right: 16, top: 8 }} style={{ cursor: 'pointer' }}>
           <CartesianGrid stroke="var(--border)" vertical={false} />
           <XAxis dataKey={dim} {...AXIS} />
           <YAxis tickFormatter={(v) => show(v as number)} width={64} {...AXIS} />
@@ -266,7 +274,8 @@ export function GroupedBars({ rows, dim, series, unit = 'usd', height = 240, ref
           <Legend wrapperStyle={{ fontSize: 12 }} />
           {refs.map((r) => <ReferenceLine key={r.label} y={r.y} stroke="var(--faint)" strokeDasharray="4 4" label={{ value: r.label, fontSize: 11, fill: 'var(--faint)', position: 'insideTopRight' }} />)}
           {series.map((s, i) => (
-            <Bar key={s.key} dataKey={s.key} name={s.label} fill={s.color ?? PALETTE[i]} radius={[3, 3, 0, 0]} isAnimationActive={false}>
+            <Bar key={s.key} dataKey={s.key} name={s.label} fill={s.color ?? PALETTE[i]} radius={[3, 3, 0, 0]} isAnimationActive={false}
+              shape={clickableBar((p) => f?.toggle(dim, String(p.payload?.[dim])))}>
               {own.map((d) => <Cell key={String(d[dim])} fillOpacity={!selected || selected === String(d[dim]) ? 1 : 0.25} />)}
             </Bar>
           ))}
