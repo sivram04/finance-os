@@ -225,19 +225,26 @@ def get_ar_aging(wh, customer_id=None):
         group by 1 order by case aging_bucket when 'current' then 0 when '1-30' then 1 when '31-60' then 2
                                               when '61-90' then 3 else 4 end""", [customer_id, customer_id])
     monthly = wh.query("""select strftime(month, '%Y-%m') as month, ending_ar, ar_over_60, dso_days, cei
-                          from marts.fct_ar_monthly order by month desc limit 6""")
+                          from marts.fct_ar_monthly where month <= (select max(month) from marts.fct_kpi_monthly)
+                          order by month desc limit 6""")
     late = wh.query("select * from marts.fct_customer_payment_behavior where is_chronic_late")
     return _result(rows, "marts.fct_ar_aging_snapshot, marts.fct_ar_monthly, marts.fct_customer_payment_behavior",
                    customer_id=customer_id, recent_months=monthly, chronic_late_payers=late)
 
 
 def get_collections_queue(wh, limit=10):
+    """The manual work queue (worth a person's time), invoices on hold, and what is handled without anyone:
+    card dunning and balances under the chase threshold."""
     rows = wh.query("""select queue_rank, invoice_ref, customer_id, segment, balance, days_past_due, recommended_action,
-                              reminder_tone, is_on_hold
-                       from marts.fct_collections_queue order by is_on_hold, queue_rank limit ?""", [limit])
+                              reminder_tone
+                       from marts.fct_collections_queue where route = 'manual' order by queue_rank limit ?""", [limit])
     holds = wh.query("""select invoice_ref, customer_id, balance, recommended_action from marts.fct_collections_queue
-                        where is_on_hold""")
-    return _result(rows, "marts.fct_collections_queue", on_hold=holds)
+                        where route = 'on_hold'""")
+    routes = wh.query("""select route, count(*) as invoices, sum(balance) as balance from marts.fct_collections_queue
+                         group by route order by balance desc""")
+    return _result(rows, "marts.fct_collections_queue, seeds.ar_policy", on_hold=holds, by_route=routes,
+                   note="Card (self-serve) invoices are retried automatically (dunning); balances under the segment's "
+                        "chase threshold roll into the next statement. Neither is a task for a person.")
 
 
 def get_ar_exceptions(wh):
@@ -320,7 +327,7 @@ def get_attention_items(wh):
                     and month >= (select max(month) from marts.fct_treasury_covenants where not is_forecast)
                   group by 1, 2"""):
         add("Treasury", "treasury", "high",
-            f"Covenant {r['rule_id']} " + ("breached now" if r["now"] else f"breaches from {r['first_month']:%b %Y}"),
+            f"Covenant {r['rule_id']} " + ("breached now" if r["now"] else f"breaches from {str(r['first_month'])[:7]}"),
             r["description"], r["rule_id"])
     for r in q("""select min(week) as week, min(closing_cash) as low from marts.fct_cash_forecast_13w
                   where is_below_min_cash having count(*) > 0"""):
@@ -332,7 +339,10 @@ def get_attention_items(wh):
     for r in q("select * from recon.recon_status where status <> 'pass'"):
         add("Trust", "trust", "high", f"Reconciliation failing: {r['check_name']}", r["explanation"], r["entity_id"])
     order = {"high": 0, "medium": 1}
-    items.sort(key=lambda i: (order[i["severity"]], i["area"]))
+    # within a severity, business urgency: running out of cash first, then trust in the numbers, then money owed
+    urgency = {"Treasury": 0, "Capital": 1, "Trust": 2, "Billing": 3, "AR": 4, "Projects": 5, "Budget": 6,
+               "Unit economics": 7, "AP": 8, "Tech spend": 9}
+    items.sort(key=lambda i: (order[i["severity"]], urgency.get(i["area"], 99)))
     counts = {}
     for i in items:
         counts[i["area"]] = counts.get(i["area"], 0) + 1
@@ -343,7 +353,7 @@ def get_attention_items(wh):
 
 def get_forecast(wh, scenario="base"):
     rows = wh.query("""select strftime(month, '%Y-%m') as month, revenue, cogs, gross_margin_pct, payroll, other_opex,
-                              opex, ebitda, closing_cash
+                              opex, ebitda, closing_cash, financing_to_date, closing_cash_with_raise
                        from marts.fct_forecast_monthly where is_latest and scenario = ? order by month""", [scenario])
     summary = wh.query("select * from marts.fct_scenario_summary order by scenario")
     return _result(rows, "marts.fct_forecast_monthly, marts.fct_scenario_summary", scenario=scenario, scenarios=summary,
@@ -423,7 +433,7 @@ def get_payment_runs(wh):
 def get_close_status(wh, month=None):
     m = _month(month, wh)
     rows = wh.query("""select task_id, workday, due_date, owner, task, status, open_items
-                       from marts.fct_close_status where month = ?::date order by task_id""", [m])
+                       from marts.fct_close_status where month = ?::date order by due_date, task_id""", [m])
     accruals = wh.query("select vendor_id, bill_id, accrued_amount, true_up from marts.fct_accruals_monthly where month = ?::date", [m])
     prepaids = wh.query("""select prepaid_id, vendor, amortization, closing_balance
                            from marts.fct_prepaid_schedule where month = ?::date""", [m])
@@ -485,6 +495,66 @@ def price_deal(wh, customer, lines, discount_pct=0, term_months=12, monthly_comm
     return _result(ev["lines"], "deal desk (seeds.deal_guardrails, seeds.deal_policy, seeds.margin_floors, "
                    "marts.fct_unit_economics_monthly)", **{k: v for k, v in ev.items() if k != "lines"},
                    note="Read-only pricing check; submit_deal records it and routes it for approval.")
+
+
+# ---- drill-downs: one customer, vendor or project in full -----------------------------------------------
+
+def get_customer_detail(wh, customer_id):
+    c = wh.query("select * from marts.dim_customer where customer_id = ?", [customer_id])
+    if not c:
+        return _result([], "marts.dim_customer", note=f"No customer {customer_id}.")
+    revenue = wh.query("""select strftime(m.month, '%Y-%m') as month, m.revenue, m.gross_margin_pct, m.is_below_floor, r.movement
+                          from marts.fct_customer_margin_monthly m
+                          left join marts.fct_customer_revenue_monthly r using (month, customer_id)
+                          where m.customer_id = ? order by m.month""", [customer_id])
+    invoices = wh.query("""select invoice_ref, invoice_type, invoice_date, due_date, amount, balance, status, days_past_due,
+                                  days_paid_late, is_disputed
+                           from marts.fct_ar_invoices where customer_id = ? order by invoice_date desc""", [customer_id])
+    payments = wh.query("""select payment_id, received_date, amount, remittance_ref, applied_ref
+                           from staging.stg_erp__customer_payments where customer_id = ? order by received_date desc""",
+                        [customer_id])
+    events = wh.query("""select event_date, event_type, multiplier, reason, source from staging.stg_synthetic__lifecycle_events
+                         where customer_id = ? order by event_date desc""", [customer_id])
+    projects = wh.query("select project_id, project_name, project_type, contract_value from marts.dim_project where customer_id = ?",
+                        [customer_id])
+    alerts = wh.query("select rule_id, severity, message from marts.fct_alerts where entity_id = ? or message like ?",
+                      [customer_id, f"%{customer_id}%"])
+    totals = wh.query("""select sum(amount) as billed, sum(balance) filter (where status = 'open') as open_balance,
+                                avg(days_to_pay) filter (where status = 'paid') as avg_days_to_pay
+                         from marts.fct_ar_invoices where customer_id = ?""", [customer_id])
+    return _result(revenue, "marts.dim_customer, fct_customer_margin_monthly, fct_ar_invoices, customer payments, lifecycle",
+                   customer=c[0], totals=totals[0], invoices=invoices, payments=payments, lifecycle=events,
+                   projects=projects, alerts=alerts)
+
+
+def get_vendor_detail(wh, vendor_id):
+    bills = wh.query("""select bill_id, service_month, bill_date, total_amount, vendor_invoice_number
+                        from staging.stg_erp__vendor_bills where vendor_id = ? order by bill_date desc""", [vendor_id])
+    gl = wh.query("""select e.entry_date, e.entry_type, e.memo, e.source_ref, sum(l.debit) as debit, sum(l.credit) as credit
+                     from staging.stg_erp__journal_lines l join staging.stg_erp__journal_entries e using (entry_id)
+                     where l.vendor_id = ? and l.account_id = '2000' group by all order by e.entry_date desc""", [vendor_id])
+    docs = wh.query("""select doc_file, vendor_invoice_number, invoice_date, total, route, issues
+                       from marts.fct_ap_documents where vendor_id = ? or lower(vendor_name) like ? order by invoice_date desc""",
+                    [vendor_id, f"%{vendor_id.lower()}%"])
+    contract = wh.query("select * from marts.fct_vendor_contracts where vendor_id = ?", [vendor_id])
+    open_ap = wh.query("""select sum(-l.amount) as open_ap from staging.stg_erp__journal_lines l
+                          where l.vendor_id = ? and l.account_id = '2000'""", [vendor_id])
+    return _result(bills, "staging.stg_erp__vendor_bills, journal lines (AP 2000), marts.fct_ap_documents, fct_vendor_contracts",
+                   vendor_id=vendor_id, open_ap=open_ap[0]["open_ap"], ap_activity=gl, documents=docs, contract=contract)
+
+
+def get_project_detail(wh, project_id):
+    p = wh.query("select * from marts.dim_project where project_id = ?", [project_id])
+    if not p:
+        return _result([], "marts.dim_project", note=f"No project {project_id}.")
+    monthly = wh.query("""select strftime(month, '%Y-%m') as month, budget, actual_to_date, eac, pct_complete, earned_to_date,
+                                 billed_to_date, unbilled, deferred
+                          from marts.fct_project_financials where project_id = ? order by month""", [project_id])
+    invoices = wh.query("""select invoice_ref, invoice_date, amount, balance, status, is_disputed from marts.fct_ar_invoices
+                           where project_id = ? order by invoice_date desc""", [project_id])
+    exceptions = wh.query("select * from marts.fct_project_exceptions where project_id = ?", [project_id])
+    return _result(monthly, "marts.dim_project, fct_project_financials, fct_ar_invoices, fct_project_exceptions",
+                   project=p[0], invoices=invoices, exceptions=exceptions)
 
 
 # ---- registry: name → (function, description, JSON-schema parameters) -----------------------------
@@ -581,6 +651,13 @@ TOOLS = {
                                                 "hours_per_month": {"type": "number"}}, "required": ["product_id", "hours_per_month"]}},
                        "discount_pct": {"type": "number"}, "term_months": {"type": "integer"}, "monthly_commit": {"type": "number"}},
                       ["customer", "lines"])),
+    "get_customer_detail": (get_customer_detail, "Everything about one customer: monthly revenue and margin, invoices "
+                            "(open, paid, disputed), payments, lifecycle events, projects and open alerts.",
+                            _p({"customer_id": {"type": "string"}}, ["customer_id"])),
+    "get_vendor_detail": (get_vendor_detail, "Everything about one vendor: bills, AP postings and payments, bill PDFs "
+                          "and their review status, contract, and what is still owed.", _p({"vendor_id": {"type": "string"}}, ["vendor_id"])),
+    "get_project_detail": (get_project_detail, "Everything about one project: monthly budget, EAC, earned, billed, "
+                           "unbilled and deferred, its invoices and exceptions.", _p({"project_id": {"type": "string"}}, ["project_id"])),
     "get_tax_and_fx": (get_tax_and_fx, "Sales tax/VAT/GST and FX gains/losses: one month by currency and regime, plus "
                        "all-time totals by currency and an all_time_total grand total (call once; no need to add months up).",
                        _p({"month": MONTH})),

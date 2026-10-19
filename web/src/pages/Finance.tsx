@@ -1,6 +1,8 @@
 // FP&A, treasury, close, pricing, capital and tax pages. Like the module pages, each reads the same read-only
 // tools the assistant uses, so a number on a page and in an answer always agree.
 import { useEffect, useState } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { api, fmt, type Row } from '../api'
 import { AskButton, Card, Chip, DataTable, Loading, Source, useTool, useWorkspace, type Page } from '../components/common'
@@ -33,6 +35,7 @@ function Kpi({ label, value, note, tone }: { label: string; value: string; note?
 
 export function Plan() {
   const [scenario, setScenario] = useState('base')
+  const [withRaise, setWithRaise] = useState(true)
   const f = useTool('get_forecast', { scenario })
   const all = [useTool('get_forecast', { scenario: 'base' }), useTool('get_forecast', { scenario: 'upside' }), useTool('get_forecast', { scenario: 'downside' })]
   const acc = useTool('get_forecast_accuracy')
@@ -42,7 +45,10 @@ export function Plan() {
   const summary = (f.data?.scenarios as Row[] | undefined) ?? []
   const cur = summary.find((s) => s.scenario === scenario)
   const cash = all.every((s) => s.data)
-    ? (all[0].data!.rows as Row[]).map((r, i) => ({ month: r.month, base: r.closing_cash, upside: all[1].data!.rows[i]?.closing_cash, downside: all[2].data!.rows[i]?.closing_cash }))
+    ? (all[0].data!.rows as Row[]).map((r, i) => {
+        const k = withRaise ? 'closing_cash_with_raise' : 'closing_cash'
+        return { month: r.month, base: r[k], upside: all[1].data!.rows[i]?.[k], downside: all[2].data!.rows[i]?.[k] }
+      })
     : null
   return (
     <div className="page">
@@ -54,7 +60,11 @@ export function Plan() {
         <Kpi label="Runway" value={cur?.runway_months != null ? `${(cur.runway_months as number).toFixed(1)} mo` : '…'} tone={cur && (cur.runway_months as number) < 12 ? 'bad' : undefined} />
         <Kpi label="Cash runs out" value={cur ? (cur.cash_out_month ? String(cur.cash_out_month).slice(0, 7) : 'Not in 18 mo') : '…'} tone={cur?.cash_out_month ? 'bad' : 'good'} />
       </div>
-      <Card title="Cash by scenario" sub="Closing cash, 18 months from the last closed month">
+      <Card title="Cash by scenario"
+        sub={withRaise
+          ? "Closing cash including each scenario's planned round: base $30M Series B in Jun 2027, upside $40M in Mar 2027, downside $10M bridge in Mar 2027 (Capital page)"
+          : "Closing cash on today's plan with no new money. Below zero means the company must raise or cut before then."}
+        right={<div className="segmented"><button className={withRaise ? 'on' : ''} onClick={() => setWithRaise(true)}>With planned raise</button><button className={!withRaise ? 'on' : ''} onClick={() => setWithRaise(false)}>No new money</button></div>}>
         {cash ? (
           <div style={{ height: 260 }}>
             <ResponsiveContainer>
@@ -112,7 +122,7 @@ export function Cash() {
       <Head title="Cash & treasury" sub="13-week cash forecast, cash by account, covenants, vendor payment runs and working capital."
         ask="What does the 13-week cash forecast show, when do we breach minimum cash, and what can we do about it?" />
       <div className="grid cols-4">
-        <Kpi label="Cash today" value={weeks[0] ? usd(weeks[0].opening_cash) : '…'} />
+        <Kpi label="Cash today" value={weeks[0] ? usd(weeks[0].opening_cash) : '…'} note="live books, not month end" />
         <Kpi label="Lowest in 13 weeks" value={low ? usd(low.closing_cash) : '…'} note={low ? `week ${low.week}` : ''} tone={low?.is_below_min_cash ? 'bad' : undefined} />
         <Kpi label="Covenants breached" value={c.data ? String(breaches.length) : '…'} tone={breaches.length ? 'bad' : 'good'} />
         <Kpi label="Cash conversion cycle" value={lastWc ? `${(lastWc.cash_conversion_cycle_days as number).toFixed(1)} days` : '…'} note={lastWc ? `DSO ${lastWc.dso_days} · DPO ${lastWc.dpo_days}` : ''} />
@@ -395,6 +405,40 @@ export function Commissions() {
       <Card title="Credits behind this month">
         {c.data ? <DataTable rows={c.data.credits as Row[]} empty="No credits this month." columns={[{ key: 'rep_id' }, { key: 'customer_id' }, { key: 'credit_type', chip: true }, { key: 'billed_revenue', unit: 'usd' }, { key: 'credited_arr', unit: 'usd' }]} /> : <Loading state={c} />}
       </Card>
+    </div>
+  )
+}
+
+
+// ---- Recurring reports ---------------------------------------------------------------------------------------
+
+export function Reports() {
+  const [data, setData] = useState<{ schedule: Row[]; saved: Row[] } | null>(null)
+  const [open, setOpen] = useState<Row | null>(null)
+  const [md, setMd] = useState<string>('')
+  const [busy, setBusy] = useState<string>()
+  const load = () => fetch('/api/reports').then((r) => r.json()).then(setData)
+  useEffect(() => { load() }, [])
+  useEffect(() => {
+    if (open) fetch(`/api/reports/${open.period}/${open.report_id}`).then((r) => r.json()).then((j) => setMd(String(j.markdown ?? '')))
+  }, [open])
+  const runNow = (id: string) => { setBusy(id); fetch(`/api/reports/${id}/run`, { method: 'POST' }).then(load).finally(() => setBusy(undefined)) }
+  return (
+    <div className="page">
+      <Head title="Reports" sub="Recurring reports, built from the warehouse every morning and delivered on schedule (Slack, email or Telegram when configured)."
+        ask="Summarize this week's reports: what changed and what needs action?" />
+      <Card title="Schedule" sub="seeds/report_schedule.csv">
+        {data ? <DataTable rows={data.schedule} columns={[{ key: 'name' }, { key: 'cadence', chip: true }, { key: 'recipients' }, { key: 'description' },
+          { key: 'run', label: '', render: (r) => <button className="btn small" disabled={busy === r.report_id} onClick={() => runNow(String(r.report_id))}>{busy === r.report_id ? 'Running…' : 'Run now'}</button> }]} /> : <div className="muted">Loading…</div>}
+      </Card>
+      <div className="grid cols-2" style={{ alignItems: 'start' }}>
+        <Card title="Sent reports" sub="Click one to read it">
+          {data ? <DataTable rows={data.saved} empty="Nothing sent yet." onRow={setOpen} columns={[{ key: 'name' }, { key: 'period' }, { key: 'saved_at', label: 'Saved' }]} /> : null}
+        </Card>
+        <Card title={open ? `${open.name} · ${open.period}` : 'Report'}>
+          {open ? <div className="markdown"><ReactMarkdown remarkPlugins={[remarkGfm]}>{md}</ReactMarkdown></div> : <div className="muted">Pick a report.</div>}
+        </Card>
+      </div>
     </div>
   )
 }

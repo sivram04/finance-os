@@ -13,28 +13,31 @@ const QUICK = [
 
 const KPI_TILES: [string, string, string][] = [
   ['revenue', 'Revenue (month)', 'usd'], ['arr', 'ARR', 'usd'], ['net_burn', 'Net burn (month)', 'usd'],
-  ['closing_cash', 'Cash', 'usd'], ['runway_months', 'Runway (months)', 'months'], ['dso_days', 'DSO (days)', 'days'],
+  ['closing_cash', 'Cash (month end)', 'usd'], ['runway_months', 'Runway (months)', 'months'], ['dso_days', 'DSO (days)', 'days'],
 ]
 
-const MODULES: { page: Page; icon: string; name: string; desc: string; area: string }[] = [
-  { page: 'revenue', icon: '◎', name: 'Revenue & margins', desc: 'Customers, churn, unit economics', area: 'Unit economics' },
-  { page: 'spend', icon: '⚡', name: 'Tech spend', desc: 'GPU and cloud, capacity, forecast', area: 'Tech spend' },
-  { page: 'budget', icon: '▤', name: 'Budget vs. actual', desc: 'Variances and their drivers', area: 'Budget' },
-  { page: 'projects', icon: '◆', name: 'Projects', desc: 'EAC, unbilled work, funding', area: 'Projects' },
-  { page: 'billing', icon: '⎙', name: 'Billing', desc: 'Billing run and validation', area: 'Billing' },
-  { page: 'ar', icon: '⇣', name: 'Receivables', desc: 'Aging, collections, disputes', area: 'AR' },
-  { page: 'ap', icon: '⇡', name: 'AP inbox', desc: 'Vendor bills read by AI, checked by rules', area: 'AP' },
-  { page: 'trust', icon: '✓', name: 'Trust', desc: 'Reconciliations and controls', area: 'Trust' },
+const MODULES: { page: Page; name: string; desc: string; area: string }[] = [
+  { page: 'revenue', name: 'Revenue & margins', desc: 'Customers, churn, unit economics', area: 'Unit economics' },
+  { page: 'spend', name: 'Tech spend', desc: 'GPU and cloud, capacity, forecast', area: 'Tech spend' },
+  { page: 'budget', name: 'Budget vs. actual', desc: 'Variances and their drivers', area: 'Budget' },
+  { page: 'projects', name: 'Projects', desc: 'EAC, unbilled work, funding', area: 'Projects' },
+  { page: 'billing', name: 'Billing', desc: 'Billing run and validation', area: 'Billing' },
+  { page: 'ar', name: 'Receivables', desc: 'Aging, collections, disputes', area: 'AR' },
+  { page: 'ap', name: 'AP inbox', desc: 'Vendor bills read by AI, checked by rules', area: 'AP' },
+  { page: 'trust', name: 'Trust', desc: 'Reconciliations and controls', area: 'Trust' },
 ]
 
 function KpiTiles() {
+  const { inspect } = useWorkspace()
   const s = useTool('get_kpis')
   if (!s.data) return <Loading state={s} />
   const by = Object.fromEntries(s.data.rows.map((r) => [r.metric_name as string, r.value as number]))
   return (
     <div className="grid cols-6">
       {KPI_TILES.map(([k, l, u]) => (
-        <div className="card kpi" key={k}><div className="label">{l}</div><div className="value">{fmt(k, by[k], u)}</div></div>
+        <button className="card kpi clickable" key={k} title="Open the trend and definition" onClick={() => inspect({ kind: 'kpi', id: k })}
+          style={{ textAlign: 'left', font: 'inherit', color: 'inherit', cursor: 'pointer' }}>
+          <div className="label">{l}</div><div className="value">{fmt(k, by[k], u)}</div></button>
       ))}
     </div>
   )
@@ -87,9 +90,9 @@ function NeedsYou() {
   const { go, ask } = useWorkspace()
   return (
     <Card title="Needs you" sub={s.data ? `${s.data.row_count} open items across ${Object.keys((s.data.counts_by_area as object) ?? {}).length} areas` : undefined}
-      right={<button className="btn small" onClick={() => ask('What needs my attention right now? Group it by urgency.')}>✦ Summarize</button>}>
+      right={<button className="btn small" onClick={() => ask('What needs my attention right now? Group it by urgency.')}>Summarize</button>}>
       {s.data ? (
-        <div className="attention">
+        <div className="attention scroll-box">
           {s.data.rows.map((r, i) => (
             <div className="item" key={i}>
               <div><Chip value={r.severity as string} /> </div>
@@ -114,7 +117,7 @@ function PendingApprovals() {
   return (
     <Card title="Waiting for your approval" sub="Prepared by the assistant; nothing happens until you decide">
       {!items ? <div className="muted">Loading…</div> : items.length === 0 ? <div className="muted">Nothing waiting. Ask the assistant to prepare decisions, e.g. "Review the AP inbox".</div> : (
-        <div className="attention">
+        <div className="attention scroll-box short">
           {items.map((a) => (
             <div className="item" key={a.id}>
               <div><Chip value={a.kind.replace(/_/g, ' ')} kind="info" /></div>
@@ -141,10 +144,10 @@ export function Home({ asOf }: { asOf?: string }) {
   return (
     <div className="page">
       <div className="page-head">
-        <div><h1>Echo Labs · Finance OS</h1><p>Your finance command center. Data through {asOf ?? '…'}.</p></div>
+        <div><h1>Echo Labs · Finance OS</h1><p>Your finance command center. Monthly figures are for the last closed month ({asOf ? new Date(asOf + 'T00:00').toLocaleString('en', { month: 'long', year: 'numeric' }) : '…'}).</p></div>
       </div>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        {QUICK.map(([l, q]) => <button key={l} className="btn" onClick={() => ask(q)}>✦ {l}</button>)}
+        {QUICK.map(([l, q]) => <button key={l} className="btn" onClick={() => ask(q)}>{l}</button>)}
       </div>
       <KpiTiles />
       {m && (
@@ -162,7 +165,6 @@ export function Home({ asOf }: { asOf?: string }) {
           <div className="grid cols-2">
             {MODULES.map((mod) => (
               <button key={mod.page} className="tile" onClick={() => go(mod.page)}>
-                <span className="icon">{mod.icon}</span>
                 <span className="name">{mod.name} {counts[mod.area] ? <span className="chip warn">{counts[mod.area]}</span> : null}</span>
                 <span className="desc">{mod.desc}</span>
               </button>

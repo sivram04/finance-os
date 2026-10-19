@@ -66,6 +66,10 @@ def _read(path: Path):
 def check(wh: Warehouse, state: AppState, doc_id, f):
     """Controls on an extracted bill. Returns (vendor_id, [issue codes with details])."""
     issues = []
+    if not (f.get("vendor_invoice_number") or f.get("total") is not None or f.get("lines")):
+        # nothing a bill would have: say so, rather than listing every check it then fails
+        return None, [{"code": "not_a_bill", "detail": "No invoice number, total or line items found: this doesn't "
+                                                       "look like a vendor bill (or it couldn't be read)"}]
     # vendors vary case and punctuation ("ANNOTATE CO." vs "Annotate Co"), so compare normalized names
     alias = wh.query("""select vendor_id from seeds.ap_vendor_aliases
                         where trim(regexp_replace(lower(printed_name), '[^a-z0-9]+', ' ', 'g'))

@@ -60,7 +60,9 @@ checked as (
         ]") }} as issues
     from docs d
     left join erp_bills b
-        on b.vendor_id = d.vendor_id and b.vendor_invoice_number = d.vendor_invoice_number
+        -- by vendor and invoice number; when the printed vendor name is unknown, by invoice number alone (the
+        -- document is still flagged unknown_vendor, but not also as missing from the ERP)
+        on b.vendor_invoice_number = d.vendor_invoice_number and (d.vendor_id is null or b.vendor_id = d.vendor_id)
     left join {{ ref('stg_projects__purchase_orders') }} po on po.po_id = d.po_number
 )
 

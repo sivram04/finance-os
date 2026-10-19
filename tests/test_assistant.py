@@ -184,3 +184,18 @@ def test_upload_checks_catch_duplicates_po_problems_and_vendor_name_variants(sta
     assert codes({"po_number": None}) == ["missing_po"]
     assert codes({"vendor_name": "Unknown Vendor Ltd"}) == ["unknown_vendor"]
     assert codes({"total": 999999.0, "lines": [{"amount": 999999.0}]}) == ["po_over_remaining"]
+
+
+@needs_warehouse
+def test_every_read_tool_runs_against_the_warehouse():
+    """Each read tool must return without error on today's data (the Home page and 'what needs attention' depend
+    on them; one bad format string once took the whole attention list down)."""
+    from finance_os.app.tools import TOOLS, run_tool
+    wh = Warehouse()
+    needs = {"get_kpi_trend": {"metric": "revenue"}, "get_metric_definition": {"metric": "arr"},
+             "get_variance_drivers": {"alert_id": "none"}, "get_customer_detail": {"customer_id": "EN-001"},
+             "get_vendor_detail": {"vendor_id": "gcp"}, "get_project_detail": {"project_id": "P-101"},
+             "price_deal": {"customer": "Test", "lines": [{"product_id": "stream", "hours_per_month": 1000}]}}
+    for name in TOOLS:
+        result = run_tool(wh, name, needs.get(name, {}))
+        assert "source" in result, name

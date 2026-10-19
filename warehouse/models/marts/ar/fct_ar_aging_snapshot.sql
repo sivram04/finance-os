@@ -1,7 +1,9 @@
--- FR-8.1: AR aging at each month end. One row per customer × open invoice × snapshot date.
--- Balance at the snapshot = amount − cash applied on or before it. Buckets on days past due.
+-- FR-8.1: AR aging at each month end, and as of today for the month in progress (never a future date).
+-- One row per customer × open invoice × snapshot date. Balance at the snapshot = amount − cash applied on or
+-- before it. Buckets on days past due.
 with snapshots as (
-    select distinct last_day(entry_month) as snapshot_date from {{ ref('stg_erp__journal_entries') }}
+    select distinct least(last_day(entry_month), (select max(entry_date) from {{ ref('stg_erp__journal_entries') }})) as snapshot_date
+    from {{ ref('stg_erp__journal_entries') }}
 ),
 
 applied as (

@@ -11,7 +11,8 @@ What runs on its own, by date:
   Thursday       vendor payment run: approved bills due within a week, or inside an early-pay discount window
                  (approval gate in ap_approvals.py: auto-approved by intake or approved by a person; bills in
                  review are held, rejected bills are never paid)
-  any day        planned hires start on their date (seeds/hiring_plan.csv)
+  any day        planned hires start on their date (seeds/hiring_plan.csv); bills uploaded in the chat and
+                 approved by a person post to AP and join the payment run
 What the AI can add (validated in agent.py): a vendor price increase (shows up as a true-up surprise), a
 duplicate bill PDF, a one-off bill from a new vendor, a bill quoting a PO that doesn't exist.
 """
@@ -163,7 +164,7 @@ def init_ops(world, src: Path):
         days = contract_terms.get(pinv_contract.get(ref)) if etype == "project_invoice" else terms[c.segment if c else "enterprise"]
         world.open_invoices[ref] = {"customer_id": cid, "amount": str(bal), "stripe_id": None,
                                     "kind": "project" if etype == "project_invoice" else "usage",
-                                    "due": (date.fromisoformat(inv_date) + timedelta(days=days or 30)).isoformat()}
+                                    "due": (date.fromisoformat(inv_date) + timedelta(days=30 if days is None else days)).isoformat()}
 
 
 # ---- posting --------------------------------------------------------------------------------------------
@@ -371,6 +372,34 @@ class Books:
         line = {"line_type": "services", "description": f"{category.capitalize()} services {today:%B %Y}",
                 "quantity_hours": None, "amount": amount}
         return self._receive(bill_id, vendor, today.replace(day=1), [line], po=po, issue="wrong_po" if wrong_po else "new_vendor")
+
+    def post_uploaded_bills(self, approvals=None):
+        """Bills uploaded in the chat and approved by a person: post the bill to AP (expense / 2000) and queue it
+        for the payment run on the vendor's terms. Each upload posts once (ops["posted_uploads"])."""
+        today = self.day.today
+        posted = self.w.ops.setdefault("posted_uploads", [])
+        terms = {t["vendor_id"]: t for t in _rows(SEEDS / "vendor_payment_terms.csv")}
+        coding = {v[0]: (v[1], v[2]) for v in LIVE_VENDORS.values()} | {"gcp": ("5010", "INF"), "nimbus": ("5000", "INF")}
+        for u in (approvals or {}).get("uploads", []):
+            doc = u.get("doc_file")
+            amount = cents(Decimal(str(u.get("total") or 0)))
+            if not doc or doc in posted or amount <= 0:
+                continue
+            vendor = str(u.get("vendor_id") or "unknown").strip().lower().replace(" ", "_")[:40]
+            account, dept = coding.get(vendor, ("6400", "GA"))
+            bill_id = f"BILL-{doc}"
+            dims = {"vendor_id": vendor}
+            self.post(today, "vendor_bill", f"{vendor} uploaded bill {u.get('vendor_invoice_number') or doc}",
+                      [(account, amount, 0, {**dims, "department_id": dept}), ("2000", 0, amount, dims)], bill_id)
+            self.day.log("vendor_bills", bill_id=bill_id, vendor_id=vendor, service_month=today.replace(day=1), bill_date=today,
+                         total_amount=str(amount), vendor_invoice_number=u.get("vendor_invoice_number") or doc)
+            self.day.log("vendor_bill_lines", bill_id=bill_id, line_type="services", gpu_type=None, quantity_hours=None,
+                         amount=str(amount))
+            net = int(terms.get(vendor, terms["default"])["payment_terms_days"])
+            self.w.ops["open_bills"][bill_id] = {"vendor_id": vendor, "amount": str(amount), "bill_date": today.isoformat(),
+                                                 "due": (today + timedelta(days=net)).isoformat(), "kind": "vendor_payment",
+                                                 "doc_file": doc}
+            posted.append(doc)
 
     def payment_run(self, approvals=None):
         """Thursday: pay approved bills due within the next 7 days, and approved bills inside an early-pay

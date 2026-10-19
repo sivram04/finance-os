@@ -88,7 +88,7 @@ def run(backend, top, db: Path, out_dir: Path):
     rows = con.execute("""
         select invoice_ref, customer_id, balance, due_date, days_past_due, reminder_tone
         from marts.fct_collections_queue
-        where not is_disputed and reminder_tone is not null
+        where route = 'manual' and reminder_tone is not null
         order by queue_rank
         limit ?""", [top]).fetchall()
     draft = {"template": draft_template, "openai": draft_openai}[backend]

@@ -48,7 +48,8 @@ def create_app(state: AppState | None = None, wh: tools.Warehouse | None = None,
 
     @app.get("/api/health")
     def health():
-        return {"ok": True, "data_through": wh.latest_month()}
+        live = wh.query("select max(entry_date) as d from staging.stg_erp__journal_entries")[0]["d"]
+        return {"ok": True, "data_through": wh.latest_month(), "live_through": live}
 
     @app.post("/api/conversations")
     def new_conversation():
@@ -160,6 +161,31 @@ def create_app(state: AppState | None = None, wh: tools.Warehouse | None = None,
             raise HTTPException(404, "deal not found")
         path = dealdesk.quote_pdf(did, d["evaluation"], ROOT / "data" / "quotes")
         return FileResponse(path, media_type="application/pdf", filename=f"{did}.pdf")
+
+    @app.get("/api/reports")
+    def reports():
+        from finance_os.reports import scheduled
+        return {"schedule": scheduled.schedule(), "saved": scheduled.list_reports()}
+
+    @app.get("/api/reports/{period}/{report_id}")
+    def report(period: str, report_id: str):
+        from finance_os.reports import scheduled
+        if report_id not in scheduled.REPORTS or "/" in period or ".." in period:
+            raise HTTPException(404, "no such report")
+        path = scheduled.OUT / period / f"{report_id}.md"
+        if not path.exists():
+            raise HTTPException(404, "not generated")
+        text = path.read_text(encoding="utf-8")
+        if text.startswith("<!--"):  # the header comment (name, recipients) is for the file, not the page
+            text = text.split("\n", 1)[1]
+        return {"period": period, "report_id": report_id, "markdown": text}
+
+    @app.post("/api/reports/{report_id}/run")
+    def run_report(report_id: str):
+        from finance_os.reports import scheduled
+        if report_id not in scheduled.REPORTS:
+            raise HTTPException(404, "no such report")
+        return {"sent": scheduled.run(only=report_id, force=True)}
 
     class AckBody(BaseModel):
         alert_key: str

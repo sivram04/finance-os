@@ -30,7 +30,7 @@ seeds:
     billing_rules:
       +column_types: {threshold_days: integer}
     ar_policy:
-      +column_types: {payment_terms_days: integer, collection_weight: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(6,2)' }}"}
+      +column_types: {payment_terms_days: integer, collection_weight: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(6,2)' }}", min_chase_amount: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,2)' }}"}
     collection_tiers:
       +column_types: {tier: integer, min_days_overdue: integer, max_days_overdue: integer}
     margin_floors:

@@ -1,6 +1,6 @@
 // Module pages. Each reads the same read-only tools the assistant uses, so both always show the same numbers.
 import { useState } from 'react'
-import type { Row } from '../api'
+import { fmt, type Row } from '../api'
 import { AskButton, Card, Chip, DataTable, Loading, Source, useTool, useWorkspace } from '../components/common'
 
 function Head({ title, sub, ask }: { title: string; sub: string; ask: string }) {
@@ -93,7 +93,7 @@ export function Budget() {
           columns={[{ key: 'department_id', label: 'Dept' }, { key: 'account_id' }, { key: 'message' }, { key: 'route_to' }]} /> : <Loading state={s} />}
       </Card>
       {alert && (
-        <Card title={`Drivers · ${alert}`} right={<button className="btn small" onClick={() => ask(`Explain budget alert ${alert} from its driving transactions.`)}>✦ Explain this variance</button>}>
+        <Card title={`Drivers · ${alert}`} right={<button className="btn small" onClick={() => ask(`Explain budget alert ${alert} from its driving transactions.`)}>Explain this variance</button>}>
           {drivers.data ? <DataTable rows={drivers.data.rows} columns={[{ key: 'driver_rank', label: '#' }, { key: 'entry_date' }, { key: 'entry_type', chip: true }, { key: 'memo' }, { key: 'amount', unit: 'usd' }, { key: 'share_of_actual', unit: 'ratio' }]} /> : <Loading state={drivers} />}
         </Card>
       )}
@@ -178,8 +178,13 @@ export function AR() {
           {queue.data ? <DataTable rows={queue.data.on_hold as Row[]} empty="Nothing on hold." columns={[{ key: 'invoice_ref' }, { key: 'customer_id' }, { key: 'balance', unit: 'usd' }, { key: 'recommended_action' }]} /> : <Loading state={queue} />}
         </Card>
       </div>
-      <Card title="Collections queue" sub="Ranked by balance × days overdue × segment weight · click to ask">
-        {queue.data ? <DataTable rows={(queue.data.rows as Row[]).filter((r) => !r.is_on_hold)} onRow={(r) => ask(`Should we chase ${r.invoice_ref}? Review the reminder draft if there is one.`)} columns={[
+      <Card title="Collections queue" sub="Invoices worth a person's time, ranked by balance × days overdue × segment weight · click to ask">
+        {queue.data && (queue.data.by_route as Row[] | undefined)?.length ? (
+          <div className="muted" style={{ marginBottom: 8 }}>
+            {(queue.data.by_route as Row[]).map((r) => `${String(r.route).replace('_', ' ')}: ${r.invoices} invoices (${fmt('balance', r.balance as number, 'usd')})`).join(' · ')}
+            {' '}— card customers are retried automatically (dunning); small balances roll into the next statement.
+          </div>) : null}
+        {queue.data ? <DataTable rows={queue.data.rows as Row[]} empty="No invoice needs a person to chase right now." onRow={(r) => ask(`Should we chase ${r.invoice_ref}? Review the reminder draft if there is one.`)} columns={[
           { key: 'queue_rank', label: '#' }, { key: 'invoice_ref' }, { key: 'customer_id' }, { key: 'segment', chip: true }, { key: 'balance', unit: 'usd' }, { key: 'days_past_due', unit: 'count' }, { key: 'recommended_action' }]} /> : <Loading state={queue} />}
       </Card>
       <div className="grid cols-2" style={{ alignItems: 'start' }}>

@@ -6,6 +6,7 @@
 --   payroll          as-of month payroll + loaded cost of planned hires starting after the as-of month
 --   other opex       trailing-3-month run rate × (1 + growth)^n
 --   closing cash     as-of cash + cumulative EBITDA (working-capital timing is in the 13-week cash forecast)
+--   with raise       closing cash plus the scenario's planned round (seeds/fundraise_scenarios.csv) from its close month
 with pnl as (
     select * from {{ ref('int_pnl_monthly') }}
 ),
@@ -91,9 +92,9 @@ with_cash as (
 )
 
 select
-    scenario,
+    w.scenario,
     as_of_month,
-    month,
+    w.month,
     months_ahead,
     as_of_month = (select max(as_of_month) from versions) as is_latest,
     {{ dec("revenue_usage", 18, 2) }} as revenue_usage,
@@ -106,5 +107,8 @@ select
     {{ dec("other_opex", 18, 2) }} as other_opex,
     {{ dec("opex", 18, 2) }} as opex,
     {{ dec("ebitda", 18, 2) }} as ebitda,
-    {{ dec("closing_cash", 18, 2) }} as closing_cash
-from with_cash
+    {{ dec("closing_cash", 18, 2) }} as closing_cash,
+    {{ dec("case when w.month >= r.close_month then r.raise_amount else 0 end", 18, 2) }} as financing_to_date,
+    {{ dec("closing_cash + case when w.month >= r.close_month then r.raise_amount else 0 end", 18, 2) }} as closing_cash_with_raise
+from with_cash w
+left join {{ ref('fundraise_scenarios') }} r using (scenario)

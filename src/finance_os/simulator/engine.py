@@ -254,6 +254,7 @@ class Day:
                 history.append({"date": self.today.isoformat(), "event": e})
         self.log("agent_calls", date=self.today, **usage)
         self.books.start_hires()
+        self.books.post_uploaded_bills(self.approvals)
         self.usage()
         self.infra()
         if self.today.day == 1:

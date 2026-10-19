@@ -3,7 +3,9 @@
 -- CEI = (beginning AR + sales − ending AR) ÷ (beginning AR + sales − ending current AR), i.e. what was
 -- collected over what was collectible (ending current AR is not yet due, so not collectible).
 with months as (
-    select distinct entry_month as month, last_day(entry_month) as month_end
+    -- month end, or today for the month in progress (matches fct_ar_aging_snapshot's snapshot dates)
+    select distinct entry_month as month,
+           least(last_day(entry_month), (select max(entry_date) from {{ ref('stg_erp__journal_entries') }})) as month_end
     from {{ ref('stg_erp__journal_entries') }}
 ),
 
@@ -30,7 +32,7 @@ joined as (
         coalesce(e.ending_ar, 0) as ending_ar,
         coalesce(e.ending_current_ar, 0) as ending_current_ar,
         coalesce(e.ar_over_60, 0) as ar_over_60,
-        extract(day from m.month_end) as days_in_month
+        extract(day from m.month_end) as days_in_month  -- days elapsed, for the month in progress
     from months m
     left join ending e using (month_end)
     left join sales s using (month)

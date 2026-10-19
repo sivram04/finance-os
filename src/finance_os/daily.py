@@ -10,6 +10,7 @@ Steps (each logged to data/live/logs/<date>.log; a failed step stops the run and
   5 ap intake    read every vendor bill PDF in the inbox (rules extractor; offline)
   6 dbt build    models + tests, so forecasts, cash, close, AR and AP include today
   7 alerts       new alert conditions go out as one digest (Slack / email / Telegram, or the outbox file)
+    reports      recurring reports due today (seeds/report_schedule.csv), saved to reports/ and delivered
   8 bigquery     copy the raw layer to BigQuery (s_* datasets; events append only new days) and build there
                  too (incremental; the full-scan event tests are skipped). Uses your gcloud login.
 A lock file stops two runs overlapping (e.g. a manual run while the scheduled one is going).
@@ -84,6 +85,8 @@ def main():
             sh(log, "dbt build", [dbt, "build", "--target", "local"], cwd=WAREHOUSE)
             from finance_os import alerts
             alerts.run(log=lambda m: log(f"[alerts] {m}"))
+            from finance_os.reports import scheduled
+            scheduled.run(log=lambda m: log(f"[reports] {m}"))
         if not a.no_bigquery and not a.skip_dbt:
             sh(log, "bigquery copy", [PY, "-m", "finance_os.ingestion.duckdb_to_bigquery", "--prefix", "s_"])
             sh(log, "bigquery build", [dbt, "build", "--target", "cloud", "--vars", "dataset_prefix: s_",

@@ -14,7 +14,7 @@ open_bills as (
 detail as (
     select
         o.bill_ref,
-        coalesce(b.vendor_id, {{ dbt.split_part("o.bill_ref", "'-'", 2) }}) as vendor_id,
+        coalesce(b.vendor_id, sb.vendor_id, lower({{ dbt.split_part("o.bill_ref", "'-'", 2) }})) as vendor_id,
         b.bill_date,
         o.due_date,
         o.amount,
@@ -23,6 +23,7 @@ detail as (
         coalesce(t.priority, 'normal') as priority
     from open_bills o
     left join {{ ref('stg_erp__vendor_bills') }} b on b.bill_id = o.bill_ref
+    left join {{ ref('stg_projects__subcontractor_bills') }} sb on sb.bill_id = o.bill_ref
     left join {{ ref('vendor_payment_terms') }} t on t.vendor_id = b.vendor_id
 ),
 

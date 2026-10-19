@@ -50,7 +50,7 @@ async function json<T>(res: Response): Promise<T> {
 }
 
 export const api = {
-  health: () => fetch('/api/health').then(json<{ ok: boolean; data_through: string }>),
+  health: () => fetch('/api/health').then(json<{ ok: boolean; data_through: string; live_through?: string }>),
   data: (tool: string, args: Record<string, unknown> = {}) =>
     fetch(`/api/data/${tool}`, {
       method: 'POST',

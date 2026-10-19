@@ -1,5 +1,5 @@
-segment,payment_terms_days,collection_weight,description
-self_serve,0,0.5,Card charged on invoice; small balances
-mid_market,30,1.0,Net 30
-enterprise,45,1.5,Net 45; large balances and relationship risk
-federal,30,2.0,Net 30 under the Prompt Payment Act; contract and funding risk
+segment,payment_terms_days,collection_weight,collection_method,min_chase_amount,description
+self_serve,0,0.5,dunning,0.00,Card charged on invoice; failed cards retried automatically (dunning) then written off - never chased by a person
+mid_market,30,1.0,manual,250.00,Net 30; balances under $250 are not worth a person's time and roll into the next reminder
+enterprise,45,1.5,manual,1000.00,Net 45; large balances and relationship risk
+federal,30,2.0,manual,0.00,Net 30 under the Prompt Payment Act; contract and funding risk

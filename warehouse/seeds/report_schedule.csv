@@ -1,0 +1,6 @@
+report_id,name,cadence,recipients,description
+daily_cash,Daily cash and alerts,daily,VP Finance,"Cash today, the 13-week low point, covenant status and anything flagged overnight"
+weekly_ar,Weekly AR and collections,weekly:mon,AR specialist; Controller,"Aging, the collections queue, holds, disputes and what dunning is handling"
+weekly_flash,Weekly flash,weekly:mon,CEO; VP Finance; Sales lead,"Revenue month to date, usage trend, top movers, spend and cash"
+monthly_close,Month-end close report,monthly:on_close,Controller; VP Finance,"Close checklist, reconciliations, accruals, ASC 606 adjustment and BvA variances for the month that just closed"
+monthly_board,Board pack,monthly:on_close,CEO; Board,"KPIs, outlook by scenario, cash and covenants, fundraising and what needs the board's attention"

@@ -30,7 +30,7 @@ def propose_ap_document_decision(wh: Warehouse, state: AppState, cid, doc_file, 
                 "vendor_invoice_number": up["fields"].get("vendor_invoice_number"), "total": up["fields"].get("total") or 0,
                 "route": up["route"], "issues": [i["code"] for i in up["issues"]]}]
     else:
-        doc = wh.query("""select doc_file, vendor_id, vendor_invoice_number, total, route, issues
+        doc = wh.query("""select doc_file, coalesce(vendor_id, vendor_name) as vendor_id, vendor_invoice_number, total, route, issues
                           from marts.fct_ap_documents where doc_file = ?""", [doc_file])
     if not doc:
         return {"error": f"No AP document {doc_file}. Use get_ap_review_queue to list documents."}

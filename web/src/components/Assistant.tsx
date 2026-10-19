@@ -205,7 +205,7 @@ export function Assistant({ pending }: { pending: { text: string; n: number } | 
       doc = await api.upload(file)
     } catch (err) {
       setTurns((t) => t.map((x) => (x.id === id
-        ? { ...x, uploading: undefined, text: `📎 ${file.name}`, events: [{ type: 'error', message: `Could not read the file: ${err}` }] }
+        ? { ...x, uploading: undefined, text: file.name, events: [{ type: 'error', message: `Could not read the file: ${err}` }] }
         : x)))
       return
     }
@@ -259,7 +259,7 @@ export function Assistant({ pending }: { pending: { text: string; n: number } | 
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(input) } }}
           />
           <div className="row">
-            <button className="btn small" title="Attach a vendor bill (PDF, scan or photo)" disabled={running} onClick={() => fileInput.current?.click()}>📎 Attach</button>
+            <button className="btn small" title="Attach a vendor bill (PDF, scan or photo)" disabled={running} onClick={() => fileInput.current?.click()}>Attach</button>
             <input ref={fileInput} type="file" accept={ACCEPT} hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) attach(f); e.target.value = '' }} />
             <span className="hint">Enter to send</span>
             <button className="btn small primary" disabled={running || !input.trim()} onClick={() => send(input)}>Send</button>

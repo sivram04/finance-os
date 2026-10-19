@@ -188,6 +188,24 @@ def test_payment_run_holds_bills_in_review_and_never_pays_rejected(tmp_path):
     assert "northwind" in {b["vendor_id"] for b in w.ops["open_bills"].values()}   # rejected stays unpaid
 
 
+def test_an_approved_uploaded_bill_posts_to_ap_once_and_gets_paid(tmp_path):
+    w = _world()
+    up = {"doc_file": "UP-test01", "vendor_id": "lexpoint", "vendor_invoice_number": "LX-77", "total": 1234.5}
+    approvals = {"documents": {"UP-test01": "approved"}, "decisions_readable": True, "uploads": [up]}
+    day = date(2026, 10, 2)
+    _run(w, day, [], tmp_path, approvals)
+    _run(w, day + timedelta(days=1), [], tmp_path, approvals)            # approved again next day: no second post
+    bills = [e for e in read(tmp_path, "journal_entries") if e["source_ref"] == "BILL-UP-test01"]
+    assert len(bills) == 1 and bills[0]["entry_type"] == "vendor_bill"
+    lines = [l for l in read(tmp_path, "journal_lines") if l["entry_id"] == bills[0]["entry_id"]]
+    assert {(l["account_id"], l["debit"], l["credit"]) for l in lines} == {("6400", "1234.50", "0.00"), ("2000", "0.00", "1234.50")}
+    day += timedelta(days=2)
+    while not any(p["bill_id"] == "BILL-UP-test01" for p in read(tmp_path, "ap_payments")):
+        assert day < date(2026, 11, 30), "approved upload was never paid"
+        _run(w, day, [], tmp_path, approvals)
+        day += timedelta(days=1)
+
+
 def test_gcp_billing_export_arrives_with_the_gcp_bill_and_ties_to_it(tmp_path):
     w = _world()
     day = date(2026, 9, 30)
