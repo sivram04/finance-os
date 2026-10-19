@@ -2,10 +2,31 @@
 // every KPI, chart and DataTable on the page by that value (rows that carry the same field). A chart never filters
 // itself: it highlights the selection and dims the rest, so the selection's share stays visible.
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
-import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, Rectangle, ReferenceLine, ResponsiveContainer, Sector, Tooltip, XAxis, YAxis } from 'recharts'
+import { Bar, BarChart, Brush, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, Rectangle, ReferenceLine, ResponsiveContainer, Sector, Tooltip, XAxis, YAxis } from 'recharts'
 import { fmt, label, type Row } from '../api'
+import { WorkspaceContext } from './common'
 
 export type Filters = Record<string, string>
+
+// ---- Period: the year range every time chart and monthly table shows (picked in the page bar) ----------------
+export type Period = 'all' | '12m' | `${number}`
+export const PeriodContext = createContext<{ period: Period; setPeriod: (p: Period) => void }>({ period: 'all', setPeriod: () => {} })
+export const usePeriod = () => useContext(PeriodContext)
+const MONTHLY = /^\d{4}-\d{2}/
+
+/** Rows inside the period, judged on the first field that holds a YYYY-MM value (month, week, date). */
+export function inPeriod(rows: Row[], period: Period, x?: string) {
+  if (period === 'all' || !rows.length) return rows
+  const key = x ?? ['month', 'week_start', 'week', 'spend_date', 'date'].find((k) => rows.some((r) => MONTHLY.test(String(r[k] ?? ''))))
+  if (!key || !rows.some((r) => MONTHLY.test(String(r[key] ?? '')))) return rows
+  if (period === '12m') {
+    const last = rows.map((r) => String(r[key] ?? '').slice(0, 7)).filter((v) => MONTHLY.test(v)).sort().at(-1)!
+    const [y, m] = last.split('-').map(Number)
+    const from = `${m === 12 ? y : y - 1}-${String(m === 12 ? 1 : m + 1).padStart(2, '0')}`
+    return rows.filter((r) => { const v = String(r[key] ?? '').slice(0, 7); return !MONTHLY.test(v) || (v >= from && v <= last) })
+  }
+  return rows.filter((r) => { const v = String(r[key] ?? ''); return !MONTHLY.test(v) || v.startsWith(period) })
+}
 type Ctx = { filters: Filters; toggle: (key: string, value: string) => void; clear: (key?: string) => void }
 export const FilterContext = createContext<Ctx | null>(null)
 export const useFilters = () => useContext(FilterContext)
@@ -43,10 +64,13 @@ export function Dash({ children }: { children: ReactNode }) {
   return <FilterContext.Provider value={ctx}><FilterBar />{children}</FilterContext.Provider>
 }
 
+const DRILL_KEYS: Record<string, 'customer' | 'vendor' | 'project'> = { customer_id: 'customer', vendor_id: 'vendor', project_id: 'project' }
+
 function FilterBar() {
   const f = useFilters()
+  const ws = useContext(WorkspaceContext)
   const entries = Object.entries(f?.filters ?? {})
-  if (!entries.length) return <div className="filter-bar empty">Click any slice or bar to filter the whole page.</div>
+  if (!entries.length) return <div className="filter-bar empty">Click any slice or bar to filter the whole page · click a month on a trend to drill into it · drag the slider under a chart to zoom.</div>
   return (
     <div className="filter-bar">
       <span className="faint">Filtered by</span>
@@ -55,9 +79,19 @@ function FilterBar() {
           {label(k)}: <b>{pretty(v)}</b> <span aria-hidden>×</span>
         </button>
       ))}
+      {entries.filter(([k]) => DRILL_KEYS[k]).map(([k, v]) => (
+        <button key={`open-${k}`} className="btn small" onClick={() => ws?.inspect({ kind: DRILL_KEYS[k], id: v })}>Open {DRILL_KEYS[k]} {v} details</button>
+      ))}
       <button className="btn small" onClick={() => f!.clear()}>Clear all</button>
     </div>
   )
+}
+
+/** Drill-down from a time chart: on a cross-filtering page, clicking a month filters every table and chart on the
+ *  page to that month (click it again to clear). Off such pages time charts only zoom. */
+function drillTo(f: Ctx | null, x: string) {
+  if (!f) return null
+  return (value?: string) => { if (value != null && MONTHLY.test(String(value))) f.toggle(x, String(value)) }
 }
 
 /** Sum a measure (or count rows when measure is undefined) by a dimension, largest first. */
@@ -181,17 +215,24 @@ export function Trend({ rows, x, series, unit = 'usd', refs = [], height = 220, 
   refs?: { y: number; label: string; color?: string }[]; height?: number; format?: (v: number) => string
 }) {
   const show = format ?? ((v: number) => fmt(series[0]?.key ?? 'value', v, unit))
+  const { period } = usePeriod()
+  const f = useFilters()
+  rows = useMemo(() => inPeriod(rows, period, x), [rows, period, x])
+  const drill = drillTo(f, x)
+  const zoom = rows.length > 12
   return (
-    <div style={{ height }}>
+    <div style={{ height: height + (zoom ? 30 : 0) }}>
       <ResponsiveContainer>
-        <LineChart data={rows} margin={{ left: 8, right: 16, top: 8 }}>
+        <LineChart data={rows} margin={{ left: 8, right: 16, top: 8 }} onClick={drill ? (st) => drill((st as { activeLabel?: string })?.activeLabel) : undefined} style={drill ? { cursor: 'pointer' } : undefined}>
           <CartesianGrid stroke="var(--border)" vertical={false} />
           <XAxis dataKey={x} {...AXIS} />
           <YAxis tickFormatter={(v) => show(v as number)} width={64} {...AXIS} />
           <Tooltip formatter={(v) => show(v as number)} {...TIP} />
           {series.length > 1 && <Legend wrapperStyle={{ fontSize: 12 }} />}
           {refs.map((r) => <ReferenceLine key={r.label} y={r.y} stroke={r.color ?? 'var(--faint)'} strokeDasharray="4 4" label={{ value: r.label, fontSize: 11, fill: 'var(--faint)', position: 'insideTopRight' }} />)}
-          {series.map((s, i) => <Line key={s.key} dataKey={s.key} name={s.label} stroke={s.color ?? PALETTE[i]} strokeWidth={2} strokeDasharray={s.dashed ? '5 4' : undefined} dot={false} isAnimationActive={false} />)}
+          {series.map((s, i) => <Line key={s.key} dataKey={s.key} name={s.label} stroke={s.color ?? PALETTE[i]} strokeWidth={2} strokeDasharray={s.dashed ? '5 4' : undefined} dot={false} activeDot={{ r: 5 }} isAnimationActive={false} />)}
+          {f?.filters[x] && <ReferenceLine x={f.filters[x]} stroke="var(--accent)" strokeWidth={2} />}
+          {zoom && <Brush dataKey={x} height={22} stroke="var(--accent)" fill="var(--panel)" travellerWidth={8} />}
         </LineChart>
       </ResponsiveContainer>
     </div>
@@ -202,15 +243,23 @@ export function Trend({ rows, x, series, unit = 'usd', refs = [], height = 220, 
 export function Columns({ rows, x, y, unit = 'usd', color = PALETTE[0], height = 220, xFormat }: {
   rows: Row[]; x: string; y: string; unit?: string; color?: string; height?: number; xFormat?: (v: string) => string
 }) {
+  const { period } = usePeriod()
+  const f = useFilters()
+  rows = useMemo(() => inPeriod(rows, period, x), [rows, period, x])
+  const drill = drillTo(f, x)
+  const zoom = rows.length > 14
   return (
-    <div style={{ height }}>
+    <div style={{ height: height + (zoom ? 30 : 0) }}>
       <ResponsiveContainer>
-        <BarChart data={rows} margin={{ left: 8, right: 16, top: 8 }}>
+        <BarChart data={rows} margin={{ left: 8, right: 16, top: 8 }} onClick={drill ? (st) => drill((st as { activeLabel?: string })?.activeLabel) : undefined} style={drill ? { cursor: 'pointer' } : undefined}>
           <CartesianGrid stroke="var(--border)" vertical={false} />
           <XAxis dataKey={x} tickFormatter={xFormat} {...AXIS} />
           <YAxis tickFormatter={(v) => fmt(y, v as number, unit)} width={64} {...AXIS} />
           <Tooltip formatter={(v) => fmt(y, v as number, unit)} labelFormatter={(l) => (xFormat ? xFormat(String(l)) : String(l))} {...TIP} />
-          <Bar dataKey={y} fill={color} radius={[3, 3, 0, 0]} isAnimationActive={false} />
+          <Bar dataKey={y} radius={[3, 3, 0, 0]} isAnimationActive={false}>
+            {rows.map((r, i) => <Cell key={i} fill={color} fillOpacity={f?.filters[x] && f.filters[x] !== String(r[x]) ? 0.3 : 1} />)}
+          </Bar>
+          {zoom && <Brush dataKey={x} height={22} stroke="var(--accent)" fill="var(--panel)" travellerWidth={8} />}
         </BarChart>
       </ResponsiveContainer>
     </div>

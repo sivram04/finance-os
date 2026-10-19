@@ -1,4 +1,4 @@
-/* Finance OS: calm, card-based workspace. Tokens first; light and dark. */
+/* Finance OS: calm, card-based workspace. Tokens first; light by default, dark when chosen (theme toggle). */
 :root {
   --bg: #fbfbfa;
   --panel: #f7f7f5;
@@ -23,14 +23,12 @@
   --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
   color-scheme: light;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
+  :root[data-theme="dark"] {
     --bg: #191919; --panel: #202020; --card: #252525; --border: #2f2f2f; --border-strong: #3a3a3a;
     --text: #e6e6e4; --muted: #9b9b97; --faint: #6b6b67; --accent: #6ea8fe; --accent-soft: #1d2a40;
     --good: #5cc28c; --good-soft: #17301f; --warn: #e3b341; --warn-soft: #33290f; --bad: #f2867c; --bad-soft: #3a1c19;
     --chip: #2f2f2f; --shadow: none; color-scheme: dark;
   }
-}
 
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
@@ -340,3 +338,18 @@ table.cohort td.num, table.cohort th.num { text-align: right; }
 .onepager-item { display: grid; grid-template-columns: 28px 1fr auto; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); }
 .onepager-item .rank { font-weight: 700; color: var(--muted, inherit); }
 .onepager-item .amt { font-weight: 600; white-space: nowrap; }
+
+/* period selector and theme toggle in the page bar */
+.period-pick { display: flex; gap: 2px; align-items: center; margin-left: auto; flex: none; }
+.period-pick .label { font-size: 12px; color: var(--faint); margin-right: 4px; }
+.period-pick button { border: 0; background: none; padding: 4px 8px; border-radius: 6px; font-size: 12px; color: var(--muted); }
+.period-pick button.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.theme-toggle { border: 1px solid var(--border); background: var(--card); border-radius: 6px; padding: 3px 8px; font-size: 12px; flex: none; }
+.drill-hint { font-size: 11px; color: var(--faint); }
+
+/* explore */
+.explore-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
+.explore-field { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+.explore-field select, .explore-field input { font: inherit; font-size: 13px; color: var(--text); background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 5px 6px; }
+.metric-picker { display: flex; flex-wrap: wrap; gap: 6px; }
+.filter-chip.on { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }

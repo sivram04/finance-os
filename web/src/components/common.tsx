@@ -1,10 +1,10 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { applyFilters, FilterContext } from './Dash'
+import { applyFilters, FilterContext, inPeriod, usePeriod } from './Dash'
 import { api, fmt, label, type Row, type ToolResult } from '../api'
 
 // ---- app context: navigation and handing questions to the assistant ------------------------------
 
-export type Page = 'home' | 'alerts' | 'reports' | 'financials' | 'analysis' | 'growth' | 'pipeline' | 'scenarios' | 'entities' | 'deals' | 'comp' | 'revenue' | 'spend' | 'budget' | 'plan' | 'cash' | 'close' | 'projects' | 'billing' | 'ar' | 'ap' | 'pricing' | 'capital' | 'tax' | 'trust' | 'contracts' | 'drivers' | 'ceo'
+export type Page = 'home' | 'alerts' | 'reports' | 'financials' | 'analysis' | 'growth' | 'pipeline' | 'scenarios' | 'entities' | 'deals' | 'comp' | 'revenue' | 'spend' | 'budget' | 'plan' | 'cash' | 'close' | 'projects' | 'billing' | 'ar' | 'ap' | 'pricing' | 'capital' | 'tax' | 'trust' | 'contracts' | 'drivers' | 'ceo' | 'explore'
 
 export type EntityKind = 'customer' | 'vendor' | 'project' | 'kpi'
 export interface Entity { kind: EntityKind; id: string }
@@ -35,8 +35,20 @@ export function useTool(tool: string, args: Record<string, unknown> = {}) {
       .catch((e) => live && setState({ error: String(e), loading: false }))
     return () => { live = false }
   }, [tool, key, refreshKey])
-  return state
+  const { period } = usePeriod()
+  // the Period control (top bar) narrows every monthly series a page loads, so hand-built charts follow it too;
+  // forward-looking tools (forecasts, scenarios) and Explore keep their own ranges
+  return useMemo(() => {
+    if (!state.data || period === 'all' || FORWARD.test(tool)) return state
+    const data: ToolResult = { ...state.data }
+    for (const [k, v] of Object.entries(data)) {
+      if (Array.isArray(v) && v.length && typeof v[0] === 'object' && v[0] !== null) (data as Record<string, unknown>)[k] = inPeriod(v as Row[], period)
+    }
+    return { ...state, data }
+  }, [state, period, tool])
 }
+
+const FORWARD = /forecast|stress|scenario|sweep|fundraise|long_range|explore|runway|cap_table/
 
 // ---- display --------------------------------------------------------------------------------------
 
@@ -95,7 +107,8 @@ export function DataTable({ rows, columns, onRow, empty = 'Nothing here.', title
   // inside a <Dash> page, the page's cross-filters apply to any table whose rows carry the filtered field
   const pageFilters = useContext(FilterContext)?.filters
   const allRows = rows
-  rows = useMemo(() => (pageFilters ? applyFilters(allRows, pageFilters) : allRows), [allRows, pageFilters])
+  const { period } = usePeriod()
+  rows = useMemo(() => inPeriod(pageFilters ? applyFilters(allRows, pageFilters) : allRows, period), [allRows, pageFilters, period])
   const [q, setQ] = useState('')
   const [sort, setSort] = useState<{ key: string; dir: 1 | -1 } | null>(null)
   const [filters, setFilters] = useState<Record<string, string>>({})

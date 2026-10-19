@@ -1966,6 +1966,75 @@ def get_driver_tree(wh, month=None):
                    note="Each node is computed from the ledger and operating data for the two months; children multiply or add up to their parent.")
 
 
+EXPLORE_GROUPS = {"month": "e.entry_month", "account": "l.account_id || ' ' || a.account_name", "account_type": "a.account_type",
+                  "rollup": "a.rollup", "department": "coalesce(l.department_id, 'NONE')", "entity": "coalesce(l.entity_id, 'US01')",
+                  "customer": "l.customer_id", "vendor": "l.vendor_id", "entry_type": "e.entry_type"}
+
+
+def explore_ledger(wh, start_month=None, end_month=None, account_type=None, account=None, rollup=None, department=None,
+                   entity=None, customer_id=None, vendor_id=None, entry_type=None, text=None, group_by="account", top=25):
+    """Ask the ledger anything specific: every journal line in a month range, narrowed by any mix of account type,
+    account (id or name), rollup, department, legal entity, customer, vendor, entry type or memo text; totals grouped by
+    one dimension, the monthly trend of the selection, and the largest lines behind it. Amounts are natural sign
+    (revenue and liabilities positive as credits, costs and assets positive as debits)."""
+    if group_by not in EXPLORE_GROUPS:
+        return _result([], "explore", note=f"group_by must be one of {', '.join(EXPLORE_GROUPS)}")
+    end = _month(end_month, wh)
+    start = _month(start_month, wh) if start_month else str(wh.query("select min(entry_month) as m from staging.stg_erp__journal_entries")[0]["m"])[:10]
+    where = ["e.entry_month between ?::date and ?::date"]
+    args = [start, end]
+    for col, val in (("a.account_type", account_type), ("a.rollup", rollup), ("l.department_id", department), ("coalesce(l.entity_id, 'US01')", entity),
+                     ("l.customer_id", customer_id), ("l.vendor_id", vendor_id), ("e.entry_type", entry_type)):
+        if val:
+            where.append(f"lower({col}) = lower(?)")
+            args.append(val)
+    if account:
+        where.append("(l.account_id = ? or lower(a.account_name) like lower(?))")
+        args += [account, f"%{account}%"]
+    if text:
+        where.append("lower(e.memo) like lower(?)")
+        args.append(f"%{text}%")
+    sign = "case when a.account_type in ('revenue', 'liability', 'equity') then -l.amount else l.amount end"
+    base = f"""from staging.stg_erp__journal_lines l
+               join staging.stg_erp__journal_entries e using (entry_id)
+               join marts.dim_gl_account a using (account_id)
+               where {' and '.join(where)}"""
+    g = EXPLORE_GROUPS[group_by]
+    alias = {"customer": "customer_id", "vendor": "vendor_id", "department": "department_id", "entity": "entity_id"}.get(group_by, group_by)
+    rows = wh.query(f"""select {g if group_by != 'month' else "strftime(e.entry_month, '%Y-%m')"} as {alias}, sum({sign}) as amount,
+                               count(*) as lines from (select * from staging.stg_erp__journal_lines) l
+                        join staging.stg_erp__journal_entries e using (entry_id)
+                        join marts.dim_gl_account a using (account_id)
+                        where {' and '.join(where)}
+                        group by 1 order by {'1' if group_by == 'month' else 'abs(sum(' + sign + ')) desc'}""", args)
+    trend = wh.query(f"select strftime(e.entry_month, '%Y-%m') as month, sum({sign}) as amount {base} group by 1 order by 1", args)
+    lines = wh.query(f"""select strftime(e.entry_date, '%Y-%m-%d') as entry_date, e.entry_id, e.entry_type, e.memo, l.account_id,
+                                a.account_name, l.department_id, l.entity_id, l.customer_id, l.vendor_id, {sign} as amount
+                         {base} order by abs({sign}) desc limit ?""", args + [int(top)])
+    total = round(sum(float(r["amount"] or 0) for r in rows), 2)
+    return _result(rows, "staging.stg_erp__journal_lines + stg_erp__journal_entries + dim_gl_account", start=start[:7], end=end[:7],
+                   group_by=group_by, total=total, line_count=sum(int(r["lines"]) for r in rows), trend=trend, top_lines=lines,
+                   filters={k: v for k, v in dict(account_type=account_type, account=account, rollup=rollup, department=department,
+                                                   entity=entity, customer_id=customer_id, vendor_id=vendor_id, entry_type=entry_type,
+                                                   text=text).items() if v},
+                   note="Natural sign: revenue, liabilities and equity are positive as credits; costs and assets as debits.")
+
+
+def explore_options(wh):
+    """The values each explore filter can take (for pickers)."""
+    q = lambda sql: [r["v"] for r in wh.query(sql)]  # noqa: E731
+    return {"source": "staging + marts dimensions", "row_count": 0, "rows": [],
+            "accounts": wh.query("select account_id, account_name, account_type, rollup from marts.dim_gl_account order by account_id"),
+            "account_types": q("select distinct account_type as v from marts.dim_gl_account order by 1"),
+            "rollups": q("select distinct rollup as v from marts.dim_gl_account where rollup is not null order by 1"),
+            "departments": q("select distinct department_id as v from staging.stg_erp__journal_lines where department_id is not null order by 1"),
+            "entities": q("select distinct coalesce(entity_id, 'US01') as v from staging.stg_erp__journal_lines order by 1"),
+            "customers": q("select distinct customer_id as v from staging.stg_erp__journal_lines where customer_id is not null order by 1"),
+            "vendors": q("select distinct vendor_id as v from staging.stg_erp__journal_lines where vendor_id is not null order by 1"),
+            "entry_types": q("select distinct entry_type as v from staging.stg_erp__journal_entries order by 1"),
+            "months": q("select distinct strftime(entry_month, '%Y-%m') as v from staging.stg_erp__journal_entries order by 1"),
+            "metrics": wh.query("select metric_name, label, unit from seeds.metric_catalog order by label")}
+
 def get_treasury_sweep(wh):
     """Simulated cash sweeps over the 13-week forecast. Each week the operating account takes the net flow, then:
     excess above six weeks of outflows sweeps to the money market fund; a shortfall below the four-week policy pulls
@@ -2136,6 +2205,18 @@ TOOLS = {
     "get_driver_tree": (get_driver_tree, "Value driver tree for a month vs the prior month: EBITDA to revenue (customers x "
                         "hours per customer x revenue per hour, services), cost of revenue (cost per hour) and opex "
                         "(headcount x cost per head, other), with each driver's change and EBITDA impact.", _p({"month": MONTH})),
+    "explore_ledger": (explore_ledger, "Answer any SPECIFIC ledger question: amounts in a month range filtered by account "
+                       "type, account (id or name), rollup, department, legal entity (US01, UK01, IN01), customer, vendor, "
+                       "entry type or memo text, grouped by month / account / account_type / rollup / department / entity / "
+                       "customer / vendor / entry_type, with the monthly trend and the largest journal lines. Use when no "
+                       "dashboard tool fits, e.g. 'what did we spend on AWS-like cloud in ENG in Q2 2026'.",
+                       _p({"start_month": MONTH, "end_month": MONTH, "account_type": {"type": "string"}, "account": {"type": "string"},
+                           "rollup": {"type": "string"}, "department": {"type": "string"}, "entity": {"type": "string"},
+                           "customer_id": {"type": "string"}, "vendor_id": {"type": "string"}, "entry_type": {"type": "string"},
+                           "text": {"type": "string"}, "group_by": {"type": "string", "enum": list(EXPLORE_GROUPS)},
+                           "top": {"type": "integer"}})),
+    "explore_options": (explore_options, "The values each explore_ledger filter can take (accounts, departments, entities, "
+                        "customers, vendors, entry types, months) and the governed metrics.", _p({})),
     "get_contracts": (get_contracts, "Committed-use customer contracts: RPO, current RPO (next 12 months), contracted ARR "
                       "vs run-rate ARR, burn pace (usage vs commitment), projected shortfall / overage, renewal base, "
                       "revenue at risk, prepaid credit pools; per contract and as a monthly trend.",

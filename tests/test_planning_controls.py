@@ -79,3 +79,11 @@ def test_evidence_block(wh):
     ev = tools.answer_evidence(wh, "Run-rate ARR rose", [("get_kpis", {"month": "2026-09"}, tools.get_kpis(wh))], [])
     assert ev["freshness"]["closed_through"] and ev["sources"]
     assert any(m["metric"] == "arr" and m["version"] == 2 for m in ev["metrics"])
+
+
+def test_explore_ledger_totals_tie(wh):
+    by_acct = tools.explore_ledger(wh, start_month="2026-04", end_month="2026-06", account_type="opex", department="ENG")
+    by_month = tools.explore_ledger(wh, start_month="2026-04", end_month="2026-06", account_type="opex", department="ENG", group_by="month")
+    assert by_acct["total"] == by_month["total"] > 0
+    assert [r["month"] for r in by_month["rows"]] == ["2026-04", "2026-05", "2026-06"]
+    assert tools.explore_ledger(wh, group_by="nope")["rows"] == []
