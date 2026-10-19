@@ -1,0 +1,9 @@
+version: 2
+
+sources:
+  - name: crm
+    schema: "{{ var('dataset_prefix', '') }}raw_crm"
+    description: Sales-led opportunities as a CRM export shows them (generator/events/pipeline.py).
+    loaded_at_field: _loaded_at
+    tables:
+      - name: opportunities

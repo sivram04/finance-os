@@ -28,6 +28,7 @@ from finance_os.generator.events.gcp_billing_export import build_gcp_export, gcp
 from finance_os.generator.events.infra import build_cloud_costs, build_gpu_jobs
 from finance_os.generator.events.ledger import build_ledger
 from finance_os.generator.events.payroll import build_payroll
+from finance_os.generator.events.pipeline import build_pipeline
 from finance_os.generator.events.projects import build_projects
 from finance_os.generator.events.stripe import build_stripe
 from finance_os.generator.events.usage import build_usage
@@ -98,6 +99,7 @@ def generate(seed=None, scale="S"):
         "budgets": build_budgets(cfg, entries, lines),
         **projects,
         "anomaly_manifest": build_manifest(cfg),
+        "opportunities": build_pipeline(cfg, customers),
         "ap_document_truth": ap_docs,
         "ap_document_truth_lines": ap_doc_lines,
     }

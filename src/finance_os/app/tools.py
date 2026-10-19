@@ -779,6 +779,269 @@ def evaluate_marketing_campaign(wh, spend, new_customers, years=3, discount_rate
     return {"source": "finance_os.fpa.campaign_case + marts.fct_customer_revenue_monthly, fct_saas_metrics_monthly", **out}
 
 
+# ---- Executive view: scorecard with context, what changed and why, growth efficiency, cohorts, health, pipeline ----
+
+# (metric, label, unit, higher_is_better, source): the scorecard a VP reads first
+SCORECARD = [
+    ("revenue", "Revenue (month)", "usd", True, "kpi"), ("arr", "ARR", "usd", True, "kpi"),
+    ("net_new_arr", "Net new ARR", "usd", True, "growth"), ("gross_margin_pct", "Gross margin", "ratio", True, "kpi"),
+    ("nrr", "Net revenue retention", "ratio", True, "kpi"), ("logo_churn_rate", "Logo churn (month)", "ratio", False, "kpi"),
+    ("net_burn", "Net burn", "usd", False, "kpi"), ("burn_multiple", "Burn multiple", "ratio", False, "growth"),
+    ("closing_cash", "Cash (month end)", "usd", True, "kpi"), ("runway_months", "Runway (months)", "months", True, "kpi"),
+    ("rule_of_40", "Rule of 40", "ratio", True, "saas"), ("cac_payback_months", "CAC payback", "months", False, "saas"),
+]
+
+
+def _series(wh):
+    """{metric: {month: value}} for every scorecard metric, from the three marts that hold them."""
+    out = {}
+    for r in wh.query("select strftime(month, '%Y-%m') as m, metric_name, value from marts.fct_kpi_monthly"):
+        out.setdefault(r["metric_name"], {})[r["m"]] = r["value"]
+    for r in wh.query("select strftime(month, '%Y-%m') as m, net_new_arr, burn_multiple, quick_ratio from marts.fct_growth_efficiency_monthly"):
+        for k in ("net_new_arr", "burn_multiple", "quick_ratio"):
+            out.setdefault(k, {})[r["m"]] = r[k]
+    for r in wh.query("select strftime(month, '%Y-%m') as m, rule_of_40, cac_payback_months, ltv_to_cac from marts.fct_saas_metrics_monthly"):
+        for k in ("rule_of_40", "cac_payback_months", "ltv_to_cac"):
+            out.setdefault(k, {})[r["m"]] = r[k]
+    return out
+
+
+def _budget(wh, m):
+    rows = wh.query("""select a.account_type, sum(b.budget) as budget from marts.fct_bva_monthly b
+                       join seeds.gl_accounts a using (account_id) where b.month = ?::date group by 1""", [m])
+    by = {r["account_type"]: float(r["budget"] or 0) for r in rows}
+    rev, cogs = by.get("revenue"), by.get("cogs")
+    return {"revenue": rev, "gross_margin_pct": (rev - cogs) / rev if rev and cogs is not None else None}
+
+
+def _shift(month, n):
+    y, mo = int(month[:4]), int(month[5:7]) - 1 + n
+    return f"{y + mo // 12:04d}-{mo % 12 + 1:02d}"
+
+
+def get_kpi_scorecard(wh, month=None):
+    m = _month(month, wh)[:7]
+    series = _series(wh)
+    bench = {r["metric_name"]: r for r in wh.query("select * from seeds.metric_benchmarks")}
+    budget = _budget(wh, m + "-01")
+    rows = []
+    for key, label, unit, higher, _src in SCORECARD:
+        s = series.get(key, {})
+        v, prev, ly = s.get(m), s.get(_shift(m, -1)), s.get(_shift(m, -12))
+        f = lambda x: None if x is None else float(x)  # noqa: E731
+        v, prev, ly = f(v), f(prev), f(ly)
+        b = bench.get(key)
+        status = None
+        if v is not None and b:
+            good, med = float(b["good"]), float(b["median"])
+            better = (lambda a, c: a >= c) if higher else (lambda a, c: a <= c)
+            status = "good" if better(v, good) else "ok" if better(v, med) else "bad"
+        rows.append({
+            "metric": key, "label": label, "unit": unit, "higher_is_better": higher, "value": v,
+            "prior": prev, "change": None if v is None or prev is None else v - prev,
+            "change_pct": None if v is None or not prev else (v - prev) / abs(prev),
+            "last_year": ly, "yoy_pct": None if v is None or not ly else (v - ly) / abs(ly),
+            "budget": budget.get(key), "vs_budget_pct": None if v is None or not budget.get(key) else (v - budget[key]) / abs(budget[key]),
+            "benchmark_good": b and float(b["good"]), "benchmark_median": b and float(b["median"]),
+            "benchmark_source": b and b["source"], "status": status,
+            "spark": [f(s.get(_shift(m, -i))) for i in range(11, -1, -1)],
+        })
+    return _result(rows, "marts.fct_kpi_monthly, fct_growth_efficiency_monthly, fct_saas_metrics_monthly, fct_bva_monthly, "
+                         "seeds.metric_benchmarks", month=m,
+                   note="status compares to the benchmark: good = at or past 'good', ok = past the median, bad = below it.")
+
+
+def _usd_text(v):
+    v = float(v or 0)
+    return ("-" if v < 0 else "") + (f"${abs(v) / 1e6:,.2f}M" if abs(v) >= 1e6 else f"${abs(v) / 1e3:,.1f}K" if abs(v) >= 1e3 else f"${abs(v):,.0f}")
+
+
+def _pct_text(v, signed=True):
+    return "n/a" if v is None else (f"{v * 100:+.1f}%" if signed else f"{v * 100:.1f}%")
+
+
+def get_month_summary(wh, month=None):
+    """What changed this month and why, in sentences built from the warehouse (no model writes these numbers)."""
+    m = _month(month, wh)
+    mm, prev = m[:7], _shift(m[:7], -1) + "-01"
+    card = {r["metric"]: r for r in get_kpi_scorecard(wh, m)["rows"]}
+    figures = []  # every number the sentences quote, raw, so the assistant's number check can verify them
+
+    def _usd(v):
+        figures.append(float(v or 0))
+        return _usd_text(v)
+
+    def _pct(v, signed=True):
+        if v is not None:
+            figures.append(float(v))
+        return _pct_text(v, signed)
+    sections = []
+
+    rev = card["revenue"]
+    pvm = get_revenue_pvm(wh, m)["total"]
+    movers = wh.query("""select customer_id, movement, revenue_change from marts.fct_customer_revenue_monthly
+                         where month = ?::date order by abs(revenue_change) desc limit 3""", [m])
+    b = [f"Revenue {_usd(rev['value'])}, {_pct(rev['change_pct'])} vs last month"
+         + (f" and {_pct(rev['vs_budget_pct'])} vs budget" if rev["vs_budget_pct"] is not None else "")
+         + (f"; {_pct(rev['yoy_pct'])} year on year." if rev["yoy_pct"] is not None else "."),
+         f"Usage revenue moved {_usd(pvm['revenue_change'])}: volume {_usd(pvm['volume_effect'])}, price {_usd(pvm['price_effect'])}, "
+         f"mix {_usd(pvm['mix_effect'])}.",
+         "Biggest customer moves: " + "; ".join(f"{r['customer_id']} {r['movement']} {_usd(r['revenue_change'])}" for r in movers) + "."]
+    behind_plan = rev["vs_budget_pct"] is not None and rev["vs_budget_pct"] < -0.10
+    sections.append({"title": "Revenue", "status": "bad" if behind_plan or (rev["change"] or 0) < 0 else "good", "bullets": b})
+
+    gm = card["gross_margin_pct"]
+    unit = wh.query("""select product_id, sum(cogs) / nullif(sum(audio_hours), 0) as cph, month from marts.fct_unit_economics_monthly
+                       where month in (?::date, ?::date) group by 1, 3""", [m, prev])
+    cph = {(r["product_id"], str(r["month"])[:7]): float(r["cph"] or 0) for r in unit}
+    moves = sorted(((p, cph.get((p, mm)), cph.get((p, prev[:7]))) for p in {k[0] for k in cph}),
+                   key=lambda x: -abs((x[1] or 0) - (x[2] or 0)))
+    b = [f"Gross margin {_pct(gm['value'], False)}, {(gm['change'] or 0) * 100:+.1f} points vs last month"
+         + (f" (benchmark for usage-priced SaaS: {_pct(gm['benchmark_median'], False)} median)." if gm["benchmark_median"] else ".")]
+    if moves and moves[0][1] is not None and moves[0][2]:
+        p, now, before = moves[0]
+        b.append(f"Largest cost-to-serve move: {p} at ${now:.4f}/audio hour vs ${before:.4f} last month ({_pct(now / before - 1)}).")
+    sections.append({"title": "Margin", "status": card["gross_margin_pct"]["status"], "bullets": b})
+
+    costs = wh.query("""select account_name, sum(case when month = ?::date then natural_amount else 0 end) as now,
+                               sum(case when month = ?::date then natural_amount else 0 end) as before
+                        from marts.fct_gl_monthly where account_type in ('cogs', 'opex') and month in (?::date, ?::date)
+                        group by 1 order by abs(sum(case when month = ?::date then natural_amount else -natural_amount end)) desc limit 3""",
+                     [m, prev, m, prev, m])
+    bva = wh.query("""select department_id, account_name, variance, variance_pct from marts.fct_bva_monthly
+                      where month = ?::date and is_alert order by abs(variance) desc limit 3""", [m])
+    b = ["Biggest cost changes vs last month: " + "; ".join(f"{r['account_name']} {_usd(float(r['now']) - float(r['before']))}" for r in costs) + "."]
+    if bva:
+        b.append("Budget variances to explain: " + "; ".join(
+            f"{'' if r['department_id'] == 'NONE' else r['department_id'] + ' '}{r['account_name']} {_usd(r['variance'])}" + (f" ({_pct(float(r['variance_pct']))})" if r["variance_pct"] is not None else "")
+            for r in bva) + ".")
+    sections.append({"title": "Costs", "status": "bad" if bva else "good", "bullets": b})
+
+    g = wh.query("select * from marts.fct_growth_efficiency_monthly where month = ?::date", [m])
+    g = g[0] if g else {}
+    cash, burn, run, bm = card["closing_cash"], card["net_burn"], card["runway_months"], card["burn_multiple"]
+    runway = "60+ months" if (run["value"] or 0) > 60 else f"{run['value'] or 0:.0f} months"
+    b = [f"Cash {_usd(cash['value'])} at month end; net burn {_usd(burn['value'])}; runway {runway}.",
+         f"Net new ARR {_usd(g.get('net_new_arr'))} this month (new {_usd(g.get('new_arr'))}, expansion {_usd(g.get('expansion_arr'))}, "
+         f"contraction {_usd(g.get('contraction_arr'))}, churn {_usd(g.get('churned_arr'))})."
+         + (f" Burn multiple {bm['value']:.2f}x over 3 months." if bm["value"] is not None else
+            " Burn multiple not meaningful: net new ARR over the last 3 months is not positive.")]
+    sections.append({"title": "Cash and efficiency", "status": bm["status"] or ("good" if (burn["value"] or 0) <= 0 else "ok"), "bullets": b})
+
+    h = wh.query("""select health, count(*) as n, sum(arr) as arr from marts.fct_customer_health group by 1""")
+    hh = {r["health"]: r for r in h}
+    top = wh.query("select sum(revenue_share) as s from marts.fct_customer_health where revenue_rank <= 10")[0]["s"]
+    risky = wh.query("""select customer_id, reasons, arr from marts.fct_customer_health where health = 'at_risk'
+                        order by arr desc limit 3""")
+    b = [f"Net revenue retention {_pct(card['nrr']['value'], False)}; logo churn {_pct(card['logo_churn_rate']['value'], False)} this month.",
+         f"{(hh.get('at_risk') or {}).get('n', 0)} customers at risk ({_usd((hh.get('at_risk') or {}).get('arr'))} ARR), "
+         f"{(hh.get('watch') or {}).get('n', 0)} to watch. Top 10 customers are {_pct(float(top or 0), False)} of revenue."]
+    if risky:
+        b.append("Largest at risk: " + "; ".join(f"{r['customer_id']} ({_usd(r['arr'])} ARR: {r['reasons'].rstrip(';')})" for r in risky) + ".")
+    sections.append({"title": "Customers", "status": "bad" if risky else "good", "bullets": b})
+
+    pipe = get_pipeline(wh)
+    q = pipe["next_quarter"]
+    b = [f"Open pipeline {_usd(pipe['total_arr'])} ({_usd(pipe['weighted_arr'])} weighted). Next quarter ({q['quarter']}): "
+         f"{_usd(q['pipeline_arr'])} against a {_usd(q['quota'])} quota = {q['coverage']:.1f}x coverage"
+         + (" (healthy is 3x+)." if q["coverage"] >= 3 else " (below the 3x a team usually needs).")]
+    if pipe["slipped"]:
+        b.append(f"{pipe['slipped']} {'deal is' if pipe['slipped'] == 1 else 'deals are'} ({_usd(pipe['slipped_arr'])}) past the close date and still open: update or close them.")
+    sections.append({"title": "Pipeline", "status": "good" if q["coverage"] >= 3 else "bad", "bullets": b})
+
+    bad = [s["title"] for s in sections if s["status"] == "bad"]
+    headline = (f"{mm}: revenue {_usd(rev['value'])} ({_pct(rev['change_pct'])} m/m), net new ARR {_usd(g.get('net_new_arr'))}, "
+                f"cash {_usd(cash['value'])}. " + (f"Needs attention: {', '.join(bad)}." if bad else "Nothing off track."))
+    return {"source": "get_kpi_scorecard, fct_revenue_pvm_monthly, fct_customer_revenue_monthly, fct_gl_monthly, fct_bva_monthly, "
+                      "fct_growth_efficiency_monthly, fct_customer_health, fct_pipeline",
+            "month": mm, "headline": headline, "sections": sections, "row_count": len(sections), "rows": sections,
+            "figures": figures, "pipeline_coverage": q["coverage"], "runway_months": run["value"]}
+
+
+def get_growth_efficiency(wh, months=12):
+    rows = wh.query("""select strftime(month, '%Y-%m') as month, opening_arr, new_arr, expansion_arr, reactivation_arr,
+                              contraction_arr, churned_arr, closing_arr, net_new_arr, net_burn, quick_ratio, burn_multiple
+                       from marts.fct_growth_efficiency_monthly order by month desc limit ?""", [int(months)])
+    return _result(rows[::-1], "marts.fct_growth_efficiency_monthly",
+                   note="ARR = monthly usage revenue × 12. Quick ratio and burn multiple use trailing 3 months.")
+
+
+def get_cohort_retention(wh, kind="revenue", max_months=12):
+    col = {"revenue": "revenue_retention", "logo": "logo_retention"}[kind]
+    rows = wh.query(f"""select strftime(cohort_month, '%Y-%m') as cohort, cohort_size, months_since, {col} as retention
+                        from marts.fct_cohort_retention where months_since <= ? order by cohort, months_since""", [int(max_months)])
+    grid = {}
+    for r in rows:
+        g = grid.setdefault(r["cohort"], {"cohort": r["cohort"], "customers": r["cohort_size"]})
+        g[f"m{r['months_since']}"] = r["retention"]
+    return _result(list(grid.values()), "marts.fct_cohort_retention", kind=kind,
+                   note="Revenue retention is vs the cohort's first full month (m1); logo retention vs cohort size.")
+
+
+def get_customer_health(wh, health=None):
+    rows = wh.query("""select customer_id, segment, health, reasons, arr, revenue_share, revenue_rank, usage_trend,
+                              hours_per_day_30d, days_since_usage, overdue_balance, disputed_amount
+                       from marts.fct_customer_health where (? is null or health = ?)
+                       order by case health when 'at_risk' then 0 when 'watch' then 1 else 2 end, arr desc""", [health, health])
+    summary = wh.query("select health, count(*) as customers, sum(arr) as arr from marts.fct_customer_health group by 1")
+    conc = wh.query("""select sum(case when revenue_rank = 1 then revenue_share end) as top1,
+                              sum(case when revenue_rank <= 5 then revenue_share end) as top5,
+                              sum(case when revenue_rank <= 10 then revenue_share end) as top10,
+                              sum(revenue_share * revenue_share) as hhi from marts.fct_customer_health""")[0]
+    return _result(rows, "marts.fct_customer_health", summary=summary, concentration=conc,
+                   note="at_risk: usage down 40%+, no usage 14+ days, or open dispute. watch: usage down 20-40%, "
+                        "30+ days late, or margin below floor.")
+
+
+def get_pipeline(wh):
+    rows = wh.query("""select opportunity_id, account_name, segment, rep_id, stage, probability, amount_arr, weighted_arr,
+                              close_date, close_quarter, is_slipped, age_days, median_won_cycle_days
+                       from marts.fct_pipeline order by close_date""")
+    as_of = str(wh.query("select max(entry_date) as d from staging.stg_erp__journal_entries")[0]["d"])
+    y, mo = int(as_of[:4]), int(as_of[5:7])
+    qn = (mo - 1) // 3 + 1
+    nq = (y + 1, 1) if qn == 4 else (y, qn + 1)
+    next_q = f"{nq[0]}-Q{nq[1]}"
+    quota = float(wh.query("select sum(annual_quota_arr) as q from seeds.sales_reps")[0]["q"]) / 4
+    in_q = [r for r in rows if r["close_quarter"] == next_q and not r["is_slipped"]]
+    q_arr = sum(float(r["amount_arr"]) for r in in_q)
+    by_stage = {}
+    for r in rows:
+        s = by_stage.setdefault(r["stage"], {"stage": r["stage"], "deals": 0, "arr": 0.0, "weighted_arr": 0.0})
+        s["deals"] += 1
+        s["arr"] += float(r["amount_arr"])
+        s["weighted_arr"] += float(r["weighted_arr"])
+    slipped = [r for r in rows if r["is_slipped"]]
+    bookings = wh.query("""select strftime(month, '%Y-%m') as month, sum(bookings_arr) as bookings_arr, sum(won_deals) as won,
+                                  sum(lost_deals) as lost from marts.fct_bookings_monthly group by 1 order by 1""")
+    rates = wh.query("""select segment, sum(won_deals) as won, sum(lost_deals) as lost,
+                               sum(won_deals) * 1.0 / nullif(sum(won_deals + lost_deals), 0) as win_rate,
+                               avg(avg_cycle_days) as avg_cycle_days
+                        from marts.fct_bookings_monthly group by 1""")
+    order = ["discovery", "evaluation", "proposal", "negotiation"]
+    return {"source": "marts.fct_pipeline, marts.fct_bookings_monthly, seeds.sales_reps", "row_count": len(rows), "rows": rows,
+            "total_arr": sum(float(r["amount_arr"]) for r in rows), "weighted_arr": sum(float(r["weighted_arr"]) for r in rows),
+            "by_stage": sorted(by_stage.values(), key=lambda s: order.index(s["stage"])),
+            "next_quarter": {"quarter": next_q, "pipeline_arr": q_arr, "quota": quota,
+                             "coverage": q_arr / quota if quota else 0, "deals": len(in_q)},
+            "slipped": len(slipped), "slipped_arr": sum(float(r["amount_arr"]) for r in slipped),
+            "bookings": bookings, "win_rates": rates,
+            "note": "Coverage = open pipeline expected to close next quarter / quarterly quota (sum of AE quotas / 4)."}
+
+
+def get_product_unit_economics(wh, months=12):
+    rows = wh.query("""select strftime(month, '%Y-%m') as month, product_id, sum(audio_hours) as audio_hours,
+                              sum(revenue) as revenue, sum(cogs) as cogs,
+                              sum(revenue) / nullif(sum(audio_hours), 0) as revenue_per_hour,
+                              sum(cogs) / nullif(sum(audio_hours), 0) as cost_per_hour,
+                              (sum(revenue) - sum(cogs)) / nullif(sum(revenue), 0) as gross_margin_pct
+                       from marts.fct_unit_economics_monthly
+                       where month > (select max(month) from marts.fct_unit_economics_monthly) - interval (?) month
+                       group by 1, 2 order by 1, 2""", [int(months)])
+    return _result(rows, "marts.fct_unit_economics_monthly",
+                   note="Revenue and cost to serve per audio hour by product (COGS = GPU + shared GPU + unused commit + cloud).")
+
+
 def _p(props, required=()):
     return {"type": "object", "properties": props, "required": list(required), "additionalProperties": False}
 
@@ -833,6 +1096,24 @@ TOOLS = {
                                     _p({"spend": {"type": "number"}, "new_customers": {"type": "number"},
                                         "years": {"type": "integer"}, "discount_rate": {"type": "number"}},
                                        ["spend", "new_customers"])),
+    "get_kpi_scorecard": (get_kpi_scorecard, "The executive scorecard for a month: each headline metric with last month, "
+                          "last year, budget, a 12-month trend and how it compares to SaaS benchmarks. Use for 'how are we "
+                          "doing?' and any 'compared to what?' question.", _p({"month": MONTH})),
+    "get_month_summary": (get_month_summary, "What changed this month and why: revenue drivers (price/volume/mix, biggest "
+                          "customer moves), margin, cost changes and budget variances, cash and efficiency, customer risk and "
+                          "pipeline, each with a status. Use for monthly reviews and 'what happened this month?'.", _p({"month": MONTH})),
+    "get_growth_efficiency": (get_growth_efficiency, "ARR waterfall by month (new, expansion, reactivation, contraction, "
+                              "churn, net new ARR) with quick ratio and burn multiple.", _p({"months": {"type": "integer"}})),
+    "get_cohort_retention": (get_cohort_retention, "Retention by signup cohort: revenue retention (vs first full month) or "
+                             "logo retention, for up to N months after signup.",
+                             _p({"kind": {"type": "string", "enum": ["revenue", "logo"]}, "max_months": {"type": "integer"}})),
+    "get_customer_health": (get_customer_health, "Customer health from leading indicators (usage trend, days since usage, "
+                            "overdue invoices, disputes, margin floor), at-risk ARR and revenue concentration (top 1/5/10).",
+                            _p({"health": {"type": "string", "enum": ["at_risk", "watch", "healthy"]}})),
+    "get_pipeline": (get_pipeline, "Sales pipeline: open deals by stage, weighted ARR, next-quarter coverage vs quota, slipped "
+                     "deals, monthly bookings and win rates by segment.", _p({})),
+    "get_product_unit_economics": (get_product_unit_economics, "Revenue and cost to serve per audio hour and gross margin by "
+                                   "product, by month.", _p({"months": {"type": "integer"}})),
     "get_budget_vs_actual": (get_budget_vs_actual, "Company budget vs. actual for a month by DEPARTMENT and GL ACCOUNT (not "
                              "projects: for a project's budget or overrun use get_projects), with alerts, "
                              "and THIS fiscal year's full-year forecast vs budget (fy_forecast, fy_forecast_variance). "

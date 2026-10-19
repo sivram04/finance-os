@@ -266,3 +266,35 @@ questions:
     persona: Controller
     ask: Show me the balance sheet for the last 3 months. Does it balance?
     expect_tools: [get_financial_statements]
+  - id: exec-how-are-we-doing
+    persona: CEO
+    ask: How are we doing this month compared to last month and budget?
+    expect_tools: [get_kpi_scorecard]
+  - id: exec-what-changed
+    persona: CFO
+    ask: What changed this month and why?
+    expect_tools: [get_month_summary]
+  - id: growth-burn-multiple
+    persona: Board member
+    ask: What is our burn multiple?
+    expect_values: ["select burn_multiple from marts.fct_growth_efficiency_monthly where month=M"]
+    expect_tools: [get_growth_efficiency]
+  - id: growth-concentration
+    persona: Investor
+    ask: How concentrated is our revenue? What share do the top 10 customers have?
+    expect_values: ["select sum(revenue_share) from marts.fct_customer_health where revenue_rank <= 10"]
+    expect_tools: [get_customer_health]
+  - id: growth-at-risk
+    persona: VP Customer Success
+    ask: Which customers are at risk of churning, and why?
+    expect_text: ["'EN-002'"]
+    expect_tools: [get_customer_health]
+  - id: growth-cohorts
+    persona: CFO
+    ask: Are newer customer cohorts retaining revenue better or worse than older ones?
+    expect_tools: [get_cohort_retention]
+  - id: pipeline-coverage
+    persona: VP Sales
+    ask: Do we have enough pipeline to hit next quarter's number?
+    expect_tools: [get_pipeline]
+    expect_text: ["'coverage|[0-9.]+x'"]

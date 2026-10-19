@@ -3,7 +3,7 @@ import { api, fmt, label, type Row, type ToolResult } from '../api'
 
 // ---- app context: navigation and handing questions to the assistant ------------------------------
 
-export type Page = 'home' | 'alerts' | 'reports' | 'financials' | 'analysis' | 'deals' | 'comp' | 'revenue' | 'spend' | 'budget' | 'plan' | 'cash' | 'close' | 'projects' | 'billing' | 'ar' | 'ap' | 'pricing' | 'capital' | 'tax' | 'trust'
+export type Page = 'home' | 'alerts' | 'reports' | 'financials' | 'analysis' | 'growth' | 'pipeline' | 'deals' | 'comp' | 'revenue' | 'spend' | 'budget' | 'plan' | 'cash' | 'close' | 'projects' | 'billing' | 'ar' | 'ap' | 'pricing' | 'capital' | 'tax' | 'trust'
 
 export type EntityKind = 'customer' | 'vendor' | 'project' | 'kpi'
 export interface Entity { kind: EntityKind; id: string }

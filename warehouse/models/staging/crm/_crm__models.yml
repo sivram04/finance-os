@@ -1,0 +1,16 @@
+version: 2
+
+models:
+  - name: stg_crm__opportunities
+    description: One row per CRM opportunity (won, lost or open), sized in ARR.
+    columns:
+      - name: opportunity_id
+        data_tests: [unique, not_null]
+      - name: stage
+        data_tests:
+          - accepted_values:
+              arguments: {values: [discovery, evaluation, proposal, negotiation, closed_won, closed_lost]}
+      - name: customer_id
+        data_tests:
+          - relationships:
+              arguments: {to: ref('dim_customer'), field: customer_id}

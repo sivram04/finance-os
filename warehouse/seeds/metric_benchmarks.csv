@@ -1,0 +1,13 @@
+metric_name,direction,good,median,unit,source
+gross_margin_pct,higher,0.70,0.62,ratio,Aleph x Benchmarkit 2026: usage-priced SaaS median gross margin 62%
+nrr,higher,1.15,1.08,ratio,Aleph x Benchmarkit 2026: usage-based median NRR 108%; consumption leaders 115%+
+grr,higher,0.90,0.85,ratio,Common SaaS guidance: gross revenue retention 85-90%+
+burn_multiple,lower,1.0,2.0,ratio,"Burn multiple (net burn / net new ARR): under 1x best, under 2x decent"
+quick_ratio,higher,4.0,2.0,ratio,SaaS quick ratio (new + expansion) / (contraction + churn): 4x strong
+rule_of_40,higher,0.40,0.20,ratio,Rule of 40: revenue growth + EBITDA margin at or above 40%
+cac_payback_months,lower,12,18,months,"CAC payback: under 12 months strong, about 18 typical"
+ltv_to_cac,higher,3.0,3.0,ratio,LTV:CAC of 3x or more is the usual bar
+runway_months,higher,24,18,months,Venture guidance: 18-24 months of runway after a raise
+dso_days,lower,45,60,days,DSO for B2B invoicing: under 45 days good
+logo_churn_rate,lower,0.02,0.035,ratio,Monthly logo churn for SMB-heavy SaaS: around 3% median
+top10_share,lower,0.40,0.55,ratio,Customer concentration: top 10 customers above about half of revenue is a diligence flag

@@ -26,3 +26,34 @@ models:
     columns:
       - name: year
         data_tests: [unique, not_null]
+
+  - name: fct_growth_efficiency_monthly
+    description: ARR waterfall (new, expansion, reactivation, contraction, churn), net new ARR, quick ratio and burn multiple.
+    columns:
+      - name: month
+        data_tests: [unique, not_null]
+
+  - name: fct_cohort_retention
+    description: Logo and revenue retention by first-revenue-month cohort and months since.
+    columns:
+      - name: cohort_month
+        data_tests: [not_null]
+
+  - name: fct_customer_health
+    description: Customer health from usage trend, overdue invoices, disputes and margin; revenue share for concentration.
+    columns:
+      - name: customer_id
+        data_tests: [unique, not_null]
+      - name: health
+        data_tests:
+          - accepted_values:
+              arguments: {values: [healthy, watch, at_risk]}
+
+  - name: fct_pipeline
+    description: Open sales pipeline with weighted ARR, close quarter, slipped flag and age vs the won sales cycle.
+    columns:
+      - name: opportunity_id
+        data_tests: [unique, not_null]
+
+  - name: fct_bookings_monthly
+    description: Won ARR, lost ARR, win rate (trailing 6 months) and sales cycle by month and segment.

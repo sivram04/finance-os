@@ -21,6 +21,8 @@ seeds:
       +column_types: {start_date: date, end_date: date, committed_gpu_hours_month: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,4)' }}", renewal_notice_days: integer}
     gl_accounts:
       +column_types: {account_id: "{{ 'string' if target.type == 'bigquery' else 'varchar' }}"}
+    metric_benchmarks:
+      +column_types: {good: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,4)' }}", median: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,4)' }}"}
     cost_behavior:
       +column_types: {account_id: "{{ 'string' if target.type == 'bigquery' else 'varchar' }}", variable_share: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}"}
     lrp_assumptions:

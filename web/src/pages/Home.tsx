@@ -1,3 +1,4 @@
+import { MonthSummary, Scorecard } from './Exec'
 import { useEffect, useState } from 'react'
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { api, fmt, type Action, type Row } from '../api'
@@ -11,10 +12,6 @@ const QUICK = [
   ['Check the numbers are trustworthy', 'Are all reconciliations passing? Is any number untrusted right now?'],
 ]
 
-const KPI_TILES: [string, string, string][] = [
-  ['revenue', 'Revenue (month)', 'usd'], ['arr', 'ARR', 'usd'], ['net_burn', 'Net burn (month)', 'usd'],
-  ['closing_cash', 'Cash (month end)', 'usd'], ['runway_months', 'Runway (months)', 'months'], ['dso_days', 'DSO (days)', 'days'],
-]
 
 const MODULES: { page: Page; name: string; desc: string; area: string }[] = [
   { page: 'revenue', name: 'Revenue & margins', desc: 'Customers, churn, unit economics', area: 'Unit economics' },
@@ -26,22 +23,6 @@ const MODULES: { page: Page; name: string; desc: string; area: string }[] = [
   { page: 'ap', name: 'AP inbox', desc: 'Vendor bills read by AI, checked by rules', area: 'AP' },
   { page: 'trust', name: 'Trust', desc: 'Reconciliations and controls', area: 'Trust' },
 ]
-
-function KpiTiles() {
-  const { inspect } = useWorkspace()
-  const s = useTool('get_kpis')
-  if (!s.data) return <Loading state={s} />
-  const by = Object.fromEntries(s.data.rows.map((r) => [r.metric_name as string, r.value as number]))
-  return (
-    <div className="grid cols-6">
-      {KPI_TILES.map(([k, l, u]) => (
-        <button className="card kpi clickable" key={k} title="Open the trend and definition" onClick={() => inspect({ kind: 'kpi', id: k })}
-          style={{ textAlign: 'left', font: 'inherit', color: 'inherit', cursor: 'pointer' }}>
-          <div className="label">{l}</div><div className="value">{fmt(k, by[k], u)}</div></button>
-      ))}
-    </div>
-  )
-}
 
 function PeriodCard({ title, start, end }: { title: string; start: string; end: string }) {
   const s = useTool('get_pnl', { start_month: start, end_month: end, group_by: 'rollup' })
@@ -149,7 +130,8 @@ export function Home({ asOf }: { asOf?: string }) {
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         {QUICK.map(([l, q]) => <button key={l} className="btn" onClick={() => ask(q)}>{l}</button>)}
       </div>
-      <KpiTiles />
+      <Scorecard />
+      <MonthSummary />
       {m && (
         <div className="grid cols-3">
           <PeriodCard title="This month" start={m} end={m} />
