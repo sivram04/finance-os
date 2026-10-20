@@ -59,6 +59,15 @@ function useReveal() {
   }, [])
 }
 
+// Shown instantly while the demo server wakes up (it sleeps when idle), then replaced by the live figures.
+// The last closed month's headline numbers; update after each month-end close.
+const LAST_CLOSE = {
+  label: 'Sep 2026 close',
+  head: { month: '2026-09', revenue: 1444075.9, arr: 16304727.36, closing_cash: 12356003.86, gross_margin_pct: 0.6608 } as Row,
+  kpis: 18,
+  queue: 34,
+}
+
 export function Landing({ theme, onTheme }: { theme: 'light' | 'dark'; onTheme: () => void }) {
   const { go, ask } = useWorkspace()
   const [data, setData] = useState<{ head?: Row; kpis?: Row; queue?: number; caseFile?: Row }>({})
@@ -71,7 +80,10 @@ export function Landing({ theme, onTheme }: { theme: 'light' | 'dark'; onTheme: 
     fetch('/api/control-queue').then((r) => r.json()).then((q) => setData((d) => ({ ...d, queue: q.rows.filter((x: Row) => x.status === 'open').length }))).catch(() => {})
     api.data('get_variance_case', { alert_id: 'BVA-202609-NONE-4000' }).then((r) => setData((d) => ({ ...d, caseFile: r as unknown as Row }))).catch(() => {})
   }, [])
-  const h = data.head
+  const live = !!data.head
+  const h = data.head ?? LAST_CLOSE.head
+  const kpis = data.kpis ? Number(data.kpis.red) + Number(data.kpis.amber) : live ? undefined : LAST_CLOSE.kpis
+  const queue = data.queue ?? (live ? undefined : LAST_CLOSE.queue)
   const scrollTo = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' })
 
   return (
@@ -104,14 +116,16 @@ export function Landing({ theme, onTheme }: { theme: 'light' | 'dark'; onTheme: 
           </div>
         </div>
         <div className="hero-live reveal">
-          <div className="live-head"><span className="pulse" /> Live from the warehouse · {h ? `closed through ${String(h.month)}` : 'loading…'}</div>
+          <div className="live-head"><span className={live ? 'pulse' : 'pulse idle'} /> {live
+            ? `Live from the warehouse · closed through ${String(h.month)}`
+            : `${LAST_CLOSE.label} · connecting to live data (the demo server wakes up in about 20 seconds)…`}</div>
           <div className="live-grid">
             <LiveStat label="Revenue this month" value={h?.revenue} money />
             <LiveStat label="Run-rate ARR" value={h?.arr} money />
             <LiveStat label="Cash" value={h?.closing_cash} money />
-            <LiveStat label="Gross margin" value={h ? Number(h.gross_margin_pct) * 100 : undefined} suffix="%" decimals={1} />
-            <LiveStat label="KPIs needing a decision" value={data.kpis ? Number(data.kpis.red) + Number(data.kpis.amber) : undefined} tone="warn" onClick={() => go('kpis')} />
-            <LiveStat label="Open control items" value={data.queue} tone="warn" onClick={() => go('kpis')} />
+            <LiveStat label="Gross margin" value={Number(h.gross_margin_pct) * 100} suffix="%" decimals={1} />
+            <LiveStat label="KPIs needing a decision" value={kpis} tone="warn" onClick={() => go('kpis')} />
+            <LiveStat label="Open control items" value={queue} tone="warn" onClick={() => go('kpis')} />
           </div>
           <div className="live-foot">Click a tile to open it</div>
         </div>

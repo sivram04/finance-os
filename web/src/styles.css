@@ -577,3 +577,5 @@ tbody tr { transition: background 0.12s ease; }
 .tour-actions button { padding: 6px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel); color: var(--text); cursor: pointer; font-size: 13px; }
 .tour-actions button.primary { background: var(--accent, #3b6fd8); border-color: var(--accent, #3b6fd8); color: #fff; }
 .tour-actions button.link { border: none; background: none; color: var(--faint); padding: 6px 0; }
+
+.pulse.idle { background: var(--faint); animation: none; }
