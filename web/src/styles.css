@@ -630,3 +630,16 @@ tbody tr { transition: background 0.12s ease; }
 .help-wrap { display: grid; }
 .help-wrap > .help-card { height: 100%; }
 .help-card .help-foot .link { white-space: nowrap; flex: none; }
+
+/* ⓘ hover: what a card shows and where its data comes from */
+.infotip { position: relative; display: inline-flex; margin-left: 6px; font-size: 12px; font-weight: 400; color: var(--faint); cursor: help; vertical-align: middle; outline: none; }
+.infotip:hover, .infotip:focus { color: var(--accent); }
+.infotip-panel { display: none; position: absolute; z-index: 50; top: 120%; left: -8px; width: 300px; max-width: 80vw; padding: 10px 12px; border-radius: 10px;
+  background: var(--card); color: var(--text); border: 1px solid var(--border); box-shadow: 0 10px 28px rgba(0, 0, 0, .18);
+  flex-direction: column; gap: 4px; font-size: 12.5px; line-height: 1.45; text-transform: none; letter-spacing: normal; white-space: normal; text-align: left; }
+.infotip:hover .infotip-panel, .infotip:focus .infotip-panel, .infotip:focus-within .infotip-panel { display: flex; }
+.infotip-what { color: var(--text); }
+.infotip-h { margin-top: 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--faint); }
+.infotip-src { color: var(--text); }
+.infotip-tables { font-family: ui-monospace, Consolas, monospace; font-size: 10.5px; color: var(--faint); word-break: break-word; }
+.kpi .label { display: flex; align-items: center; }

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from './api'
 import { Assistant } from './components/Assistant'
 import { Drawer } from './components/Drawer'
+import { SourcesProvider } from './components/sources'
 import { Tour, useTour } from './components/Tour'
 import { WorkspaceContext, type Entity, type Page } from './components/common'
 import { PeriodContext, type Period } from './components/Dash'
@@ -111,6 +112,7 @@ export default function App() {
               {period === 'mtd' && page !== 'home' && page !== 'kpis' && (
                 <div className="mtd-banner">{openLabel} is open (not closed): its figures are on Home and Decision KPIs. This page shows the last closed month and daily data where it has it.</div>
               )}
+              <SourcesProvider key={page}>
               <div key={page} className="page-enter">
               {page === 'home' && <Home asOf={asOf} />}
               {page === 'revenue' && <Revenue />}
@@ -148,6 +150,7 @@ export default function App() {
               {page === 'capital' && <Capital />}
               {page === 'tax' && <TaxFx />}
               </div>
+              </SourcesProvider>
             </>
           )}
         </main>

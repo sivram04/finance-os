@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { display, InfoTip, isCode, useRegisterSource } from './sources'
 import { describe, useNames } from './names'
 import { applyFilters, FilterContext, inPeriod, usePeriod } from './Dash'
 import { api, fmt, label, type Row, type ToolResult } from '../api'
@@ -40,6 +41,7 @@ export function useTool(tool: string, args: Record<string, unknown> = {}) {
       .catch((e) => live && setState({ error: String(e), loading: false }))
     return () => { live = false }
   }, [tool, key, refreshKey])
+  useRegisterSource(state.data?.source)
   // the Period control (top bar) narrows every monthly series a page loads, so hand-built charts follow it too;
   // forward-looking tools (forecasts, scenarios) and Explore keep their own ranges
   return useMemo(() => {
@@ -56,13 +58,19 @@ const FORWARD = /forecast|stress|scenario|sweep|fundraise|long_range|explore|run
 
 // ---- display --------------------------------------------------------------------------------------
 
+// file and table references in a card's subtitle move to its ⓘ hover; the visible line keeps the plain explanation
+function visibleSub(sub: ReactNode) {
+  if (typeof sub !== 'string') return sub
+  return sub.replace(/\s*\([^()]*(seeds\/|marts\.|fct_)[^()]*\)/g, '').replace(/[;,]?\s*(assumptions in )?seeds\/[\w]+\.csv/g, '').replace(/\s{2,}/g, ' ').trim()
+}
+
 export function Card({ title, sub, right, children, className = '' }:
   { title?: ReactNode; sub?: ReactNode; right?: ReactNode; children: ReactNode; className?: string }) {
   return (
     <section className={`card ${className}`}>
       {(title || right) && (
         <div className="card-head">
-          <div><h2>{title}</h2>{sub && <div className="sub">{sub}</div>}</div>
+          <div><h2>{title}{title && <InfoTip what={sub ?? title} />}</h2>{sub && <div className="sub">{visibleSub(sub)}</div>}</div>
           {right}
         </div>
       )}
@@ -83,7 +91,7 @@ const WARN = new Set(['open', 'ready', 'sent', 'pending', 'medium', '61-90', '31
 export function Chip({ value, kind }: { value: ReactNode; kind?: 'good' | 'warn' | 'bad' | 'info' }) {
   const v = String(value)
   const k = kind ?? (GOOD.has(v) ? 'good' : BAD.has(v) ? 'bad' : WARN.has(v) ? 'warn' : undefined)
-  return <span className={`chip ${k ?? ''}`}>{v.replace(/_/g, ' ')}</span>
+  return <span className={`chip ${k ?? ''}`}>{isCode(v) ? display(v) : v.replace(/_/g, ' ')}</span>
 }
 
 export interface Column {
@@ -184,7 +192,7 @@ export function DataTable({ rows, columns, onRow, empty = 'Nothing here.', title
                     {c.render ? c.render(r)
                       : ENTITY_KEYS[c.key] && r[c.key] ? (
                         <button className="link" title={`${describe(r[c.key]) ?? String(r[c.key])} · click for details`} onClick={(e) => { e.stopPropagation(); inspect({ kind: ENTITY_KEYS[c.key], id: String(r[c.key]) }) }}>
-                          {String(r[c.key])}
+                          {isCode(String(r[c.key])) ? display(String(r[c.key])) : String(r[c.key])}
                         </button>)
                       : c.chip ? (r[c.key] == null ? '—' : <Chip value={String(r[c.key])} />)
                       : c.flag ? (r[c.key] ? <Chip value={c.label ?? label(c.key)} kind={c.flag} /> : '')
@@ -208,9 +216,10 @@ export function DataTable({ rows, columns, onRow, empty = 'Nothing here.', title
   )
 }
 
+// sources are no longer printed on the page: each card's ⓘ shows them on hover (components/sources)
 export function Source({ data }: { data?: ToolResult }) {
-  if (!data) return null
-  return <div className="source">Source: {data.source}{data.note ? ` · ${data.note}` : ''}</div>
+  useRegisterSource(data?.source)
+  return null
 }
 
 export function AskButton({ text, children = 'Ask about this' }: { text: string; children?: ReactNode }) {

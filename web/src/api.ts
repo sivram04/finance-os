@@ -1,3 +1,4 @@
+import { display, humanizeResult, isCode } from './components/sources'
 // Typed client for the Finance OS API (src/finance_os/app/api.py).
 
 export type Row = Record<string, unknown>
@@ -56,7 +57,7 @@ export type AgentEvent =
 
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) throw new Error(`${res.status} ${await res.text()}`)
-  return res.json() as Promise<T>
+  return humanizeResult(await res.json()) as T  // codes inside sentences read as words everywhere
 }
 
 export const api = {
@@ -123,7 +124,7 @@ export function fmt(key: string, v: unknown, unit?: string): string {
   if (v === null || v === undefined) return '—'
   if (typeof v === 'boolean') return v ? 'Yes' : 'No'
   if (Array.isArray(v)) return v.join(', ')
-  if (typeof v !== 'number') return String(v)
+  if (typeof v !== 'number') return typeof v === 'string' && isCode(v) ? display(v) : String(v)
   const u = unit ?? (PCT_KEYS.test(key) ? 'ratio' : MONEY_KEYS.test(key) ? 'usd' : undefined)
   if (u === 'ratio') return `${(v * 100).toFixed(1)}%`
   if (u === 'usd') {
@@ -136,4 +137,4 @@ export function fmt(key: string, v: unknown, unit?: string): string {
   return Number.isInteger(v) ? v.toLocaleString() : v.toLocaleString(undefined, { maximumFractionDigits: 2 })
 }
 
-export const label = (key: string) => key.replace(/_/g, ' ').replace(/\bpct\b/, '%').replace(/^./, (c) => c.toUpperCase())
+export const label = (key: string) => display(key)

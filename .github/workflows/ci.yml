@@ -85,7 +85,12 @@ jobs:
       - name: Smoke test
         run: |
           URL=$(gcloud run services describe finance-os --project $PROJECT --region $REGION --format 'value(status.url)')
-          CODE=$(curl -s -m 180 -o /dev/null -w "%{http_code}" "$URL/api/health")
-          echo "health: $CODE"
+          # retry: right after a rollout the old revision may still answer (or fail) for a few seconds
+          for i in 1 2 3 4 5 6; do
+            CODE=$(curl -s -m 180 -o /dev/null -w "%{http_code}" "$URL/api/health")
+            echo "health attempt $i: $CODE"
+            [ "$CODE" = "200" ] && break
+            sleep 20
+          done
           if [ "$CODE" = "401" ] || [ "$CODE" = "403" ]; then echo "::warning::service is not public yet (org policy); deploy done"; exit 0; fi
           test "$CODE" = "200"

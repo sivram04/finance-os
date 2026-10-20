@@ -3,6 +3,7 @@
 // itself: it highlights the selection and dims the rest, so the selection's share stays visible.
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
 import { describe, useNames } from './names'
+import { display, InfoTip, isCode } from './sources'
 import { Bar, BarChart, Brush, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, Rectangle, ReferenceLine, ResponsiveContainer, Sector, Tooltip, XAxis, YAxis } from 'recharts'
 import { fmt, label, type Row } from '../api'
 import { WorkspaceContext } from './common'
@@ -37,7 +38,7 @@ export const PALETTE = ['#3b6fd8', '#2f9e6b', '#c98a1b', '#8a63d2', '#d1495b', '
 export const TONE = { good: 'var(--good, #2f9e6b)', ok: 'var(--warn, #c98a1b)', bad: 'var(--bad, #d1495b)' }
 const AXIS = { tick: { fontSize: 11, fill: 'var(--faint)' }, tickLine: false, axisLine: false } as const
 const TIP = { contentStyle: { background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 } }
-const pretty = (v: string) => v.replace(/_/g, ' ')
+const pretty = (v: string) => (isCode(v) ? display(v) : v.replace(/_/g, ' '))
 
 // a category label that shows what an id means on hover (EN-004 -> "Enterprise Customer 4 · enterprise customer")
 function IdTick({ x, y, payload }: { x?: number | string; y?: number | string; payload?: { value?: unknown } }) {
@@ -125,7 +126,7 @@ export function KpiRow({ items }: { items: Kpi[] }) {
     <div className={`grid cols-${Math.min(items.length, 6)} kpi-row`}>
       {items.map((k) => (
         <div key={k.label} className="card kpi" title={k.title} style={{ borderTop: `3px solid ${k.tone ? TONE[k.tone] : 'var(--border)'}` }}>
-          <div className="label">{k.label}</div>
+          <div className="label">{k.label}<InfoTip what={k.title ?? (typeof k.note === 'string' ? `${k.label}: ${k.note}` : k.label)} /></div>
           <div className="value" style={k.tone === 'bad' ? { color: TONE.bad } : undefined}><CountText text={String(k.value)} /></div>
           {k.note != null && <div className="note">{k.note}</div>}
         </div>
