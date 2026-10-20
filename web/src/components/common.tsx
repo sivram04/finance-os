@@ -6,7 +6,7 @@ import { api, fmt, label, type Row, type ToolResult } from '../api'
 
 export type Page = 'home' | 'alerts' | 'reports' | 'financials' | 'analysis' | 'growth' | 'pipeline' | 'scenarios' | 'entities' | 'deals' | 'comp' | 'revenue' | 'spend' | 'budget' | 'plan' | 'cash' | 'close' | 'projects' | 'billing' | 'ar' | 'ap' | 'pricing' | 'capital' | 'tax' | 'trust' | 'contracts' | 'drivers' | 'ceo' | 'explore' | 'corpfin' | 'calculators' | 'kpis' | 'welcome'
 
-export type EntityKind = 'customer' | 'vendor' | 'project' | 'kpi'
+export type EntityKind = 'customer' | 'vendor' | 'project' | 'kpi' | 'invoice'
 export interface Entity { kind: EntityKind; id: string }
 
 export interface Workspace {
@@ -92,7 +92,7 @@ export interface Column {
 }
 
 // columns whose values open a drill-down panel when clicked
-const ENTITY_KEYS: Record<string, EntityKind> = { customer_id: 'customer', vendor_id: 'vendor', project_id: 'project' }
+const ENTITY_KEYS: Record<string, EntityKind> = { customer_id: 'customer', vendor_id: 'vendor', project_id: 'project', invoice_ref: 'invoice', invoice_id: 'invoice', applied_ref: 'invoice', correct_invoice_ref: 'invoice' }
 
 function csvCell(v: unknown) {
   const t = v == null ? '' : Array.isArray(v) ? v.join('; ') : String(v)

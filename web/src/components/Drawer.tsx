@@ -1,9 +1,9 @@
 // Drill-down panel: one customer, vendor, project or KPI in full. Opens from any table cell that names one
 // (customer_id / vendor_id / project_id) or from a KPI tile, and reads the same tools as the assistant.
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { fmt, type Row } from '../api'
-import { AskButton, Card, DataTable, Loading, Source, useTool, type Entity } from './common'
+import { AskButton, Card, Chip, DataTable, Loading, Source, useTool, type Entity } from './common'
 
 const AXIS = { tick: { fontSize: 11, fill: 'var(--faint)' }, tickLine: false, axisLine: false } as const
 const usd = (v: unknown) => fmt('amount', v as number, 'usd')
@@ -104,13 +104,58 @@ function Kpi({ id }: { id: string }) {
   )
 }
 
+// One customer invoice: the header and status, the PDF (rendered from the same data), the lines, the checks that
+// lines, ledger and Stripe agree, payments, disputes and the journal entries it posted.
+function Invoice({ id }: { id: string }) {
+  const d = useTool('get_invoice_detail', { invoice_ref: id })
+  const [tab, setTab] = useState<'pdf' | 'details'>('pdf')
+  if (!d.data) return <Loading state={d} />
+  const h = d.data.header as Row | undefined
+  if (!h) return <div className="muted">{String(d.data.note ?? 'Invoice not found.')}</div>
+  const checks = (d.data.checks ?? []) as Row[]
+  const pdf = String(d.data.pdf_url)
+  const statusKind = h.status === 'paid' ? 'good' : Number(h.days_past_due ?? 0) > 0 ? 'bad' : 'warn'
+  return (
+    <>
+      <p className="muted">{String(h.customer_name ?? h.customer_id)} · {String(h.type)} invoice{h.project_name ? ` · ${String(h.project_name)}` : ''}{h.service_month ? ` · service ${String(h.service_month)}` : ''}</p>
+      <div className="grid cols-3">
+        <div className="card kpi"><div className="label">Amount</div><div className="value">{usd(h.amount)}</div><div className="note">issued {String(h.invoice_date)}</div></div>
+        <div className="card kpi"><div className="label">Balance</div><div className="value">{usd(h.balance)}</div><div className="note"><Chip value={String(h.status)} kind={statusKind} /> {h.is_disputed ? <Chip value="disputed" kind="bad" /> : null}</div></div>
+        <div className="card kpi"><div className="label">{h.status === 'paid' ? 'Paid' : 'Due'}</div><div className="value">{String(h.status === 'paid' ? h.paid_date : h.due_date)}</div>
+          <div className="note">{h.status === 'paid' ? `${String(h.days_to_pay)} days to pay` : Number(h.days_past_due ?? 0) > 0 ? `${String(h.days_past_due)} days past due` : `net ${String(h.terms_days ?? '')}`}</div></div>
+      </div>
+      <div className="segmented" style={{ margin: '8px 0' }}>
+        <button className={tab === 'pdf' ? 'on' : ''} onClick={() => setTab('pdf')}>PDF</button>
+        <button className={tab === 'details' ? 'on' : ''} onClick={() => setTab('details')}>Details and checks</button>
+        <a className="btn small" href={`${pdf}?download=true`} style={{ marginLeft: 8 }}>Download PDF</a>
+        <a className="btn small" href={pdf} target="_blank" rel="noreferrer">Open in new tab</a>
+      </div>
+      {tab === 'pdf' ? (
+        <iframe className="invoice-pdf" title={`Invoice ${id}`} src={pdf} />
+      ) : (
+        <>
+          <Card title="Checks" sub="The invoice agrees with its lines, the ledger, Stripe and the cash received">
+            <ul className="checks-list">{checks.map((c) => <li key={String(c.check)} className={c.passed ? 'ok' : 'no'}><b>{c.passed ? '✓' : '✗'}</b> {String(c.check)} <span className="muted">· {String(c.detail ?? '')}</span></li>)}</ul>
+          </Card>
+          <Card title="Lines"><DataTable rows={d.data.rows} columns={[{ key: 'line_no', label: '#' }, { key: 'description' }, { key: 'hours', label: 'Hours', unit: 'count' }, { key: 'rate', render: (r) => (r.rate == null ? '' : Number(r.rate) < 10 ? Number(r.rate).toFixed(4) : usd(r.rate)) }, { key: 'amount', unit: 'usd' }]} /></Card>
+          {((d.data.payments ?? []) as Row[]).length ? <Card title="Payments"><DataTable rows={d.data.payments as Row[]} columns={[{ key: 'received_date' }, { key: 'payment_id' }, { key: 'amount', unit: 'usd' }, { key: 'remittance_ref', label: 'Customer named' }, { key: 'misapplied', flag: 'bad' }]} /></Card> : null}
+          {((d.data.disputes ?? []) as Row[]).length ? <Card title="Disputes"><DataTable rows={d.data.disputes as Row[]} columns={[{ key: 'opened_date' }, { key: 'status', chip: true }, { key: 'amount', unit: 'usd' }, { key: 'root_cause' }, { key: 'note' }]} /></Card> : null}
+          <Card title="Journal entries" sub="What this invoice posted to the general ledger"><DataTable rows={d.data.journal as Row[]} columns={[{ key: 'entry_date' }, { key: 'entry_id' }, { key: 'entry_type', chip: true }, { key: 'account_id', label: 'Acct' }, { key: 'account_name' }, { key: 'debit', unit: 'usd' }, { key: 'credit', unit: 'usd' }]} /></Card>
+          {d.data.stripe ? <Card title="Stripe invoice"><DataTable rows={[d.data.stripe as Row]} columns={[{ key: 'invoice_number' }, { key: 'invoice_id' }, { key: 'status', chip: true }, { key: 'collection_method' }, { key: 'total', unit: 'usd' }, { key: 'amount_paid', unit: 'usd' }, { key: 'paid' }, { key: 'attempt_count', label: 'Attempts' }]} /></Card> : null}
+          <Source data={d.data} />
+        </>
+      )}
+    </>
+  )
+}
+
 export function Drawer({ entity, onClose }: { entity: Entity; onClose: () => void }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
-  const title = { customer: 'Customer', vendor: 'Vendor', project: 'Project', kpi: 'Metric' }[entity.kind]
+  const title = { customer: 'Customer', vendor: 'Vendor', project: 'Project', kpi: 'Metric', invoice: 'Invoice' }[entity.kind]
   return (
     <>
       <div className="drawer-backdrop" onClick={onClose} />
@@ -126,6 +171,7 @@ export function Drawer({ entity, onClose }: { entity: Entity; onClose: () => voi
         {entity.kind === 'vendor' && <Vendor id={entity.id} />}
         {entity.kind === 'project' && <Project id={entity.id} />}
         {entity.kind === 'kpi' && <Kpi id={entity.id} />}
+        {entity.kind === 'invoice' && <Invoice id={entity.id} />}
       </aside>
     </>
   )

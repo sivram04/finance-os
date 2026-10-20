@@ -193,7 +193,7 @@ def test_every_read_tool_runs_against_the_warehouse():
     from finance_os.app.tools import TOOLS, run_tool
     wh = Warehouse()
     needs = {"get_kpi_trend": {"metric": "revenue"}, "get_metric_definition": {"metric": "arr"},
-             "get_variance_drivers": {"alert_id": "none"}, "get_variance_case": {"alert_id": "none"}, "get_customer_detail": {"customer_id": "EN-001"},
+             "get_variance_drivers": {"alert_id": "none"}, "get_variance_case": {"alert_id": "none"}, "get_invoice_detail": {"invoice_ref": "PINV00001"}, "get_customer_detail": {"customer_id": "EN-001"},
              "get_vendor_detail": {"vendor_id": "gcp"}, "get_project_detail": {"project_id": "P-101"},
              "price_deal": {"customer": "Test", "lines": [{"product_id": "stream", "hours_per_month": 1000}]},
              "evaluate_business_case": {"investment": 500000, "annual_inflows": [200000, 250000, 250000]},
@@ -244,3 +244,16 @@ def test_recommendation_is_reasoned_from_current_data(tmp_path):
     body = r.json()
     assert body["steps"] == 1 and body["evidence"]["sources"] and not body["unverified_numbers"]
     assert client.post("/api/recommend", json={"kind": "nope", "subject": "x"}).status_code == 400
+
+
+@needs_warehouse
+def test_invoice_detail_and_pdf(tmp_path):
+    from finance_os.app import tools as t
+    wh = Warehouse()
+    ref = wh.query("select invoice_ref from marts.fct_ar_invoices where invoice_type = 'project' order by invoice_date desc limit 1")[0]["invoice_ref"]
+    d = t.get_invoice_detail(wh, ref)
+    assert d["header"]["invoice_ref"] == ref and d["rows"] and all(c["passed"] for c in d["checks"][:2])
+    client = TestClient(create_app(AppState(tmp_path / "app.duckdb"), wh))
+    r = client.get(f"/api/invoices/{ref}/pdf")
+    assert r.status_code == 200 and r.headers["content-type"] == "application/pdf" and r.content[:4] == b"%PDF"
+    assert client.get("/api/invoices/NOPE/pdf").status_code == 404

@@ -316,6 +316,21 @@ def create_app(state: AppState | None = None, wh: tools.Warehouse | None = None,
         path = dealdesk.quote_pdf(did, d["evaluation"], ROOT / "data" / "quotes")
         return FileResponse(path, media_type="application/pdf", filename=f"{did}.pdf")
 
+    @app.get("/api/invoices/{ref}/pdf")
+    def invoice_pdf(ref: str, download: bool = False):
+        """The customer invoice as a PDF, rendered from the warehouse so it always matches the books."""
+        from finance_os.reports import invoice_pdf as ip
+        token = tools.FULL_ROWS.set(True)
+        try:
+            d = tools.get_invoice_detail(wh, ref)
+        finally:
+            tools.FULL_ROWS.reset(token)
+        if not d.get("header"):
+            raise HTTPException(404, f"no invoice {ref}")
+        path = ip.render(d, ROOT / "data" / "invoices")
+        return FileResponse(path, media_type="application/pdf", filename=f"{d['header']['invoice_ref']}.pdf",
+                            content_disposition_type="attachment" if download else "inline")
+
     @app.get("/api/reports")
     def reports():
         from finance_os.reports import scheduled

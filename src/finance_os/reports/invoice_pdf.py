@@ -1,117 +1,83 @@
-"""Invoice PDF with backup detail (FR-7.3), read from the warehouse.
-
-    python -m finance_os.reports.invoice_pdf --invoice PINV00014 [--db data/finance_os.duckdb] [--out reports/invoices]
-    python -m finance_os.reports.invoice_pdf --project P-105          # every invoice on a project
-
-Page 1: invoice header, bill-to, lines and total. For T&M invoices, page 2 is the backup: approved hours
-by person and labor category for the service month. Validation exceptions on the invoice are printed in a
-banner so nothing questionable goes out unnoticed.
-"""
-import argparse
-from datetime import timedelta
+"""Customer invoice PDF, rendered from the warehouse (get_invoice_detail), so the document always matches what was
+billed, posted and collected: header, bill-to, terms, lines, tax, total, payments and a status stamp."""
 from pathlib import Path
 
-import duckdb
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import LETTER
-from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
-from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-STYLES = getSampleStyleSheet()
-GRID = TableStyle([
-    ("FONT", (0, 0), (-1, 0), "Helvetica-Bold"),
-    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#eeeeee")),
-    ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
-    ("ALIGN", (-1, 1), (-1, -1), "RIGHT"),
-    ("VALIGN", (0, 0), (-1, -1), "TOP"),
-])
+SELLER = ["Echo Labs, Inc.", "548 Market Street, Suite 400", "San Francisco, CA 94104, USA", "billing@echolabs.example.com"]
+REMIT = "Remit to: Echo Labs, Inc. · ACH routing 121000248 · account ending 4417 · reference the invoice number"
 
 
-def money(v):
-    return f"${v:,.2f}" if v is not None else ""
+def _m(v, cur="USD"):
+    v = float(v or 0)
+    sym = {"USD": "$", "GBP": "£", "EUR": "€", "INR": "₹", "CAD": "C$"}.get(cur, "")
+    return f"{sym}{v:,.2f}" if sym else f"{v:,.2f} {cur}"
 
 
-def build(con, invoice_id, out_dir: Path):
-    inv = con.execute("""
-        select i.invoice_id, i.invoice_date, i.service_month, i.amount, i.project_id, p.project_name,
-               p.project_type, k.contract_id, k.payment_terms_days, i.customer_id
-        from staging.stg_projects__project_invoices i
-        join staging.stg_projects__projects p using (project_id)
-        join staging.stg_projects__contracts k on k.contract_id = i.contract_id
-        where i.invoice_id = ?""", [invoice_id]).fetchone()
-    if inv is None:
-        raise SystemExit(f"No invoice {invoice_id}")
-    (inv_id, inv_date, service_month, total, project_id, project_name, project_type,
-     contract_id, terms, customer_id) = inv
-    lines = con.execute("""
-        select line_no, line_type, clin_id, labor_category, milestone_id, hours, rate, amount
-        from staging.stg_projects__project_invoice_lines where invoice_id = ? order by line_no""", [inv_id]).fetchall()
-    exceptions = con.execute("select detail from marts.fct_billing_exceptions where invoice_id = ?", [inv_id]).fetchall()
-
-    path = out_dir / f"{inv_id}.pdf"
-    doc = SimpleDocTemplate(str(path), pagesize=LETTER, leftMargin=0.75 * inch, rightMargin=0.75 * inch)
-    story = [
-        Paragraph("Echo Labs, Inc.", STYLES["Title"]),
-        Paragraph(f"<b>Invoice {inv_id}</b>", STYLES["Heading2"]),
-        Table([
-            ["Bill to", customer_id, "Invoice date", str(inv_date)],
-            ["Project", f"{project_id} - {project_name}", "Due date", str(inv_date + timedelta(days=terms))],
-            ["Contract", f"{contract_id} ({project_type})", "Service period", str(service_month or "Milestone")],
-        ], colWidths=[0.9 * inch, 3.1 * inch, 1.1 * inch, 1.6 * inch],
-            style=TableStyle([("FONT", (0, 0), (0, -1), "Helvetica-Bold"), ("FONT", (2, 0), (2, -1), "Helvetica-Bold")])),
-        Spacer(1, 12),
-    ]
-    if exceptions:
-        story.append(Paragraph("<font color='red'><b>Validation exceptions — do not send until resolved:</b> "
-                               + "; ".join(e[0] for e in exceptions) + "</font>", STYLES["Normal"]))
-        story.append(Spacer(1, 8))
-
-    rows = [["#", "Description", "CLIN", "Hours", "Rate", "Amount"]]
-    for n, ltype, clin, cat, ms, hours, rate, amount in lines:
-        desc = {"labor": f"Labor - {cat}", "odc": "Other direct costs (at cost)", "milestone": f"Milestone {ms}"}[ltype]
-        rows.append([n, desc, clin or "", f"{hours:,.2f}" if hours else "", money(rate) if rate else "", money(amount)])
-    rows.append(["", "Total due", "", "", "", money(total)])
-    t = Table(rows, colWidths=[0.3 * inch, 3.0 * inch, 0.6 * inch, 0.8 * inch, 0.9 * inch, 1.1 * inch])
-    t.setStyle(GRID)
-    t.setStyle(TableStyle([("FONT", (0, -1), (-1, -1), "Helvetica-Bold")]))
-    story += [t, Spacer(1, 12), Paragraph(f"Payment terms: net {terms} days.", STYLES["Normal"])]
-
-    if service_month is not None:
-        backup = con.execute("""
-            select t.employee_id, e.employee_name, t.labor_category, sum(t.hours)
-            from staging.stg_projects__timesheets t
-            join staging.stg_payroll__employees e using (employee_id)
-            where t.project_id = ? and t.work_month = ? and t.approved
-            group by all order by 3, 1""", [project_id, service_month]).fetchall()
-        brows = [["Employee", "Name", "Labor category", "Hours"]] + [
-            [eid, name, cat, f"{h:,.2f}"] for eid, name, cat, h in backup]
-        brows.append(["", "", "Total", f"{sum(b[3] for b in backup):,.2f}"])
-        bt = Table(brows, colWidths=[0.9 * inch, 1.8 * inch, 2.2 * inch, 1.0 * inch])
-        bt.setStyle(GRID)
-        story += [PageBreak(), Paragraph(f"Backup: approved hours for {service_month:%B %Y}", STYLES["Heading2"]), bt]
-
+def render(detail, out_dir: Path):
+    h = detail["header"]
+    tax = detail.get("tax") or {}
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / f"{h['invoice_ref']}.pdf"
+    ss = getSampleStyleSheet()
+    small = ParagraphStyle("small", parent=ss["Normal"], fontSize=8.5, leading=11)
+    doc = SimpleDocTemplate(str(path), pagesize=LETTER, leftMargin=0.7 * inch, rightMargin=0.7 * inch,
+                            topMargin=0.6 * inch, bottomMargin=0.6 * inch, title=f"Invoice {h['invoice_ref']}")
+    status = (h.get("status") or "").upper()
+    stamp = {"PAID": colors.HexColor("#1f7a4d")}.get(status, colors.HexColor("#b42318") if (h.get("days_past_due") or 0) > 0 else colors.HexColor("#9a6200"))
+    head = Table([[Paragraph("<b><font size=16>Echo Labs</font></b><br/>" + "<br/>".join(SELLER), small),
+                   Paragraph(f"<para align=right><b><font size=18>INVOICE</font></b><br/><font size=10>{h['invoice_ref']}</font><br/>"
+                             f"<font color='{stamp.hexval()}'><b>{status or 'OPEN'}</b></font></para>", ss["Normal"])]],
+                 colWidths=[3.8 * inch, 3.3 * inch])
+    head.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
+    terms_days = (detail.get("contract") or {}).get("payment_terms_days") or h.get("terms_days")
+    meta = [["Bill to", "Invoice date", "Due date", "Terms"],
+            [Paragraph(f"<b>{h.get('customer_name') or h['customer_id']}</b><br/>Customer {h['customer_id']}"
+                       + (f"<br/>{tax.get('country')}" if tax.get("country") else ""), small),
+             h.get("invoice_date") or "", h.get("due_date") or "", f"Net {terms_days}" if terms_days else "Due on receipt"]]
+    ref_line = []
+    if h.get("project_id"):
+        ref_line.append(f"Project {h['project_id']}{' · ' + h['project_name'] if h.get('project_name') else ''}")
+    if h.get("contract_id"):
+        ref_line.append(f"Contract {h['contract_id']}")
+    if h.get("service_month"):
+        ref_line.append(f"Service period {h['service_month']}")
+    if (detail.get("stripe") or {}).get("invoice_number"):
+        ref_line.append(f"Stripe {detail['stripe']['invoice_number']}")
+    mt = Table(meta, colWidths=[2.8 * inch, 1.4 * inch, 1.4 * inch, 1.5 * inch])
+    mt.setStyle(TableStyle([("FONT", (0, 0), (-1, 0), "Helvetica-Bold", 8), ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#787774")),
+                            ("FONT", (0, 1), (-1, 1), "Helvetica", 9.5), ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                            ("LINEBELOW", (0, 1), (-1, 1), 0.5, colors.HexColor("#e9e9e7"))]))
+    rows = [["#", "Description", "Quantity", "Rate", "Amount"]]
+    for l in detail.get("rows", []):
+        qty = f"{float(l['hours']):,.2f} h" if l.get("hours") else "1"
+        rate = f"{float(l['rate']):,.4f}" if l.get("rate") and float(l["rate"]) < 10 else (_m(l["rate"]) if l.get("rate") else "")
+        rows.append([str(l.get("line_no", "")), Paragraph(str(l.get("description") or l.get("line_type")), small), qty, rate, _m(l["amount"])])
+    subtotal = float(h["amount"] or 0)
+    tax_usd = float(tax.get("tax_usd") or 0)
+    rows += [["", "", "", "Subtotal", _m(subtotal)]]
+    if tax:
+        rows += [["", "", "", f"Tax ({tax.get('tax_regime')}, {float(tax.get('tax_rate') or 0):.2%})", _m(tax_usd)]]
+    rows += [["", "", "", "Total due (USD)", _m(subtotal + tax_usd)]]
+    if tax and tax.get("currency") and tax["currency"] != "USD":
+        rows += [["", "", "", f"In {tax['currency']} at {float(tax.get('invoice_rate') or 0):.4f}", _m(tax.get("amount_local"), tax["currency"])]]
+    lt = Table(rows, colWidths=[0.35 * inch, 3.5 * inch, 1.0 * inch, 1.15 * inch, 1.1 * inch], repeatRows=1)
+    n = len(detail.get("rows", []))
+    lt.setStyle(TableStyle([("FONT", (0, 0), (-1, 0), "Helvetica-Bold", 8.5), ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f7f7f5")),
+                            ("FONT", (0, 1), (-1, -1), "Helvetica", 9), ("ALIGN", (2, 0), (-1, -1), "RIGHT"),
+                            ("LINEBELOW", (0, 0), (-1, n), 0.4, colors.HexColor("#e9e9e7")),
+                            ("FONT", (3, -1), (-1, -1), "Helvetica-Bold", 10), ("VALIGN", (0, 0), (-1, -1), "TOP")]))
+    story = [head, Spacer(1, 16), mt, Spacer(1, 6), Paragraph(" · ".join(ref_line), small), Spacer(1, 14), lt, Spacer(1, 14)]
+    pays = [p for p in detail.get("payments", []) if p.get("applied_ref") == h["invoice_ref"]]
+    if pays:
+        story += [Paragraph("<b>Payments received</b>", small)]
+        story += [Paragraph(f"{p['received_date']} · {p['payment_id']} · {_m(p['amount'])}", small) for p in pays]
+        story += [Paragraph(f"<b>Balance due: {_m(h.get('balance'))}</b>", small), Spacer(1, 10)]
+    story += [Paragraph(REMIT, small), Spacer(1, 4),
+              Paragraph("Generated by Finance OS from the general ledger and billing records; this copy matches the posted invoice.", small)]
     doc.build(story)
     return path
-
-
-def main():
-    p = argparse.ArgumentParser()
-    g = p.add_mutually_exclusive_group(required=True)
-    g.add_argument("--invoice")
-    g.add_argument("--project")
-    p.add_argument("--db", default="data/finance_os.duckdb")
-    p.add_argument("--out", default="reports/invoices")
-    a = p.parse_args()
-    con = duckdb.connect(a.db, read_only=True)
-    out = Path(a.out)
-    out.mkdir(parents=True, exist_ok=True)
-    ids = [a.invoice] if a.invoice else [r[0] for r in con.execute(
-        "select invoice_id from staging.stg_projects__project_invoices where project_id = ? order by invoice_date",
-        [a.project]).fetchall()]
-    for inv_id in ids:
-        print(build(con, inv_id, out))
-
-
-if __name__ == "__main__":
-    main()

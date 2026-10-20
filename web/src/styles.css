@@ -539,3 +539,9 @@ tbody tr { transition: background 0.12s ease; }
 .approval-ev .checks li.no .mark { color: var(--bad); }
 .approval-ev .facts { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; }
 .approval-ev .facts i { font-style: normal; color: var(--muted); }
+
+/* invoice drawer */
+.invoice-pdf { width: 100%; height: 70vh; border: 1px solid var(--border); border-radius: 8px; background: #fff; }
+.checks-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 13px; }
+.checks-list li.ok b { color: var(--good); }
+.checks-list li.no b { color: var(--bad); }

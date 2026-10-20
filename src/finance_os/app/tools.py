@@ -3149,6 +3149,89 @@ def get_approval_evidence(wh, kind, target_id, payload=None, document=None):
                               "cash_application_fix": "The payment is re-applied to the target invoice.",
                               "commission_dispute": "The dispute is upheld and the statement is to be adjusted."}.get(kind, "")}
 
+
+def get_invoice_detail(wh, invoice_ref):
+    """Everything about one customer invoice (project invoices PINV…, usage invoices INV-…; a Stripe invoice id in_…
+    is resolved to its ERP invoice): header and terms, the lines (milestones, labor hours x rate, or audio hours by
+    product), tax and currency, payments applied, disputes, the journal entries it posted, the Stripe invoice for
+    usage billing, and checks that the lines, the ledger and Stripe all agree with the invoice total. The PDF is
+    rendered from the same data at /api/invoices/{ref}/pdf."""
+    ref = invoice_ref
+    if str(ref).startswith("in_"):
+        hit = wh.query("select erp_invoice_ref from staging.stg_stripe__invoices where invoice_id = ?", [ref])
+        ref = hit[0]["erp_invoice_ref"] if hit else ref
+    h = wh.query("""select a.*, strftime(a.invoice_date, '%Y-%m-%d') as invoice_date_s, strftime(a.due_date, '%Y-%m-%d') as due_date_s,
+                           strftime(a.paid_date, '%Y-%m-%d') as paid_date_s, c.customer_name
+                    from marts.fct_ar_invoices a left join marts.dim_customer c using (customer_id) where a.invoice_ref = ?""", [ref])
+    if not h:
+        return _result([], "marts.fct_ar_invoices", note=f"No invoice {invoice_ref}.")
+    h = h[0]
+    header = {"invoice_ref": ref, "type": h["invoice_type"], "customer_id": h["customer_id"], "customer_name": h["customer_name"],
+              "segment": h["segment"], "project_id": h["project_id"], "invoice_date": h["invoice_date_s"], "due_date": h["due_date_s"],
+              "amount": h["amount"], "applied": h["applied_amount"], "balance": h["balance"], "status": h["status"],
+              "paid_date": h["paid_date_s"], "days_to_pay": h["days_to_pay"], "days_past_due": h["days_past_due"], "is_disputed": h["is_disputed"],
+              "terms_days": (dt.date.fromisoformat(h["due_date_s"]) - dt.date.fromisoformat(h["invoice_date_s"])).days if h["due_date_s"] and h["invoice_date_s"] else None}
+    lines, contract, stripe = [], None, None
+    if h["invoice_type"] == "project":
+        pi = wh.query("""select i.*, p.project_name, strftime(i.service_month, '%Y-%m') as service_month_s
+                         from staging.stg_projects__project_invoices i left join marts.dim_project p using (project_id)
+                         where i.invoice_id = ?""", [ref])
+        if pi:
+            header.update({"project_name": pi[0]["project_name"], "contract_id": pi[0]["contract_id"], "service_month": pi[0]["service_month_s"]})
+            k = wh.query("select * from staging.stg_projects__contracts where contract_id = ?", [pi[0]["contract_id"]])
+            contract = k[0] if k else None
+        lines = wh.query("""select l.line_no, l.line_type, coalesce(m.milestone_name, l.labor_category, cl.description, l.line_type) as description,
+                                   l.milestone_id, l.clin_id, l.hours, l.rate, l.amount
+                            from staging.stg_projects__project_invoice_lines l
+                            left join staging.stg_projects__milestones m using (milestone_id)
+                            left join staging.stg_projects__clins cl on cl.clin_id = l.clin_id
+                            where l.invoice_id = ? order by l.line_no""", [ref])
+        if not lines:
+            lines = [{"line_no": 1, "line_type": "services", "description": header.get("project_name") or "Professional services",
+                      "hours": None, "rate": None, "amount": h["amount"]}]
+    else:
+        st = wh.query("""select invoice_id, invoice_number, status, collection_method, strftime(service_month, '%Y-%m') as service_month,
+                                strftime(created_at, '%Y-%m-%d') as created, strftime(paid_at, '%Y-%m-%d') as paid, attempt_count,
+                                total, amount_paid, amount_remaining
+                         from staging.stg_stripe__invoices where erp_invoice_ref = ?""", [ref])
+        stripe = st[0] if st else None
+        if stripe:
+            header["service_month"] = stripe["service_month"]
+            lines = wh.query("""select row_number() over (order by product_id) as line_no, 'usage' as line_type,
+                                       product_id || ' audio transcription' as description, audio_hours as hours,
+                                       amount / nullif(audio_hours, 0) as rate, amount
+                                from staging.stg_stripe__invoice_lines where invoice_id = ? order by product_id""", [stripe["invoice_id"]])
+    tax = wh.query("select country, currency, tax_regime, invoice_rate, amount_local, tax_rate, tax_local, tax_usd, realized_fx from marts.fct_invoice_tax_fx where invoice_ref = ?", [ref])
+    payments = wh.query("""select payment_id, strftime(received_date, '%Y-%m-%d') as received_date, amount, remittance_ref, applied_ref,
+                                  remittance_ref <> applied_ref as misapplied
+                           from staging.stg_erp__customer_payments where applied_ref = ? or remittance_ref = ? order by received_date""", [ref, ref])
+    disputes = wh.query("""select dispute_id, strftime(opened_date, '%Y-%m-%d') as opened_date, amount, status, root_cause, note
+                           from staging.stg_erp__disputes where invoice_ref = ?""", [ref])
+    gl = wh.query("""select e.entry_id, strftime(e.entry_date, '%Y-%m-%d') as entry_date, e.entry_type, l.account_id, a.account_name,
+                            l.debit, l.credit
+                     from staging.stg_erp__journal_entries e join staging.stg_erp__journal_lines l using (entry_id)
+                     join marts.dim_gl_account a using (account_id)
+                     where e.source_ref = ? order by e.entry_date, e.entry_id, l.line_no""", [ref])
+    amt = float(h["amount"] or 0)
+    line_sum = round(sum(float(x["amount"] or 0) for x in lines), 2)
+    rev_posted = round(sum(float(x["credit"] or 0) - float(x["debit"] or 0) for x in gl if x["account_id"] in ("4000", "4100")), 2)
+    checks = [{"check": "Lines add up to the invoice total", "passed": abs(line_sum - amt) < 0.01, "detail": f"lines ${line_sum:,.2f} vs invoice ${amt:,.2f}"}]
+    if gl and any(x["account_id"] in ("4000", "4100") for x in gl):
+        checks.append({"check": "Revenue posted to the ledger equals the invoice", "passed": abs(rev_posted - amt) < 0.01, "detail": f"GL revenue ${rev_posted:,.2f}"})
+    elif h["invoice_type"] == "usage":
+        checks.append({"check": "Revenue posted to the ledger", "passed": True, "detail": "usage revenue is posted per customer at month end (rated usage); reconciled in gl_revenue_vs_rated_usage"})
+    if stripe:
+        checks.append({"check": "Stripe invoice total equals the ERP invoice", "passed": abs(float(stripe["total"]) - amt) < 0.01, "detail": f"Stripe ${float(stripe['total']):,.2f}"})
+    paid = round(sum(float(x["amount"]) for x in payments if x["applied_ref"] == ref), 2)
+    checks.append({"check": "Cash applied matches the payments received", "passed": abs(paid - float(h["applied_amount"] or 0)) < 0.01,
+                   "detail": f"payments ${paid:,.2f} vs applied ${float(h['applied_amount'] or 0):,.2f}"})
+    if any(x["misapplied"] for x in payments):
+        checks.append({"check": "Payments applied to the invoice the customer named", "passed": False, "detail": "a payment's remittance names a different invoice"})
+    return _result(lines, "marts.fct_ar_invoices, projects invoices and lines, stg_stripe__invoices, customer payments, disputes, journal",
+                   header=header, contract=contract, tax=tax[0] if tax else None, payments=payments, disputes=disputes, journal=gl,
+                   stripe=stripe, checks=checks, pdf_url=f"/api/invoices/{ref}/pdf",
+                   note="The PDF is generated from this same data, so it always matches what was billed and posted.")
+
 def get_treasury_sweep(wh):
     """Simulated cash sweeps over the 13-week forecast. Each week the operating account takes the net flow, then:
     excess above six weeks of outflows sweeps to the money market fund; a shortfall below the four-week policy pulls
@@ -3374,6 +3457,10 @@ TOOLS = {
     "get_control_queue": (get_control_queue, "The unresolved queue: budget variances to explain, reconciliation breaks, open "
                           "close tasks, AP bills to review, cash-application and billing exceptions, overdue receivables, cost "
                           "anomalies, renewals at risk and KPIs at red, each with owner, amount, age, threshold and action.", _p({})),
+    "get_invoice_detail": (get_invoice_detail, "Everything about one customer invoice (PINV…, INV-…, or a Stripe in_… id): "
+                           "header, terms, lines, tax and currency, payments, disputes, journal entries, the Stripe invoice, "
+                           "and checks that lines, ledger and Stripe agree; plus a link to its PDF.",
+                           _p({"invoice_ref": {"type": "string"}}, ["invoice_ref"])),
     "get_contracts": (get_contracts, "Committed-use customer contracts: RPO, current RPO (next 12 months), contracted ARR "
                       "vs run-rate ARR, burn pace (usage vs commitment), projected shortfall / overage, renewal base, "
                       "revenue at risk, prepaid credit pools; per contract and as a monthly trend.",
