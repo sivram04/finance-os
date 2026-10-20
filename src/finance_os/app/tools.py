@@ -2209,8 +2209,13 @@ def get_ceo_one_pager(wh):
     idle = wh.query("""select sum(idle_cost) * 12 / 3 as v from marts.fct_gpu_efficiency_monthly
                        where month > ?::date - interval 3 month and month <= ?::date""", [m, m])[0]["v"]
     add(opp, "Cut idle GPU warm pool by half", (idle or 0) / 2, "Idle (warm-pool) GPU cost, annualized; half is the realistic target.", "VP Engineering", "spend")
-    overdue = wh.query("select sum(balance) as v from marts.fct_ar_invoices where balance > 0 and days_past_due > 30")[0]["v"]
-    add(opp, "Collect AR more than 30 days past due", overdue, "Cash already earned and overdue.", "Controller", "ar")
+    od = wh.query("""select sum(case when not is_disputed then balance end) as v,
+                            sum(case when is_disputed then balance end) as d,
+                            string_agg(case when is_disputed then customer_id || ' ' || invoice_ref end, ', ') as who
+                     from marts.fct_ar_invoices where balance > 0 and days_past_due > 30""")[0]
+    add(opp, "Collect AR more than 30 days past due", od["v"], "Undisputed, overdue: cash already earned.", "Controller", "ar")
+    add(opp, "Resolve disputed overdue invoices", od["d"], f"Overdue and in dispute ({od['who']}): settle the dispute before "
+        "chasing payment.", "Controller / CS lead", "ar")
 
     add(risk, "Renewals burning below commitment", c["revenue_at_risk"],
         "Commitments renewing in 180 days on contracts under 90% of pace: likely to downsize or churn.", "CRO", "contracts")

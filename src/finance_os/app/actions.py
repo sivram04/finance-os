@@ -7,7 +7,8 @@ from finance_os.app.tools import Warehouse, _p
 
 
 def _existing(state, cid, kind, target):
-    for a in state.actions(status="pending", cid=cid):
+    """A pending card for the same thing from any conversation: one decision, one card."""
+    for a in state.actions(status="pending"):
         if a["kind"] == kind and a["target_id"] == target:
             return a
     return None

@@ -48,6 +48,7 @@ class AppState:
         self.con = duckdb.connect(str(path))
         self.con.execute(SCHEMA)
         self.lock = threading.Lock()
+        self._supersede_duplicates()
 
     def _q(self, sql, params=None):
         with self.lock:
@@ -92,6 +93,14 @@ class AppState:
                 [aid, cid, kind, target_id, json.dumps(payload), preview, now()])
         self._audit(aid, "proposed", "assistant", None, "pending", preview)
         return aid
+
+    def _supersede_duplicates(self):
+        """Pending cards raised twice for the same thing (before the cross-conversation check): keep the oldest."""
+        dupes = self._q("""SELECT id FROM (SELECT id, row_number() OVER (PARTITION BY kind, target_id ORDER BY created_at, id) AS n
+                                          FROM actions WHERE status = 'pending') WHERE n > 1""")
+        for r in dupes:
+            self._q("UPDATE actions SET status = 'superseded', decided_at = ? WHERE id = ?", [now(), r["id"]])
+            self._audit(r["id"], "superseded", "system", "pending", "superseded", "duplicate of an older pending card")
 
     def action(self, aid):
         rows = self._q("SELECT * FROM actions WHERE id = ?", [aid])
