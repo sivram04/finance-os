@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { api, fmt, type Action, type AgentEvent, type Evidence, type UploadedDoc } from '../api'
 import { Chip, useWorkspace } from './common'
+import { ApprovalEvidence, useEvidence, VerdictBadge } from './ApprovalEvidence'
 
 // One assistant turn: the user's message (or uploaded document), then every event the agent streamed back.
 interface Turn { id: number; text: string; events: AgentEvent[]; running: boolean; doc?: UploadedDoc; uploading?: string }
@@ -72,14 +73,16 @@ function ProposalCard({ initial }: { initial: Action }) {
   const [action, setAction] = useState(initial)
   const [busy, setBusy] = useState(false)
   const { refresh } = useWorkspace()
+  const ev = useEvidence(initial.id)
   const decide = async (d: 'approve' | 'reject' | 'undo') => {
     setBusy(true)
     try { setAction((await api.decide(action.id, d)).action); refresh() } finally { setBusy(false) }
   }
   return (
     <div className="proposal">
-      <div className="head"><span>Needs your approval · {action.kind.replace(/_/g, ' ')}</span><Chip value={action.status} /></div>
+      <div className="head"><span>Needs your approval · {action.kind.replace(/_/g, ' ')}</span><span style={{ display: 'flex', gap: 4 }}><VerdictBadge ev={ev} /><Chip value={action.status} /></span></div>
       <div className="preview">{action.preview}</div>
+      <ApprovalEvidence action={action} ev={ev} />
       <div className="actions">
         {action.status === 'pending' && <>
           <button className="btn small primary" disabled={busy} onClick={() => decide('approve')}>Approve</button>

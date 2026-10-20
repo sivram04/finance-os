@@ -17,7 +17,7 @@ SEED = SEEDS / "metric_catalog.csv"
 DOC = DOCS / "METRIC_CATALOG.md"
 FIELDS = ["name", "label", "unit", "purpose", "formula", "grain", "source_model", "owner", "status", "tolerance",
           "numerator", "denominator", "inclusions", "exclusions", "currency_treatment", "period_logic", "refresh",
-          "version", "effective_from", "restatement_policy", "threshold_rule", "decision_amber", "decision_red", "recon_checks"]
+          "version", "effective_from", "restatement_policy", "threshold_rule", "recon_checks"]
 CHANGELOG = SEEDS / "metric_changelog.csv"
 
 
@@ -68,8 +68,6 @@ def render_doc(metrics):
                 f"- **Status:** {m['status']}",
                 f"- **Tolerance / caveats:** {m['tolerance']}",
                 f"- **Threshold:** {threshold_rule(m)}",
-                f"- **Decision at amber:** {m.get('decision_amber')}",
-                f"- **Decision at red:** {m.get('decision_red')}",
                 f"- **Proved by reconciliation checks:** {', '.join(m.get('recon_checks') or []) or 'none (derived metric)'}", ""]
     return "\n".join(out)
 

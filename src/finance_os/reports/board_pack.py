@@ -129,7 +129,7 @@ def forecast_changes_and_decisions(con):
             + "; ".join(f"{r['driver'].replace('_', ' ')} {_fmt_driver(r['prior_close'])} → {_fmt_driver(r['now'])}" for r in moved) + "."]
     dec = tools.get_decisions_needed(wh)["rows"]
     out += ["", "## Decisions needed", ""]
-    out += [f"{i}. **{d['decision']}** ({d['owner']}, by {d['by']}). {d['evidence']} Options: {d['options']}."
+    out += [f"{i}. **{d['decision']}** ({d['owner']}, by {d['by']}). {d['evidence']}"
             for i, d in enumerate(dec, 1)] or ["- No decisions pending."]
     return out
 

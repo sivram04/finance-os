@@ -132,7 +132,7 @@ def test_vendor_concentration_and_correlation(wh):
 
 def test_decisions_and_evidence_drill(wh):
     d = tools.get_decisions_needed(wh)["rows"]
-    assert d and all(x["owner"] and x["options"] for x in d)
+    assert d and all(x["owner"] and x["evidence"] and "options" not in x for x in d)
     ev = tools.answer_evidence(wh, "Revenue rose", [("get_customer_detail", {"customer_id": "EN-001"}, {})], [])
     assert any(x["args"].get("customer_id") == "EN-001" for x in ev["drill"])
 
@@ -146,7 +146,7 @@ def test_variance_case_end_to_end(wh):
     budget_growth = comps.pop("Budget assumed growth since the December base")
     # the bridge closes: budget - growth not delivered + delivered growth = actual
     assert abs(c["budget"] - budget_growth + sum(comps.values()) - c["actual"]) < 1
-    assert r["actions"] and r["decision_options"] and r["owner"]
+    assert "actions" not in r and r["decision_options"] and r["owner"]
     other = tools.get_variance_case(wh, "BVA-202609-INF-6600")
     assert other["root_cause"]["classification"].startswith("Planning gap")
 
@@ -156,7 +156,7 @@ def test_decision_kpis_carry_the_full_contract(wh):
     assert len(k["rows"]) == 33
     for r in k["rows"]:
         assert r["status"] in ("red", "amber", "green", "grey")
-        assert r["purpose"] and r["formula"] and r["owner"] and r["source_model"] and r["decision"]
+        assert r["purpose"] and r["formula"] and r["owner"] and r["source_model"] and r["status_reason"] and "decision" not in r
         assert r["threshold"]["basis"] and r["recon_status"]
     rev = next(r for r in k["rows"] if r["metric"] == "revenue")
     assert rev["lineage_sources"] and rev["recon_status"] == "pass"
@@ -173,3 +173,16 @@ def test_control_queue_items_are_owned(wh):
     assert all(i["owner"] and i["action"] and i["threshold"] for i in q["rows"])
     grid = tools.get_margin_sensitivity(wh)["rows"]
     assert grid[0]["cost -10%"] > grid[0]["cost +35%"]
+
+
+def test_approval_evidence_shows_why(wh):
+    dup = wh.query("select doc_file from marts.fct_ap_documents where list_contains(issues, 'duplicate_invoice') limit 1")
+    if dup:
+        r = tools.get_approval_evidence(wh, "ap_reject", dup[0]["doc_file"], {})
+        failed = [c for c in r["rows"] if not c["passed"]]
+        assert failed and "already booked" in failed[0]["detail"]
+        assert r["proposal_agrees_with_checks"] is True and r["approve_means"]
+    deal = tools.price_deal(wh, "New Co", [{"product_id": "stream", "hours_per_month": 30000}], discount_pct=0.35)
+    ev = {k: v for k, v in deal.items() if k not in ("source", "row_count", "rows")}
+    r = tools.get_approval_evidence(wh, "deal_approval", "Q-x", {"evaluation": ev})
+    assert r["failed"] > 0 and r["proposal_agrees_with_checks"] is False  # approving would override failed guardrails

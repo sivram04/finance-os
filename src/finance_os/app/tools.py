@@ -335,7 +335,7 @@ SOURCE_SYSTEM = {"4000": "Stripe invoices (rated usage)", "4100": "Project billi
                  "6600": "Fixed-asset register (depreciation run)"}
 
 
-def get_variance_case(wh, alert_id):
+def get_variance_case(wh, alert_id=None, account=None, month=None):
     """The full case file for one budget variance, from source data to the decision the CFO must make:
       1 what happened   actual vs budget for the month, year to date and the full-year forecast
       2 source data     the journal lines behind the actual and the source system they came from
@@ -344,9 +344,16 @@ def get_variance_case(wh, alert_id):
                         bridge - new, expansion, contraction, churn - and the customers behind each; otherwise run
                         rate vs budget, one-offs and concentration), classified as timing, one-off, run-rate or
                         planning gap
-      5 owner and action  the accountable owner, the actions the evidence supports, and the commentary status
-      6 decision        the options for the CFO with their full-year effect, and any decision already recorded"""
-    a = wh.query("select * from marts.fct_bva_alerts where alert_id = ?", [alert_id])
+      5 owner           the accountable owner and the commentary status (recommendations come from the assistant,
+                        reasoned from this evidence, not from templates)
+      6 decision        the standard choices for the CFO with their full-year effect"""
+    if not alert_id:  # find it: by account (id or name) in the month, else the month's largest variance
+        mm = _month(month, wh)
+        found = wh.query("""select alert_id from marts.fct_bva_alerts where month = ?::date
+                            and (? is null or account_id = ? or lower(account_name) like lower(?))
+                            order by abs(variance) desc limit 1""", [mm, account, account, f"%{account}%" if account else None])
+        alert_id = found[0]["alert_id"] if found else None
+    a = wh.query("select * from marts.fct_bva_alerts where alert_id = ?", [alert_id]) if alert_id else []
     if not a:
         return _result([], "marts.fct_bva_alerts", note=f"Unknown alert {alert_id}. List alerts with get_budget_vs_actual.")
     a = a[0]
@@ -434,7 +441,9 @@ def get_variance_case(wh, alert_id):
                             f"so it is run-rate, not timing."),
                 "budget_growth_monthly": round(implied, 4) if implied is not None else None,
                 "actual_growth_monthly": round(achieved, 4) if achieved is not None else None,
-                "biggest_drag": biggest_drag["driver"]}
+                "biggest_drag": biggest_drag["driver"], "december_base": round(base, 2),
+                "budget_growth": round(budget_growth, 2), "delivered_growth": round(delivered, 2),
+                "growth_shortfall": round(delivered - budget_growth, 2)}
     else:
         prior = wh.query("""select avg(actual) as v from marts.fct_bva_monthly where account_id = ? and department_id = ?
                             and month between ?::date - interval 3 month and ?::date - interval 1 month""", [acct, dept, m, m])[0]["v"]
@@ -458,28 +467,9 @@ def get_variance_case(wh, alert_id):
                             f"Largest single entry is {top_share:.0%} of the month."),
                 "biggest_drag": None}
 
-    # 5 owner and action
+    # 5 owner (recommended actions are not templated: the assistant reasons them from the evidence on request)
     owner = a["route_to"]
     fy_var = float(a["fy_forecast_variance"] or 0)
-    if acct == "4000":
-        actions = [
-            {"action": "Re-forecast FY revenue on the actual run rate", "owner": "VP Finance", "due": "this close",
-             "why": f"The budget's growth rate is not being achieved; full-year forecast is {_usd_text(fy_var)} vs budget."},
-            {"action": "Retention review of the accounts behind contraction and churn", "owner": "CS lead", "due": "2 weeks",
-             "why": "Contraction and churn erased most of the expansion; see the customers below."},
-            {"action": "Pipeline plan to close the gap (new logos and expansion targets)", "owner": "CRO", "due": "next QBR",
-             "why": "New-customer MRR is far below what the budget needed."},
-        ]
-    elif "Planning gap" in root["classification"]:
-        actions = [{"action": "Add the cost to the budget (re-budget) and the forecast", "owner": "VP Finance", "due": "this close",
-                    "why": "The cost is recurring and expected; the variance is a planning omission, not overspend."}]
-    elif "Run-rate" in root["classification"]:
-        actions = [{"action": "Explain the step-up or cut back to budget", "owner": owner, "due": "next close",
-                    "why": "Spending has held above budget for three months."},
-                   {"action": "Update the forecast to the run rate", "owner": "VP Finance", "due": "this close", "why": "Keep the full year honest."}]
-    else:
-        actions = [{"action": "Confirm the one-off and its accounting", "owner": owner, "due": "this close",
-                    "why": "A single entry drives the month; confirm it should not be accrued or prepaid."}]
 
     # 6 decision options and any recorded decision
     options = [
@@ -504,7 +494,7 @@ def get_variance_case(wh, alert_id):
                    case=case, trend=trend, source_lines_total=gl_total, source_line_count=len(lines),
                    by_entry_type=[{"entry_type": k, "amount": round(v, 2)} for k, v in by_type.items()],
                    reconciliation_chain=chain, reconciliation_checks=recon, root_cause=root, root_cause_components=components,
-                   customers=customers, owner=owner, actions=actions, decision_options=options,
+                   customers=customers, owner=owner, decision_options=options,
                    note="Favorable variance is positive for revenue and costs alike.")
 
 def get_unit_economics(wh, month=None, customer_id=None, below_floor_only=False):
@@ -2491,36 +2481,33 @@ def get_driver_correlation(wh, months=18):
 
 
 def get_decisions_needed(wh):
-    """The decisions the board or leadership must make now, each with the evidence behind it, the options, the owner
-    and the deadline. Built from rules over contracts, vendor concentration, forecast bias, the funding plan, runway,
+    """The situations that need a leadership decision now, each with the evidence behind it, the owner and the deadline
+    (no canned recommendation: ask the assistant to reason one from the evidence). Built from rules over contracts, vendor concentration, forecast bias, the funding plan, runway,
     covenants and the margin floor, so the list changes as the numbers do."""
     out = []
     c = get_contracts(wh)
     at_risk = [r for r in c["rows"] if r["in_renewal_window"] and (r["burn_pace"] or 0) < 0.9]
     if at_risk:
         worst = min(at_risk, key=lambda r: r["days_to_renewal"])
-        out.append({"decision": "Approve a save plan for renewals burning below commitment",
+        out.append({"decision": "Renewals burning below commitment",
                     "evidence": f"{len(at_risk)} contract(s) renewing within 180 days run below 90% of pace; "
                                 f"{_usd_text(c['summary']['revenue_at_risk'])} of commitment at risk. First up: {worst['contract_id']} in {worst['days_to_renewal']} days.",
-                    "options": "Re-size the commitment down to keep the logo · offer a ramp · hold price and accept churn risk",
                     "owner": "CRO", "by": f"{worst['days_to_renewal']} days", "amount": c["summary"]["revenue_at_risk"],
                     "contracts_at_risk": len(at_risk), "first_contract": worst["contract_id"], "days_to_first": worst["days_to_renewal"]})
     vc = get_vendor_concentration(wh)
     if vc["rows"] and (vc["summary"]["top1_share"] or 0) > 0.5:
         top = vc["rows"][0]
-        out.append({"decision": f"Decide whether to qualify a second GPU vendor before {top['vendor_id']} renews",
+        out.append({"decision": f"Single-vendor dependence: {top['vendor_id']} renewal",
                     "evidence": f"{top['vendor_id']} is {top['share']:.0%} of vendor spend (HHI {vc['summary']['hhi']:,}); "
                                 f"{_usd_text(top['remaining_commitment'] or 0)} still committed, contract ends {top['contract_end'] or 'n/a'}.",
-                    "options": "Dual-source (pilot 10-20% of load) · renew with price protection · accept the dependence",
                     "owner": "VP Engineering / CFO", "by": top["contract_end"] or "next renewal", "amount": top["spend"],
                     "vendor_share": top["share"], "hhi": vc["summary"]["hhi"], "remaining_commitment": top["remaining_commitment"]})
     fe = get_forecast_error_by_driver(wh)
     ex = next((x for x in fe["summary"] if x["driver"] == "existing_customers"), None)
     if ex and abs(ex["bias"]) > 0.02 * (fe["rows"][0]["actual_revenue"] if fe["rows"] else 1):
-        out.append({"decision": "Reset the retention assumption in the forecast",
+        out.append({"decision": "Forecast running off on existing customers",
                     "evidence": f"Forecasts ran {_usd_text(abs(ex['bias']))} a month {'high' if ex['bias'] > 0 else 'low'} on existing customers "
                                 f"over the last {fe['versions']} closes ({ex['share_of_abs_ebitda_error']:.0%} of forecast error).",
-                    "options": "Use the trailing 3-month net rate · use cohort curves · keep the 6-month rate and widen the range",
                     "owner": "VP Finance", "by": "next forecast", "amount": abs(ex["bias"]) * 12,
                     "monthly_bias": ex["bias"], "share_of_error": ex["share_of_abs_ebitda_error"]})
     sc = {x["scenario"]: x for x in scenario_summaries(wh)}
@@ -2528,25 +2515,23 @@ def get_decisions_needed(wh):
     fr = wh.query("select raise_amount, close_month from seeds.fundraise_scenarios where scenario = 'base'")
     if base and fr:
         need = base["runway_months"] is not None and base["runway_months"] < 24
-        out.append({"decision": "Confirm the funding plan",
+        out.append({"decision": "Funding plan vs runway",
                     "evidence": (f"Base plan: {_usd_text(fr[0]['raise_amount'])} round in {str(fr[0]['close_month'])[:7]}. Without it, "
                                  + (f"cash runs out in {base['runway_months']} months." if need else "cash does not run out within five years")
                                  + f"; base EBITDA next 12 months {_usd_text(base['ebitda_next_12m'])}."),
-                    "options": "Raise on plan to fund growth · delay and grow on cash flow · raise smaller and earlier",
                     "owner": "CEO / CFO", "by": str(fr[0]["close_month"])[:7], "amount": fr[0]["raise_amount"],
                     "runway_months": base["runway_months"], "ebitda_next_12m": base["ebitda_next_12m"]})
     below = wh.query("""select count(*) as n, sum(revenue * gross_margin_floor_pct - gross_margin) * 12 as v
                         from marts.fct_customer_margin_monthly where month = ?::date and is_below_floor""", [_month(None, wh)])[0]
     if below["n"]:
-        out.append({"decision": "Reprice or restructure customers below the margin floor",
+        out.append({"decision": "Customers below the margin floor",
                     "evidence": f"{below['n']} customer(s) below their product margin floor, {_usd_text(below['v'])} a year short of it.",
-                    "options": "Price increase at renewal · move to a cheaper model tier · accept as strategic",
                     "owner": "CFO / CRO", "by": "next renewal", "amount": below["v"], "customers": below["n"]})
     cov = wh.query("""select rule_id, description, min(month) as m from marts.fct_treasury_covenants
                       where status = 'breach' and month >= (select max(month) from marts.fct_kpi_monthly) group by 1, 2""")
     for r in cov:
-        out.append({"decision": f"Cure covenant {r['rule_id']}", "evidence": f"{r['description']}: breach from {str(r['m'])[:7]}.",
-                    "options": "Draw on the facility · cut spend · negotiate a waiver", "owner": "CFO", "by": str(r["m"])[:7], "amount": None})
+        out.append({"decision": f"Covenant {r['rule_id']} breach", "evidence": f"{r['description']}: breach from {str(r['m'])[:7]}.",
+                    "owner": "CFO", "by": str(r["m"])[:7], "amount": None})
     return _result(out, "get_contracts, get_vendor_concentration, get_forecast_error_by_driver, driver engine scenarios, "
                         "fct_customer_margin_monthly, fct_treasury_covenants",
                    note="Rules over the governed numbers; each decision names the evidence, the options and an owner.")
@@ -2835,9 +2820,24 @@ def _status(x, better, amber, red):
     return "red" if x >= red else "amber" if x >= amber else "green"
 
 
+def _status_reason(status, x, shown, t, better):
+    """Why a KPI has its status, from the data only: the comparison and the boundary it crossed (no advice)."""
+    if x is None:
+        return "No comparison available this month"
+    pct_basis = shown != "value"
+    val = f"{x * 100:+.1f}%" if pct_basis else (f"{x:,.2f}" if abs(x) < 100 else f"{x:,.0f}")
+    fmt_b = (lambda b: f"{b * 100:+.0f}%") if pct_basis else (lambda b: f"{b:,}")
+    side = "below" if better == "higher" else "above"
+    if status == "red":
+        return f"{val} {shown}: {side} the red line ({fmt_b(t.get('red'))})"
+    if status == "amber":
+        return f"{val} {shown}: past the amber line ({fmt_b(t.get('amber'))}), not yet red ({fmt_b(t.get('red'))})"
+    return f"{val} {shown}: within threshold (amber at {fmt_b(t.get('amber'))})"
+
+
 def get_decision_kpis(wh, month=None):
-    """Every governed metric as a decision: its value, the comparison its threshold uses (value, month-over-month,
-    vs budget / plan / run rate), green / amber / red status, the decision that status triggers, and its purpose,
+    """Every governed metric with its status: its value, the comparison its threshold uses (value, month-over-month,
+    vs budget / plan / run rate), green / amber / red status and why (the line it crossed), and its purpose,
     formula, owner, source model, lineage back to raw sources, the reconciliation checks that prove it (with this
     month's result) and data freshness. Answers 'which numbers need a decision this month and why'."""
     import yaml
@@ -2890,7 +2890,7 @@ def get_decision_kpis(wh, month=None):
         out.append({"metric": name, "label": sp["label"], "unit": sp["unit"], "value": v, "prior": prev.get(name),
                     "compare_basis": shown, "compare_value": None if x is None else round(x, 4),
                     "status": st, "threshold": {k: t.get(k) for k in ("basis", "better", "amber", "red")},
-                    "decision": sp.get("decision_red") if st == "red" else sp.get("decision_amber") if st == "amber" else "No action: within threshold",
+                    "status_reason": _status_reason(st, x, shown, t, better),
                     "purpose": sp["purpose"], "formula": sp["formula"], "owner": sp["owner"], "source_model": sp["source_model"],
                     "lineage_sources": lin["sources"], "lineage_seeds": lin["seeds"], "lineage_models": lin["models"],
                     "recon_checks": checks, "recon_status": recon_status, "version": sp.get("version"),
@@ -2902,8 +2902,8 @@ def get_decision_kpis(wh, month=None):
                         "recon.recon_status, dbt manifest (lineage)", month=m[:7], counts=counts,
                    trust={"recon_checks_failing": sum(1 for v in recon.values() for r in v if r["status"] != "pass"),
                           "recon_checks_run": sum(len(v) for v in recon.values()), "live_through": str(live)[:10]},
-                   note="Every number carries its purpose, definition, owner, source, lineage, reconciliation status, threshold "
-                        "and the decision its status triggers.")
+                   note="Every number carries its purpose, definition, owner, source, lineage, reconciliation status and "
+                        "threshold. No canned actions: ask for a recommendation and it is reasoned from this month's data.")
 
 
 COST_PARTS = [("direct_gpu_cost", "GPU compute per hour"), ("shared_gpu_cost", "Shared GPU pool per hour"),
@@ -3034,7 +3034,7 @@ def get_control_queue(wh):
             "CRO", float(c["current_commitment"]), None, "Burn pace below 90% inside 180 days of renewal", "Save plan before renewal", "contracts", "high")
     for k in [r for r in get_decision_kpis(wh)["rows"] if r["status"] == "red"]:
         add("KPI at red", k["metric"], f"{k['label']} {k['compare_basis']}", k["owner"], None, None,
-            f"{k['threshold']['basis']}: red at {k['threshold']['red']}", k["decision"], "kpis", "high")
+            f"{k['threshold']['basis']}: red at {k['threshold']['red']}", f"Owner reviews; {k['status_reason']}", "kpis", "high")
     sev = {"high": 0, "medium": 1}
     items.sort(key=lambda x: (sev.get(x["severity"], 2), -(x["amount"] or 0)))
     by_type = {}
@@ -3044,6 +3044,110 @@ def get_control_queue(wh):
                           "fct_billing_exceptions, fct_ar_invoices, fct_cost_anomalies, get_contracts, get_decision_kpis",
                    month=m[:7], counts=by_type, open_items=len(items),
                    note="Variances count as resolved once a CFO decision is recorded (the workspace marks them).")
+
+
+AP_CONTROLS = [  # every control an AP bill goes through, in the order a reviewer reads them
+    ("unknown_vendor", "Vendor is in the vendor master"),
+    ("missing_po", "Bill quotes a purchase order"),
+    ("po_not_found", "Purchase order exists"),
+    ("po_vendor_mismatch", "Purchase order belongs to this vendor"),
+    ("arithmetic_mismatch", "Line items add up to the total"),
+    ("amount_mismatch", "Total matches the bill booked in the ERP"),
+    ("duplicate_invoice", "Not already received (no duplicate invoice number)"),
+]
+
+
+def get_approval_evidence(wh, kind, target_id, payload=None, document=None):
+    """The evidence behind an approval card, so a reviewer can see whether to approve or reject: each control or
+    guardrail with pass / fail, the key facts, who is required to approve, links to the detail, and whether the
+    proposal agrees with the checks. Reads the data fresh, so it reflects the situation now."""
+    import json
+    payload = json.loads(payload) if isinstance(payload, str) else (payload or {})
+    checks, facts, links, approver, related = [], [], [], "Finance", []
+
+    if kind in ("ap_approve", "ap_reject"):
+        d = [document] if document else wh.query("select * from marts.fct_ap_documents where doc_file = ?", [target_id])
+        if d:
+            d = d[0]
+            issues = set(d["issues"] or [])
+            checks = [{"check": label, "passed": code not in issues, "detail": None} for code, label in AP_CONTROLS]
+            for c in checks:
+                if not c["passed"] and "duplicate" in c["check"].lower():
+                    orig = wh.query("""select doc_file, erp_bill_id, invoice_date, total from marts.fct_ap_documents
+                                       where vendor_invoice_number = ? and doc_file <> ? and erp_bill_id is not null
+                                       order by doc_file limit 1""",
+                                    [d["vendor_invoice_number"], target_id])
+                    if orig:
+                        o = orig[0]
+                        c["detail"] = f"Same invoice number as {o['doc_file']}, already booked as {o['erp_bill_id']} for ${float(o['total']):,.2f}"
+                        related.append({"label": "Original bill", **{k: str(v) for k, v in o.items()}})
+                if not c["passed"] and "ERP" in c["check"]:
+                    c["detail"] = f"Bill ${float(d['total'] or 0):,.2f} vs ERP ${float(d['erp_amount'] or 0):,.2f}"
+                if not c["passed"] and "add up" in c["check"]:
+                    c["detail"] = f"Lines ${float(d['lines_total'] or 0):,.2f} vs total ${float(d['total'] or 0):,.2f}"
+            facts = [{"label": "Vendor", "value": d["vendor_name"] or d["vendor_id"]}, {"label": "Invoice", "value": d["vendor_invoice_number"]},
+                     {"label": "Amount", "value": f"${float(d['total'] or 0):,.2f}"}, {"label": "PO", "value": d["po_number"] or "none"},
+                     {"label": "Intake route", "value": d["route"]}]
+            links = [{"label": f"Open vendor {d['vendor_id']}", "entity": {"kind": "vendor", "id": d["vendor_id"]}} if d["vendor_id"] else None,
+                     {"label": "AP inbox", "page": "ap"}]
+        approver = "AP specialist (Controller above $10K)"
+    elif kind == "deal_approval":
+        ev = payload.get("evaluation") or {}
+        checks = [{"check": c["rule"], "passed": c["passed"], "detail": c["detail"], "approver": c.get("approver", "Finance")} for c in ev.get("checks", [])]
+        risk = ev.get("risk") or {}
+        facts = [{"label": "Monthly revenue", "value": f"${ev.get('monthly_revenue', 0):,.2f}"},
+                 {"label": "Gross margin", "value": f"{ev.get('gross_margin_pct', 0):.1%} (floor {ev.get('floor_pct', 0):.1%})"},
+                 {"label": "Contract value", "value": f"${ev.get('contract_value', 0):,.2f} over {ev.get('term_months')} months"}]
+        if risk:
+            facts += [{"label": "Margin if cost hits P90", "value": f"{(risk.get('gross_margin_pct_at_p90_cost') or 0):.1%}"},
+                      {"label": "First-year commission", "value": f"${(risk.get('commission') or {}).get('first_year_commission', 0):,.2f}"},
+                      {"label": "Discount vs history", "value": f"{((risk.get('discounts') or {}).get('this_deal_percentile') or 0):.0%} percentile"}]
+        facts += [{"label": "Revenue-recognition flags", "value": ", ".join(f["flag"] for f in ev.get("revrec_flags", [])) or "none"}]
+        failed = [c for c in checks if not c["passed"]]
+        approver = ", ".join(ev.get("approvers") or sorted({c.get("approver", "Finance") for c in failed})) or "Rules (auto-approve)"
+        links = [{"label": "Open in the deal desk", "page": "deals"}]
+    elif kind in ("reminder_approve", "reminder_reject"):
+        inv = wh.query("""select invoice_ref, customer_id, balance, days_past_due, is_disputed, due_date from marts.fct_ar_invoices
+                          where invoice_ref = ?""", [target_id])
+        if inv:
+            i = inv[0]
+            checks = [{"check": "Invoice is past due", "passed": (i["days_past_due"] or 0) > 0, "detail": f"{i['days_past_due']} days past due"},
+                      {"check": "Not in dispute", "passed": not i["is_disputed"], "detail": None},
+                      {"check": "Balance still open", "passed": float(i["balance"] or 0) > 0, "detail": f"${float(i['balance'] or 0):,.2f} open"}]
+            facts = [{"label": "Customer", "value": i["customer_id"]}, {"label": "Due", "value": str(i["due_date"])[:10]}]
+            links = [{"label": f"Open customer {i['customer_id']}", "entity": {"kind": "customer", "id": i["customer_id"]}}]
+        approver = "AR specialist"
+    elif kind == "cash_application_fix":
+        refs = [payload.get("applied_ref"), payload.get("correct_invoice_ref")]
+        rows = {r["invoice_ref"]: r for r in wh.query(
+            "select invoice_ref, customer_id, amount, balance from marts.fct_ar_invoices where invoice_ref in (?, ?)", refs)}
+        a, b = rows.get(refs[0]), rows.get(refs[1])
+        amt = float(payload.get("amount") or 0)
+        checks = [{"check": "Same customer on payment and target invoice", "passed": bool(b) and b["customer_id"] == payload.get("customer_id"), "detail": None},
+                  {"check": "Target invoice has an open balance covering the payment", "passed": bool(b) and float(b["balance"] or 0) >= amt - 0.01,
+                   "detail": f"open ${float(b['balance'] or 0):,.2f} vs payment ${amt:,.2f}" if b else None},
+                  {"check": "Currently applied invoice is over-applied", "passed": bool(a) and float(a["balance"] or 0) < 0,
+                   "detail": f"{refs[0]} balance ${float(a['balance'] or 0):,.2f}" if a else None}]
+        facts = [{"label": "Payment", "value": f"{target_id} · ${amt:,.2f}"}, {"label": "Remittance says", "value": str(payload.get("remittance_ref"))}]
+        approver = "Controller"
+    elif kind == "commission_dispute":
+        facts = [{"label": "Claim", "value": payload.get("claim")}, {"label": "Statement credit (ARR)", "value": f"${float(payload.get('credited_arr') or 0):,.2f}"},
+                 {"label": "Amount claimed", "value": f"${float(payload.get('claimed_amount') or 0):,.2f}" if payload.get("claimed_amount") else "not stated"}]
+        approver = "VP Sales and Controller"
+        links = [{"label": "Commissions", "page": "comp"}]
+    links = [l for l in links if l]
+    failed = [c for c in checks if not c["passed"]]
+    verdict = "no checks" if not checks else ("all checks pass" if not failed else f"{len(failed)} of {len(checks)} checks failed")
+    proposes_yes = kind in ("ap_approve", "reminder_approve", "cash_application_fix", "deal_approval")
+    agrees = None if not checks else (not failed) == proposes_yes
+    return {"source": "fct_ap_documents, deal desk evaluation, fct_ar_invoices", "row_count": len(checks), "rows": checks,
+            "kind": kind, "target_id": target_id, "verdict": verdict, "failed": len(failed), "facts": facts, "required_approver": approver,
+            "links": links, "related": related, "proposal_agrees_with_checks": agrees,
+            "approve_means": {"ap_reject": "The bill is rejected and never paid.", "ap_approve": "The bill becomes payable in the next payment run.",
+                              "deal_approval": "The quote is approved (overriding any failed guardrail) and recorded in the audit log.",
+                              "reminder_approve": "The reminder is sent to the customer.", "reminder_reject": "The reminder is discarded.",
+                              "cash_application_fix": "The payment is re-applied to the target invoice.",
+                              "commission_dispute": "The dispute is upheld and the statement is to be adjusted."}.get(kind, "")}
 
 def get_treasury_sweep(wh):
     """Simulated cash sweeps over the 13-week forecast. Each week the operating account takes the net flow, then:
@@ -3257,8 +3361,8 @@ TOOLS = {
                            + ", ".join(CALCULATORS) + ". inputs: the named parameters for that kind (rates as decimals).",
                            _p({"kind": {"type": "string", "enum": list(CALCULATORS)}, "inputs": {"type": "object"}}, ["kind", "inputs"])),
     "finance_calculator_specs": (finance_calculator_specs, "List the calculator kinds and their inputs.", _p({})),
-    "get_decision_kpis": (get_decision_kpis, "Every governed KPI as a decision: value, the threshold comparison (value, "
-                          "month-over-month, vs budget, vs plan), green/amber/red status, the decision that status triggers, "
+    "get_decision_kpis": (get_decision_kpis, "Every governed KPI with its status: value, the threshold comparison (value, "
+                          "month-over-month, vs budget, vs plan), green/amber/red status and the line it crossed, "
                           "purpose, formula, owner, source, lineage to raw sources, reconciliation status and freshness. Use "
                           "for 'which numbers need a decision', 'what is red', 'is this number trustworthy'.", _p({"month": MONTH})),
     "get_contribution_bridge": (get_contribution_bridge, "Contribution-margin variance bridge vs last month: volume, product mix, "
@@ -3293,11 +3397,13 @@ TOOLS = {
                              "Use for 'where will we land this year versus budget'.",
                              _p({"month": MONTH, "department": {"type": "string", "description": "ENG, INF, SAL, PS, GA or NONE"},
                                  "alerts_only": {"type": "boolean"}})),
-    "get_variance_case": (get_variance_case, "The full case file for one budget variance (alert_id like BVA-202609-NONE-4000): "
+    "get_variance_case": (get_variance_case, "The full case file for one budget variance: pass alert_id, or account (e.g. 'usage revenue') "
+                          "and month, or nothing for the month's largest. Use for 'take me through the X variance'. Returns "
                           "what happened (month, YTD, full year), the source journal lines, the reconciliation chain from "
                           "source system to GL to reported actual, the root cause decomposed into drivers and classified, "
-                          "the owner and actions, and the CFO's decision options with full-year effect.",
-                          _p({"alert_id": {"type": "string"}}, ["alert_id"])),
+                          "the owner, and the CFO's decision choices with full-year effect. For recommended actions, reason from this evidence.",
+                          _p({"alert_id": {"type": "string"}, "account": {"type": "string", "description": "account id or name, e.g. usage revenue"},
+                              "month": MONTH})),
     "get_variance_drivers": (get_variance_drivers, "The journal lines behind a budget alert (alert_id from get_budget_vs_actual).",
                              _p({"alert_id": {"type": "string"}}, ["alert_id"])),
     "get_unit_economics": (get_unit_economics, "Customer margins (gross, contribution, vs. floor) and product cost to serve.",

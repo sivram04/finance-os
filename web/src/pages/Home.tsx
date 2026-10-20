@@ -4,6 +4,7 @@ import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YA
 import { api, fmt, type Action, type Row } from '../api'
 import { Card, Chip, Loading, useTool, useWorkspace, type Page } from '../components/common'
 import { usePeriod } from '../components/Dash'
+import { ApprovalEvidence, useEvidence, VerdictBadge } from '../components/ApprovalEvidence'
 
 const QUICK = [
   ['Summarize what needs attention', 'What needs my attention right now? Group it by urgency.'],
@@ -91,25 +92,33 @@ function NeedsYou() {
   )
 }
 
+function PendingItem({ a, decide }: { a: Action; decide: (id: string, d: 'approve' | 'reject') => void }) {
+  const ev = useEvidence(a.id)
+  return (
+    <div className="item approval-item">
+      <div style={{ display: 'grid', gap: 4, alignContent: 'start' }}><Chip value={a.kind.replace(/_/g, ' ')} kind="info" /><VerdictBadge ev={ev} /></div>
+      <div className="detail" style={{ color: 'var(--text)' }}>
+        {a.preview}
+        <ApprovalEvidence action={a} ev={ev} />
+      </div>
+      <div style={{ display: 'flex', gap: 6 }}>
+        <button className="btn small primary" onClick={() => decide(a.id, 'approve')}>Approve</button>
+        <button className="btn small" onClick={() => decide(a.id, 'reject')}>Reject</button>
+      </div>
+    </div>
+  )
+}
+
 function PendingApprovals() {
   const [items, setItems] = useState<Action[] | null>(null)
   const { refreshKey, refresh } = useWorkspace()
   useEffect(() => { api.actions('pending').then(setItems) }, [refreshKey])
   const decide = async (id: string, d: 'approve' | 'reject') => { await api.decide(id, d); refresh() }
   return (
-    <Card title="Waiting for your approval" sub="Prepared by the assistant; nothing happens until you decide">
+    <Card title="Waiting for your approval" sub="Prepared by the assistant; nothing happens until you decide · each card shows its checks and what approving does">
       {!items ? <div className="muted">Loading…</div> : items.length === 0 ? <div className="muted">Nothing waiting. Ask the assistant to prepare decisions, e.g. "Review the AP inbox".</div> : (
         <div className="attention scroll-box short">
-          {items.map((a) => (
-            <div className="item" key={a.id}>
-              <div><Chip value={a.kind.replace(/_/g, ' ')} kind="info" /></div>
-              <div className="detail" style={{ color: 'var(--text)' }}>{a.preview}</div>
-              <div style={{ display: 'flex', gap: 6 }}>
-                <button className="btn small primary" onClick={() => decide(a.id, 'approve')}>Approve</button>
-                <button className="btn small" onClick={() => decide(a.id, 'reject')}>Reject</button>
-              </div>
-            </div>
-          ))}
+          {items.map((a) => <PendingItem key={a.id} a={a} decide={decide} />)}
         </div>
       )}
     </Card>

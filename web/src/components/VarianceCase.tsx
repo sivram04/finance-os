@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Bridge, KpiRow, Trend } from './Dash'
 import { fmt, type Row } from '../api'
 import { Card, Chip, DataTable, Loading, Source, useTool, useWorkspace } from './common'
+import { Recommend } from './Recommend'
 
 const usd = (v: unknown) => fmt('amount', Number(v ?? 0), 'usd')
 const signed = (v: number) => `${v >= 0 ? '+' : '−'}${usd(Math.abs(v))}`
@@ -27,19 +28,18 @@ export function VarianceCase({ alertId, onClose }: { alertId: string; onClose: (
   const [decisions, setDecisions] = useState<Row[]>([])
   const [choice, setChoice] = useState<string>('')
   const [note, setNote] = useState('')
-  const [picked, setPicked] = useState<Record<number, boolean>>({})
+  const [committed, setCommitted] = useState('')
   const ref = useRef<HTMLDivElement>(null)
   const load = () => fetch(`/api/variance-decisions/${alertId}`).then((r) => r.json()).then(setDecisions)
-  useEffect(() => { load(); setChoice(''); setNote(''); setPicked({}); ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, [alertId])  // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); setChoice(''); setNote(''); setCommitted(''); ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, [alertId])  // eslint-disable-line react-hooks/exhaustive-deps
   if (!d.data) return <div ref={ref}><Card title={`Variance case ${alertId}`}><Loading state={d} /></Card></div>
   const c = d.data.case as Row, root = d.data.root_cause as Row
   const comps = (d.data.root_cause_components ?? []) as Row[]
-  const actions = (d.data.actions ?? []) as Row[]
   const options = (d.data.decision_options ?? []) as Row[]
   const chain = (d.data.reconciliation_chain ?? []) as Row[]
   const isRev = c.account_type === 'revenue'
   const decide = () => fetch('/api/variance-decisions', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ alert_id: alertId, decision: choice, note, actions: actions.filter((_, i) => picked[i]) }) }).then(load)
+    body: JSON.stringify({ alert_id: alertId, decision: choice, note, actions: committed.split('\n').map((x) => x.trim()).filter(Boolean).map((x) => { const [action, owner] = x.split(' - '); return { action, owner: owner ?? String(c.owner) } }) }) }).then(load)
   const bridge = isRev && comps.length > 1
     ? { start: { name: 'Budget', value: Number(c.budget) },
         steps: [{ name: 'Growth the budget assumed, not delivered', value: -Number(comps[0].amount) },
@@ -98,13 +98,11 @@ export function VarianceCase({ alertId, onClose }: { alertId: string; onClose: (
           </div>
         </Step>
 
-        <Step n={5} title="Owner and actions" sub={`Accountable: ${String(c.owner)} · tick the actions the decision commits to`}>
-          <DataTable rows={actions.map((a, i) => ({ ...a, i }))} columns={[
-            { key: 'i', label: '', render: (r) => <input type="checkbox" checked={!!picked[Number(r.i)]} onChange={(e) => setPicked({ ...picked, [Number(r.i)]: e.target.checked })} /> },
-            { key: 'action' }, { key: 'owner', chip: true }, { key: 'due' }, { key: 'why' }]} />
+        <Step n={5} title="Owner and AI recommendation" sub={`Accountable: ${String(c.owner)} · the recommendation is reasoned from the evidence above each time, so it changes when the data does`}>
+          <Recommend key={alertId} kind="variance" subject={alertId} />
         </Step>
 
-        <Step n={6} title="CFO decision" sub="Recorded with the evidence and committed actions in the audit log">
+        <Step n={6} title="CFO decision" sub="The CFO chooses; recorded with the evidence and the actions committed to in the audit log">
           <div className="decision-options">
             {options.map((o) => (
               <button key={String(o.option)} className={`decision-option ${choice === o.option ? 'on' : ''}`} onClick={() => setChoice(String(o.option))}>
@@ -114,6 +112,7 @@ export function VarianceCase({ alertId, onClose }: { alertId: string; onClose: (
           </div>
           <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
             <input className="table-search" style={{ flex: 1 }} placeholder="Decision note (what you decided and why)" value={note} onChange={(e) => setNote(e.target.value)} />
+            <textarea className="table-search" style={{ flex: 1, minHeight: 34 }} placeholder="Actions committed to, one per line: action - owner" value={committed} onChange={(e) => setCommitted(e.target.value)} />
             <button className="btn" disabled={!choice} onClick={decide}>Record decision</button>
           </div>
           {decisions.length ? (

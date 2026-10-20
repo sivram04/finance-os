@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { Bridge, KpiRow } from '../components/Dash'
 import { fmt, type Row } from '../api'
 import { CountText } from '../components/Motion'
+import { Recommend } from '../components/Recommend'
 import { AskButton, Card, Chip, DataTable, Loading, Source, useTool, useWorkspace, type Page } from '../components/common'
 
 const STATUS_COLOR: Record<string, string> = { red: 'var(--bad)', amber: 'var(--warn)', green: 'var(--good)', grey: 'var(--faint)' }
@@ -33,23 +34,23 @@ export function DecisionKpis() {
   return (
     <div className="page">
       <div className="page-head">
-        <div><h1>Decision KPIs</h1><p>{`Every number has a purpose, definition, owner, source, reconciliation status, threshold and resulting decision · ${String(k.data.month)}`}</p></div>
-        <AskButton text="Which KPIs are red or amber this month, what decision does each trigger, and who owns it?">Ask the assistant</AskButton>
+        <div><h1>Decision KPIs</h1><p>{`Every number with its purpose, definition, owner, source, reconciliation status and threshold · recommendations are reasoned by the AI from current data, not stored · ${String(k.data.month)}`}</p></div>
+        <AskButton text="Which KPIs are red or amber this month, why, and what do you recommend given today's data?">Ask the assistant</AskButton>
       </div>
       <KpiRow items={[
-        { label: 'Red', value: String(counts.red), note: 'decision required now', tone: counts.red ? 'bad' : 'good' },
-        { label: 'Amber', value: String(counts.amber), note: 'owner action', tone: counts.amber ? 'ok' : 'good' },
+        { label: 'Red', value: String(counts.red), note: 'past the red line', tone: counts.red ? 'bad' : 'good' },
+        { label: 'Amber', value: String(counts.amber), note: 'past the amber line', tone: counts.amber ? 'ok' : 'good' },
         { label: 'Green', value: String(counts.green), note: 'within threshold', tone: 'good' },
         { label: 'Data trust', value: Number(trust.recon_checks_failing) ? `${String(trust.recon_checks_failing)} breaks` : 'All reconciled', note: `${String(trust.recon_checks_run)} checks this month · live through ${String(trust.live_through)}`, tone: Number(trust.recon_checks_failing) ? 'bad' : 'good' },
       ]} />
-      <Card title="KPIs by status" sub="Click a KPI for its definition, owner, source, lineage, reconciliation and decision">
+      <Card title="KPIs by status" sub="Click a KPI for its definition, owner, source, lineage, reconciliation and an AI recommendation on today's data">
         <div className="kpi-decision-grid">
           {rows.map((r) => (
             <button key={String(r.metric)} className={`kpi-decision ${open?.metric === r.metric ? 'on' : ''}`} style={{ borderTopColor: STATUS_COLOR[String(r.status)] }} onClick={() => setOpen(r)}>
               <span className="label">{String(r.label)}</span>
               <span className="value"><CountText text={show(r)} /></span>
               <span className="note">{compareText(r)}</span>
-              <span className="decision" style={{ color: r.status === 'green' ? 'var(--muted)' : STATUS_COLOR[String(r.status)] }}>{String(r.decision)}</span>
+              <span className="decision" style={{ color: r.status === 'green' ? 'var(--muted)' : STATUS_COLOR[String(r.status)] }}>{String(r.status_reason)}</span>
               <span className="owner">{String(r.owner)} · recon {String(r.recon_status)}</span>
             </button>
           ))}
@@ -72,7 +73,7 @@ function KpiContract({ r, onClose }: { r: Row; onClose: () => void }) {
     ['Purpose', String(r.purpose)],
     ['Definition', String(r.formula)],
     ['Threshold', `${String(t.basis)} · ${String(t.better)} is better · amber at ${String(t.amber)} · red at ${String(t.red)}`],
-    ['Decision', String(r.decision)],
+    ['Why this status', String(r.status_reason)],
     ['Owner', String(r.owner)],
     ['Source model', String(r.source_model)],
     ['Lineage: raw sources', ((r.lineage_sources ?? []) as string[]).join(', ') || '—'],
@@ -83,9 +84,10 @@ function KpiContract({ r, onClose }: { r: Row; onClose: () => void }) {
   ]
   return (
     <Card title={`${String(r.label)}: metric contract`} right={<span style={{ display: 'flex', gap: 6 }}>
-      <AskButton text={`Explain ${String(r.label)} this month: value, threshold status, why, and the decision it triggers.`}>Ask</AskButton>
+      <AskButton text={`Explain ${String(r.label)} this month: value, threshold status and why it moved.`}>Ask</AskButton>
       <button className="btn small" onClick={onClose}>Close</button></span>}>
       <table className="pairs"><tbody>{items.map(([a, b]) => <tr key={a}><td style={{ width: 200 }}>{a}</td><td>{b}</td></tr>)}</tbody></table>
+      <Recommend key={String(r.metric)} kind="kpi" subject={String(r.label)} label={r.status === 'green' ? 'Ask AI how to keep it green' : 'Recommend with AI'} />
     </Card>
   )
 }

@@ -521,3 +521,21 @@ tbody tr { transition: background 0.12s ease; }
 .recharts-tooltip-cursor { fill: transparent !important; }
 .recharts-bar-rectangle path, .recharts-rectangle { transition: opacity 0.15s ease, filter 0.15s ease; }
 .recharts-bar-rectangle:hover path, .recharts-bar-rectangle:hover .recharts-rectangle { filter: brightness(1.12) saturate(1.1); }
+
+.recommend { display: grid; gap: 8px; margin-top: 10px; }
+.recommend-head { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.recommend-body { border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: 8px; padding: 10px 14px; background: var(--card); animation: fade-up 0.35s ease both; }
+
+/* approval evidence */
+.approval-ev { margin-top: 6px; display: grid; gap: 6px; }
+.approval-ev .warn-line { font-size: 12px; color: var(--bad); background: var(--bad-soft); border-radius: 6px; padding: 4px 8px; }
+.approval-ev-body { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; background: var(--panel); font-size: 13px; animation: fade-up 0.25s ease both; }
+.approval-ev-body p { margin: 0 0 6px; }
+.approval-ev .checks { list-style: none; margin: 0 0 6px; padding: 0; display: grid; gap: 3px; }
+.approval-ev .checks li { display: flex; gap: 6px; align-items: baseline; }
+.approval-ev .checks .mark { font-weight: 700; width: 12px; }
+.approval-ev .checks li.ok .mark { color: var(--good); }
+.approval-ev .checks li.no { color: var(--text); font-weight: 600; }
+.approval-ev .checks li.no .mark { color: var(--bad); }
+.approval-ev .facts { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; }
+.approval-ev .facts i { font-style: normal; color: var(--muted); }

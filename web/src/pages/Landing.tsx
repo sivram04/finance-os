@@ -10,9 +10,9 @@ const usd = (v: unknown) => fmt('amount', Number(v ?? 0), 'usd')
 const HELPS = [
   { pain: 'Month-end takes days of spreadsheet stitching', gain: 'Books close on a checklist with evidence; every number reconciles to source automatically',
     proof: 'Close and Trust pages · 19 reconciliation checks a month', page: 'close' as Page },
-  { pain: '"Why are we off budget?" takes a week to answer', gain: 'Click any variance: source lines, reconciliation, root cause, owner and the decision, in one place',
+  { pain: '"Why are we off budget?" takes a week to answer', gain: 'Click any variance: source lines, reconciliation, root cause and owner in one place, plus an AI recommendation on current data',
     proof: 'Budget → open a variance case', page: 'budget' as Page },
-  { pain: 'Nobody agrees on what ARR or runway means', gain: 'One governed metric catalog: definition, owner, version, threshold and the decision each number triggers',
+  { pain: 'Nobody agrees on what ARR or runway means', gain: 'One governed metric catalog: definition, owner, version, source, threshold and reconciliation for every number',
     proof: 'Decision KPIs · 33 metric contracts', page: 'kpis' as Page },
   { pain: 'Forecasts are a black box', gain: 'One driver engine for forecast, scenarios and runway, and every change since last close explained',
     proof: 'Plan, Scenarios, Drivers', page: 'plan' as Page },
@@ -25,7 +25,7 @@ const HELPS = [
 const GUIDE: { name: string; blurb: string; pages: [Page, string, string][] }[] = [
   { name: 'Overview', blurb: 'Start here: where the company stands and what needs a decision.', pages: [
     ['home', 'Home', 'This month at a glance and what needs you'], ['ceo', 'CEO one-pager', 'Top five opportunities and risks in dollars, and the decisions needed'],
-    ['kpis', 'Decision KPIs', 'Every KPI with its threshold, owner, source and the decision it triggers'], ['explore', 'Explore', 'Ask the ledger anything: any account, customer, vendor or period'],
+    ['kpis', 'Decision KPIs', 'Every KPI with its threshold, status, owner, source and reconciliation'], ['explore', 'Explore', 'Ask the ledger anything: any account, customer, vendor or period'],
     ['financials', 'Financials', 'P&L, balance sheet and cash flow, with Excel export'], ['alerts', 'Alerts', 'What crossed a threshold today'], ['reports', 'Reports', 'Board pack and recurring reports']] },
   { name: 'Plan & cash', blurb: 'Where we are going and how long the money lasts.', pages: [
     ['plan', 'Plan', 'Forecast by scenario, what changed since last close, workforce plan'], ['analysis', 'Analysis', 'Unit economics, break-even, runway sensitivity, five-year plan'],
@@ -93,10 +93,11 @@ export function Landing({ theme, onTheme }: { theme: 'light' | 'dark'; onTheme: 
       <header className="hero" id="what">
         <div className="hero-copy reveal">
           <span className="eyebrow">AI finance workspace for Echo Labs</span>
-          <h1>Every number explained, reconciled and tied to a decision.</h1>
+          <h1>Every number explained, reconciled and owned.</h1>
           <p>Finance OS connects the ledger, billing, payroll, cloud and CRM into one governed warehouse, then turns it into
-            dashboards, forecasts and an assistant that answers from the data. Nothing is typed into a spreadsheet; every
-            figure traces back to its source.</p>
+            dashboards, forecasts and an assistant that answers from the data. The dashboards state the facts: what happened,
+            why, whether it reconciles and who owns it. Recommendations come from the AI, reasoned from that day's data,
+            so they change when the situation does.</p>
           <div className="hero-cta">
             <button className="primary big" onClick={() => go('home')}>Open the dashboard</button>
             <button className="secondary big" onClick={() => scrollTo('walkthrough')}>Watch a variance become a decision</button>
@@ -155,7 +156,7 @@ export function Landing({ theme, onTheme }: { theme: 'light' | 'dark'; onTheme: 
           <div><b>Click to filter.</b> Click any bar or slice and the whole page filters to it; click a month on a trend to drill in.</div>
           <div><b>Zoom by year.</b> The Period control (All, each year, last 12 months) narrows every chart and table.</div>
           <div><b>Open anything.</b> Customer, vendor and project IDs open their full history; variances open a case file.</div>
-          <div><b>Ask, with evidence.</b> Every assistant answer shows the metric version, freshness, reconciliation and a link to the transactions.</div>
+          <div><b>Recommendations, not rules.</b> Advice is never a stored sentence: ask the AI and it reasons from the current data. Every answer shows the metric version, freshness, reconciliation and a link to the transactions.</div>
         </div>
       </section>
 
@@ -183,7 +184,7 @@ function LiveStat({ label, value, money, suffix = '', decimals = 0, tone, onClic
   )
 }
 
-const STEPS = ['What happened', 'Source data', 'Reconciliation', 'Root cause', 'Owner and actions', 'CFO decision']
+const STEPS = ['What happened', 'Source data', 'Reconciliation', 'Root cause', 'Owner and AI recommendation', 'CFO decision']
 
 function Walkthrough({ c, onOpen }: { c?: Row; onOpen: () => void }) {
   const [step, setStep] = useState(0)
@@ -199,7 +200,6 @@ function Walkthrough({ c, onOpen }: { c?: Row; onOpen: () => void }) {
     const k = c.case as Row, root = c.root_cause as Row
     const chain = (c.reconciliation_chain ?? []) as Row[]
     const comps = (c.root_cause_components ?? []) as Row[]
-    const acts = (c.actions ?? []) as Row[]
     const opts = (c.decision_options ?? []) as Row[]
     switch (step) {
       case 0: return <><p className="big-num bad"><CountUp value={Number(k.variance_favorable)} format={(n) => `${n < 0 ? '−' : '+'}${usd(Math.abs(n))}`} /></p>
@@ -209,8 +209,11 @@ function Walkthrough({ c, onOpen }: { c?: Row; onOpen: () => void }) {
       case 2: return <div className="mini-chain">{chain.map((s) => <div key={String(s.step)} className={`mini-node ${String(s.status)}`}><span>{String(s.step)}</span><b>{s.amount != null ? usd(s.amount) : '—'}</b><i>{String(s.status)}</i></div>)}</div>
       case 3: return <><p><b>{String(root.classification)}.</b> {String(root.summary)}</p>
         <div className="mini-bars">{comps.map((x) => { const v = Number(x.amount); const w = Math.min(100, Math.abs(v) / 9000); return <div key={String(x.driver)}><span>{String(x.driver)}</span><i style={{ width: `${w}%`, background: v < 0 ? 'var(--bad)' : 'var(--good)' }} /><b>{usd(v)}</b></div> })}</div></>
-      case 4: return <><p>Owner: <b>{String(k.owner)}</b></p><ul>{acts.map((a) => <li key={String(a.action)}><b>{String(a.action)}</b> · {String(a.owner)} · {String(a.due)}</li>)}</ul></>
-      default: return <><p>The CFO picks one; it is recorded with the evidence and committed actions in the audit log.</p>
+      case 4: return <><p>Owner: <b>{String(k.owner)}</b></p>
+        <p>There is no stored "do this" rule. In the dashboard, <b>Recommend with AI</b> sends this evidence to the assistant, which
+          reasons over that day's numbers and returns two to four actions, each tied to a figure, with the owner and the trade-off.
+          Seed new data tomorrow and the recommendation changes with it.</p></>
+      default: return <><p>The CFO chooses; the choice, the note and the actions committed to are recorded with the evidence in the audit log.</p>
         <div className="mini-opts">{opts.map((o) => <div key={String(o.option)}><b>{String(o.option)}</b><span>{String(o.effect)}</span></div>)}</div>
         <button className="primary" onClick={onOpen}>Open this case in the dashboard →</button></>
     }

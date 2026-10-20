@@ -81,6 +81,44 @@ def create_app(state: AppState | None = None, wh: tools.Warehouse | None = None,
 
         return StreamingResponse(stream(), media_type="text/event-stream")
 
+    class RecommendIn(BaseModel):
+        kind: str          # kpi | variance | situation
+        subject: str       # metric name, variance alert id, or the situation title
+        context: str = ""  # optional extra the page knows (e.g. the evidence line)
+
+    RECOMMEND_PROMPTS = {
+        "kpi": ("The KPI '{subject}' is off its threshold. Using today's data (call get_decision_kpis and whatever tools "
+                "explain its drivers), recommend what to do."),
+        "variance": ("Budget variance {subject}. Call get_variance_case for it and any tools that explain the drivers, then "
+                     "recommend what to do and which of the CFO's choices fits the evidence best."),
+        "situation": ("Situation needing a leadership decision: '{subject}'. {context} Call the tools that hold the evidence "
+                      "(get_decisions_needed and the relevant detail tools) and recommend what to do."),
+    }
+
+    @app.post("/api/recommend")
+    def recommend(body: RecommendIn):
+        """A recommendation reasoned by the assistant from today's data: not a stored template, so it changes when the
+        data changes. Runs as a normal conversation (kept in History) and returns the answer with its evidence."""
+        if body.kind not in RECOMMEND_PROMPTS:
+            raise HTTPException(400, f"kind must be one of {', '.join(RECOMMEND_PROMPTS)}")
+        prompt = (RECOMMEND_PROMPTS[body.kind].format(subject=body.subject, context=body.context) +
+                  " Answer in this shape: one line on the situation now, with its key number; then two to four "
+                  "recommended actions, each tied to a specific number from the tools, with an owner and the trade-off; "
+                  "then what in the data would change this recommendation. Use only numbers the tools return.")
+        cid = state.new_conversation()
+        answer, steps = None, 0
+        for event in agent_factory().run(cid, prompt):
+            if event["type"] == "step":
+                steps += 1
+            if event["type"] == "answer":
+                answer = event
+            if event["type"] == "error" and answer is None:
+                raise HTTPException(502, event["message"])
+        if not answer:
+            raise HTTPException(502, "no answer")
+        return {"conversation_id": cid, "text": answer["text"], "evidence": answer.get("evidence"),
+                "unverified_numbers": answer.get("unverified_numbers", []), "steps": steps}
+
     docs = Documents(state, wh)
 
     @app.post("/api/documents")
@@ -110,6 +148,23 @@ def create_app(state: AppState | None = None, wh: tools.Warehouse | None = None,
     @app.get("/api/actions")
     def list_actions(status: str | None = None):
         return state.actions(status=status)
+
+    @app.get("/api/actions/{aid}/evidence")
+    def action_evidence(aid: str):
+        """What a reviewer needs to decide an approval card: checks, verdict, facts, required approver, links."""
+        a = state.action(aid)
+        if not a:
+            raise HTTPException(404, "action not found")
+        doc = None
+        if str(a["target_id"]).startswith("UP-"):  # a bill uploaded in the chat: its checks live with the upload
+            up = docs.get(a["target_id"])
+            if up:
+                f = up["fields"]
+                doc = {"doc_file": up["id"], "vendor_name": f.get("vendor_name"), "vendor_id": up["vendor_id"],
+                       "vendor_invoice_number": f.get("vendor_invoice_number"), "total": f.get("total"),
+                       "lines_total": f.get("lines_total", f.get("total")), "erp_amount": None, "po_number": f.get("po_number"),
+                       "issues": [i["code"] for i in up["issues"]], "route": up["route"]}
+        return tools.get_approval_evidence(wh, a["kind"], a["target_id"], a["payload"], document=doc)
 
     def _decide(aid, new_status, note):
         try:

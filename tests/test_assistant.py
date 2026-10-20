@@ -229,3 +229,18 @@ def test_variance_decision_recorded_and_audited(tmp_path):
     d = client.get("/api/variance-decisions/BVA-202609-NONE-4000").json()[0]
     assert d["decision"] == "Accept and re-forecast" and d["actions"][0]["owner"] == "VP Finance"
     assert [e["event"] for e in d["audit"]] == ["proposed", "approved"]
+
+
+@needs_warehouse
+def test_recommendation_is_reasoned_from_current_data(tmp_path):
+    """No stored actions: /api/recommend runs the assistant over the tools and returns its answer with evidence."""
+    state = AppState(tmp_path / "app.duckdb")
+    wh = Warehouse()
+    dso = next(r for r in __import__("finance_os.app.tools", fromlist=["x"]).get_decision_kpis(wh)["rows"] if r["metric"] == "dso_days")
+    fake = scripted([call("get_decision_kpis", {})], f"DSO is {dso['value']} days. Chase the oldest invoices first.")
+    client = TestClient(create_app(state, wh, agent_factory=lambda: Agent(state, wh, complete=fake)))
+    r = client.post("/api/recommend", json={"kind": "kpi", "subject": "DSO"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["steps"] == 1 and body["evidence"]["sources"] and not body["unverified_numbers"]
+    assert client.post("/api/recommend", json={"kind": "nope", "subject": "x"}).status_code == 400

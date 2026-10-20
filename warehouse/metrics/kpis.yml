@@ -2,7 +2,7 @@
 # After editing, run: python -m finance_os.reports.build_metric_catalog
 # status: MEASURED (from source data) or ASSUMED (depends on a modeled input).
 # threshold: basis (value | mom | vs_budget | vs_plan | vs_run_rate), better (higher | lower), amber and red boundaries;
-# decision_amber / decision_red: what happens when the metric crosses them. recon_checks: the checks that prove it.
+# recon_checks: the checks that prove it. Recommendations are not stored: the assistant makes them from current data.
 metrics:
 - name: revenue
   label: Revenue
@@ -34,8 +34,6 @@ metrics:
   - gl_revenue_vs_rated_usage
   - stripe_invoices_vs_gl_revenue
   - project_billing_vs_gl
-  decision_amber: VP Finance explains the gap and re-forecasts the year
-  decision_red: 'CFO decides: accept and re-forecast, fund a corrective plan, or cut spend'
 - name: cogs
   label: Cost of revenue
   unit: usd
@@ -66,8 +64,6 @@ metrics:
   - vendor_invoice_vs_modeled
   - vendor_bill_vs_gl_ap
   - gcp_export_vs_bill
-  decision_amber: Head of Infra explains cost per hour vs plan
-  decision_red: CFO approves a cost-to-serve plan (commit renegotiation, routing, idle-pool cut)
 - name: opex
   label: Operating expenses
   unit: usd
@@ -96,8 +92,6 @@ metrics:
     red: -0.1
   recon_checks:
   - payroll_register_vs_gl
-  decision_amber: Department owners explain overspend in commentary
-  decision_red: 'CFO decides: re-budget, freeze discretionary spend or approve the overrun'
 - name: gross_margin_pct
   label: Gross margin %
   unit: ratio
@@ -127,8 +121,6 @@ metrics:
   recon_checks:
   - gl_revenue_vs_rated_usage
   - vendor_invoice_vs_modeled
-  decision_amber: Review customers below the margin floor
-  decision_red: Reprice below-floor customers and cut cost per hour; pause discounting
 - name: gross_burn
   label: Gross burn
   unit: usd
@@ -158,8 +150,6 @@ metrics:
   recon_checks:
   - stripe_balance_vs_gl_cash
   - payroll_register_vs_gl
-  decision_amber: Explain the step-up in spend
-  decision_red: Spend review with each department head
 - name: net_burn
   label: Net burn
   unit: usd
@@ -188,8 +178,6 @@ metrics:
     red: 0.3
   recon_checks:
   - stripe_balance_vs_gl_cash
-  decision_amber: Explain the burn increase (burn bridge)
-  decision_red: CFO sets a burn ceiling and reviews hiring
 - name: closing_cash
   label: Cash balance
   unit: usd
@@ -218,8 +206,6 @@ metrics:
     red: 6000000
   recon_checks:
   - stripe_balance_vs_gl_cash
-  decision_amber: Re-run the 13-week cash forecast
-  decision_red: Start the financing plan; draw the venture facility if needed
 - name: runway_months
   label: Runway
   unit: months
@@ -248,8 +234,6 @@ metrics:
     red: 15
   recon_checks:
   - stripe_balance_vs_gl_cash
-  decision_amber: Board update on runway and the funding plan
-  decision_red: Raise now or cut burn to reach 24 months
 - name: arr
   label: Run-rate ARR
   unit: usd
@@ -278,8 +262,6 @@ metrics:
     red: -0.02
   recon_checks:
   - gl_revenue_vs_rated_usage
-  decision_amber: Explain the ARR movement (ARR waterfall)
-  decision_red: Retention and pipeline plan from the CRO
 - name: headcount
   label: Headcount
   unit: count
@@ -308,8 +290,6 @@ metrics:
     red: 0.05
   recon_checks:
   - payroll_register_vs_gl
-  decision_amber: Reconcile hires to the approved plan
-  decision_red: Freeze unapproved requisitions
 - name: arr_per_employee
   label: ARR per employee
   unit: usd
@@ -337,8 +317,6 @@ metrics:
     amber: 250000
     red: 180000
   recon_checks: []
-  decision_amber: Check hiring is ahead of revenue
-  decision_red: Slow hiring until ARR per employee recovers
 - name: nrr
   label: Net revenue retention
   unit: ratio
@@ -367,8 +345,6 @@ metrics:
     red: 1.0
   recon_checks:
   - gl_revenue_vs_rated_usage
-  decision_amber: Review contraction and churn drivers
-  decision_red: Retention program and expansion targets for CS and Sales
 - name: grr
   label: Gross revenue retention
   unit: ratio
@@ -397,8 +373,6 @@ metrics:
     red: 0.85
   recon_checks:
   - gl_revenue_vs_rated_usage
-  decision_amber: Review accounts that contracted or churned
-  decision_red: Save plan for at-risk accounts; review product fit
 - name: active_customers
   label: Active customers
   unit: count
@@ -426,8 +400,6 @@ metrics:
     amber: 0.0
     red: -0.03
   recon_checks: []
-  decision_amber: Explain the drop
-  decision_red: Acquisition and retention plan
 - name: new_customers
   label: New customers
   unit: count
@@ -455,8 +427,6 @@ metrics:
     amber: 3
     red: 1
   recon_checks: []
-  decision_amber: Check pipeline conversion
-  decision_red: Marketing and sales capacity review
 - name: churned_customers
   label: Churned customers
   unit: count
@@ -484,8 +454,6 @@ metrics:
     amber: 2
     red: 4
   recon_checks: []
-  decision_amber: Review each churn reason
-  decision_red: Retention program; executive sponsor for top accounts
 - name: logo_churn_rate
   label: Logo churn rate
   unit: ratio
@@ -513,8 +481,6 @@ metrics:
     amber: 0.03
     red: 0.05
   recon_checks: []
-  decision_amber: Review churn reasons by segment
-  decision_red: Retention program for the worst segment
 - name: gross_mrr_churn_rate
   label: Gross MRR churn rate
   unit: ratio
@@ -543,8 +509,6 @@ metrics:
     red: 0.04
   recon_checks:
   - gl_revenue_vs_rated_usage
-  decision_amber: Review revenue lost to contraction and churn
-  decision_red: Save plan for the largest losses
 - name: dso_days
   label: DSO
   unit: days
@@ -573,8 +537,6 @@ metrics:
     red: 65
   recon_checks:
   - stripe_invoices_vs_gl_revenue
-  decision_amber: Collections push on the oldest invoices
-  decision_red: Tighten terms; escalate top overdue accounts to the CFO
 - name: cei
   label: Collection effectiveness index
   unit: ratio
@@ -602,8 +564,6 @@ metrics:
     amber: 0.85
     red: 0.75
   recon_checks: []
-  decision_amber: Review the collections queue
-  decision_red: Add collections capacity or change terms
 - name: ar_over_60
   label: AR over 60 days
   unit: usd
@@ -632,8 +592,6 @@ metrics:
     red: 100000
   recon_checks:
   - stripe_invoices_vs_gl_revenue
-  decision_amber: Escalate invoices over 60 days
-  decision_red: Credit hold and executive escalation; consider a reserve
 - name: net_new_arr
   label: Net new run-rate ARR
   unit: usd
@@ -661,8 +619,6 @@ metrics:
     amber: 500000
     red: 0
   recon_checks: []
-  decision_amber: Explain the bookings shortfall
-  decision_red: Pipeline and capacity plan
 - name: quick_ratio
   label: SaaS quick ratio
   unit: ratio
@@ -690,8 +646,6 @@ metrics:
     amber: 4
     red: 2
   recon_checks: []
-  decision_amber: 'Growth is leaking: review losses'
-  decision_red: Fix retention before adding acquisition spend
 - name: burn_multiple
   label: Burn multiple
   unit: ratio
@@ -720,8 +674,6 @@ metrics:
     red: 2.0
   recon_checks:
   - stripe_balance_vs_gl_cash
-  decision_amber: Explain burn per net new ARR
-  decision_red: Cut inefficient spend until below 1.5x
 - name: rule_of_40
   label: Rule of 40
   unit: ratio
@@ -749,8 +701,6 @@ metrics:
     amber: 0.4
     red: 0.2
   recon_checks: []
-  decision_amber: Balance growth and margin
-  decision_red: 'Board discussion: growth vs profitability plan'
 - name: cac
   label: CAC (S&M only)
   unit: usd
@@ -778,8 +728,6 @@ metrics:
     amber: 0.1
     red: 0.25
   recon_checks: []
-  decision_amber: Explain the CAC rise
-  decision_red: Review channel spend
 - name: cac_burdened
   label: CAC (fully burdened)
   unit: usd
@@ -807,8 +755,6 @@ metrics:
     amber: 0.1
     red: 0.25
   recon_checks: []
-  decision_amber: Explain the CAC rise (with overhead)
-  decision_red: Review sales and marketing headcount
 - name: ltv_to_cac_burdened
   label: 'LTV : CAC (fully burdened)'
   unit: ratio
@@ -836,8 +782,6 @@ metrics:
     amber: 3.0
     red: 1.5
   recon_checks: []
-  decision_amber: Review unit economics by segment
-  decision_red: Shift spend to the segments above 3x
 - name: cac_payback_burdened_months
   label: CAC payback (fully burdened)
   unit: months
@@ -865,8 +809,6 @@ metrics:
     amber: 12
     red: 18
   recon_checks: []
-  decision_amber: Review payback by segment
-  decision_red: Stop spend in segments above 18 months
 - name: magic_number
   label: Magic number
   unit: ratio
@@ -894,8 +836,6 @@ metrics:
     amber: 0.75
     red: 0.5
   recon_checks: []
-  decision_amber: Review sales efficiency
-  decision_red: Hold S&M spend flat until above 0.75
 - name: contracted_arr
   label: Contracted ARR
   unit: usd
@@ -923,8 +863,6 @@ metrics:
     amber: -0.1
     red: -0.25
   recon_checks: []
-  decision_amber: Re-paper usage above commitments
-  decision_red: 'Renewal strategy: convert overage to commitment'
 - name: rpo
   label: Remaining performance obligations
   unit: usd
@@ -952,8 +890,6 @@ metrics:
     amber: 0.0
     red: -0.1
   recon_checks: []
-  decision_amber: Explain the drop in contracted backlog
-  decision_red: Renewal push on contracts in their last 180 days
 - name: crpo
   label: Current RPO
   unit: usd
@@ -981,8 +917,6 @@ metrics:
     amber: 0.0
     red: -0.1
   recon_checks: []
-  decision_amber: Explain the drop in next-12-month backlog
-  decision_red: Renewal and expansion targets for the quarter
 changelog:
 - metric: arr
   version: 2

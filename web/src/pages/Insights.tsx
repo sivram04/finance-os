@@ -3,6 +3,7 @@
 import { Bars, Bridge, Columns, Dash, Donut, KpiRow, Trend, useFiltered } from '../components/Dash'
 import { fmt, type Row } from '../api'
 import { AskButton, Card, DataTable, Loading, Source, useTool, useWorkspace, type Page } from '../components/common'
+import { Recommend } from '../components/Recommend'
 
 const usd = (v: number) => fmt('amount', v, 'usd')
 const signed = (v: number) => `${v >= 0 ? '+' : '−'}${usd(Math.abs(v))}`
@@ -309,14 +310,14 @@ function Decisions() {
   const d = useTool('get_decisions_needed')
   if (!d.data) return <Card title="Decisions needed"><Loading state={d} /></Card>
   return (
-    <Card title="Decisions needed" sub="Built from rules over the governed numbers; the board pack prints the same list">
+    <Card title="Decisions needed" sub="Situations the data flags for a decision, with evidence and owner · ask the AI for a recommendation on today's numbers">
       {((d.data.rows ?? []) as Row[]).map((x, i) => (
         <div key={String(x.decision)} className="onepager-item">
           <span className="rank">{i + 1}</span>
           <div>
             <div><b>{String(x.decision)}</b> <span className="muted">· {String(x.owner)} · by {String(x.by)}</span></div>
             <div className="muted">{String(x.evidence)}</div>
-            <div className="muted">Options: {String(x.options)}</div>
+            <Recommend kind="situation" subject={String(x.decision)} context={String(x.evidence)} />
           </div>
           <span className="amt">{x.amount != null ? usd(Number(x.amount)) : ''}</span>
         </div>

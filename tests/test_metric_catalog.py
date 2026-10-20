@@ -7,7 +7,7 @@ def test_every_metric_has_all_fields():
         missing = [f for f in FIELDS if f not in derived and not m.get(f)]
         assert not missing, (m.get("name"), missing)
         assert {"basis", "better", "amber", "red"} <= set(m["threshold"]), m["name"]
-        assert m["decision_amber"] and m["decision_red"] and "recon_checks" in m, m["name"]
+        assert "recon_checks" in m and "decision_amber" not in m, m["name"]  # no canned actions
         assert m["status"] in ("MEASURED", "ASSUMED")
 
 
