@@ -34,6 +34,9 @@ export default function App() {
   const [down, setDown] = useState(false)
   const [entity, setEntity] = useState<Entity | null>(null)  // the open drill-down panel
   const [mobile, setMobile] = useState<'workspace' | 'assistant'>('workspace')  // which panel a phone shows
+  // on a computer the assistant panel can be closed so the dashboard uses the full width; remembered per browser
+  const [chat, setChat] = useState(() => { try { return localStorage.getItem('finance-os.chat') !== 'closed' } catch { return true } })
+  useEffect(() => { try { localStorage.setItem('finance-os.chat', chat ? 'open' : 'closed') } catch { /* private window */ } }, [chat])
   const [period, setPeriod] = useState<Period>('all')
   const periodCtx = useMemo(() => ({ period, setPeriod }), [period])
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
@@ -64,7 +67,7 @@ export default function App() {
     return () => window.removeEventListener('hashchange', onHash)
   }, [])
   const go = useCallback((p: Page) => { setPage(p); location.hash = p; setMobile('workspace'); document.querySelector('.workspace')?.scrollTo({ top: 0 }); window.scrollTo({ top: 0 }) }, [])
-  const ask = useCallback((text: string) => { setPending((p) => ({ text, n: (p?.n ?? 0) + 1 })); setMobile('assistant') }, [])
+  const ask = useCallback((text: string) => { setPending((p) => ({ text, n: (p?.n ?? 0) + 1 })); setMobile('assistant'); setChat(true) }, [])
   const refresh = useCallback(() => setRefreshKey((k) => k + 1), [])
   const inspect = useCallback((e: Entity) => setEntity(e), [])
   const ctx = useMemo(() => ({ page, go, ask, refreshKey, refresh, inspect }), [page, go, ask, refreshKey, refresh, inspect])
@@ -75,11 +78,12 @@ export default function App() {
     <PeriodContext.Provider value={periodCtx}>
     <WorkspaceContext.Provider value={ctx}>
       {page === 'welcome' ? <Landing theme={theme} onTheme={() => setTheme(theme === 'light' ? 'dark' : 'light')} /> : (
-      <div className={`shell show-${mobile}`}>
+      <div className={`shell show-${mobile} ${chat ? '' : 'chat-closed'}`}>
         {tour.open && <Tour onClose={tour.close} />}
-        <Assistant pending={pending} />
+        <Assistant pending={pending} onHide={() => setChat(false)} />
         <main className="workspace">
           <nav className="topbar sections">
+            {!chat && <button className="chat-open" onClick={() => setChat(true)} title="Open the assistant panel">☰ Assistant</button>}
             <button className="brand-home" onClick={() => go('welcome')} title="About Finance OS">◆</button>
             {SECTIONS.map((s) => <button key={s.name} className={`tab ${s === section ? 'active' : ''}`} onClick={() => go(s.pages[0][0])}>{s.name}</button>)}
             <span className="spacer" />

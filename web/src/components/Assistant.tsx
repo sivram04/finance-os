@@ -177,7 +177,7 @@ function TurnView({ turn }: { turn: Turn }) {
   )
 }
 
-export function Assistant({ pending }: { pending: { text: string; n: number } | null }) {
+export function Assistant({ pending, onHide }: { pending: { text: string; n: number } | null; onHide?: () => void }) {
   const [turns, setTurns] = useState<Turn[]>([])
   const [input, setInput] = useState('')
   const [conversation, setConversation] = useState<string | null>(null)
@@ -268,6 +268,7 @@ export function Assistant({ pending }: { pending: { text: string; n: number } | 
         <div className="head-actions">
           <button className="btn small" disabled={running} onClick={async () => setHistory(history ? null : await api.conversations())}>History</button>
           <button className="btn small" disabled={running} onClick={() => { setTurns([]); setConversation(null); localStorage.removeItem(STORE) }}>New chat</button>
+          {onHide && <button className="btn small chat-hide" onClick={onHide} title="Close the assistant panel; the dashboard uses the full width">«</button>}
           {history && (
             <div className="menu">
               {history.length === 0

@@ -603,3 +603,13 @@ tbody tr { transition: background 0.12s ease; }
 .scale-chain > div span { font-size: 12px; color: var(--muted); }
 .scale-chain > div.end { background: var(--accent-soft); }
 .scale-chain > div:not(.end)::after { content: "→"; position: absolute; right: -9px; top: 50%; transform: translateY(-50%); color: var(--faint); font-size: 12px; z-index: 1; }
+
+/* the assistant panel can be closed on a computer; the dashboard then takes the full width (charts resize themselves) */
+.chat-open, .chat-hide { display: none; }
+@media (min-width: 801px) {
+  .chat-hide { display: inline-flex; }
+  .chat-open { display: inline-flex; align-items: center; gap: 4px; flex: none; margin-right: 6px; padding: 5px 10px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--accent-soft); color: var(--accent); font-weight: 600; font-size: 13px; cursor: pointer; }
+  .shell.chat-closed { grid-template-columns: 1fr; }
+  .shell.chat-closed .assistant { display: none; }
+}
