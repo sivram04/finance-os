@@ -1,157 +1,255 @@
 # Finance OS
 
-Finance and project-accounting platform for the fictional company Echo Labs. Design: [docs/SYSTEM_DESIGN.md](docs/SYSTEM_DESIGN.md).
+**One trusted view of a company's finances: every number defined, reconciled to its source, and explained.**
 
-## Run locally (DuckDB)
+Finance OS is a finance workspace for **Echo Labs**, a simulated voice-AI company. It brings the ledger, billing,
+payroll, cloud and GPU costs, CRM and contracts into one governed warehouse, then turns it into dashboards, forecasts,
+machine-learning predictions and an AI assistant that answers only from the data.
+
+**Live demo:** https://finance-os-905768726552.us-central1.run.app
+(the first load can take ~20 seconds while the demo server wakes up; a guided tour starts on the first visit)
+
+> The company and every figure in it are simulated. The problems it models, and the way it solves them, are real.
+
+---
+
+## Contents
+1. [Why it exists](#1-why-it-exists)
+2. [What it does](#2-what-it-does)
+3. [How it helps: three examples](#3-how-it-helps-three-examples)
+4. [Architecture](#4-architecture)
+5. [Stack, and why](#5-stack-and-why)
+6. [Data model](#6-data-model)
+7. [How it works](#7-how-it-works)
+8. [Trust: how the numbers are kept honest](#8-trust-how-the-numbers-are-kept-honest)
+9. [Deployment and CI/CD](#9-deployment-and-cicd)
+10. [Run it locally](#10-run-it-locally)
+11. [Repository layout](#11-repository-layout)
+12. [Limits, stated plainly](#12-limits-stated-plainly)
+13. [License, privacy and terms](#13-license-privacy-and-terms)
+
+---
+
+## 1. Why it exists
+
+Most finance decisions are not hard. Getting a trustworthy picture is. Margin sits in one spreadsheet, cloud costs in
+a billing console, cash in the bank portal, customer health in the CRM and the budget in a deck. By the time it is
+stitched together the moment has passed, and the decision is made on instinct.
+
+Finance OS puts the whole picture in one place, and is built around three habits:
+
+| Habit | What it means in the product |
+|---|---|
+| **Define what a number is for before building it** | Every KPI has a definition, owner, threshold and the decision it supports ([metric catalog](docs/METRIC_CATALOG.md)) |
+| **Stay skeptical until it reconciles** | 19 reconciliation checks tie every subledger to the GL; the warehouse runs on two engines that must agree to the cent |
+| **An unexplained variance is a problem, not noise** | Every budget variance opens a case file: the source lines, the reconciliation, the root cause, the owner and the decision |
+
+## 2. What it does
+
+| Area | What you get |
+|---|---|
+| **Overview** | Home scorecard with context (vs last month, budget, last year, benchmark), CEO one-pager, Decision KPIs with status and owners, an Explore tool for any slice of the ledger, three-statement financials in a spreadsheet view with Excel export |
+| **Plan & cash** | Driver-based 18-month forecast (base / upside / downside), five-year plan, scenarios and stress tests, **8 ML models** (Predictions page), corporate finance (ratios, DuPont, WACC, project NPV/IRR, **company valuation**: DCF, peers, football field), 13-week cash forecast, **treasury** (debt facilities, covenants, FX hedging), cap table and fundraising, pricing |
+| **Revenue** | Unit economics by product and customer, ARR/NRR/churn and cohorts, pipeline and sales capacity, contracts and remaining performance obligations, a **deal desk** that prices from real unit costs and routes only non-standard deals, **sales commissions** (statements, accelerators, clawbacks, disputes), billing, receivables and collections |
+| **Spend** | GPU and cloud spend with tag attribution, idle capacity and commitments, AP inbox that reads vendor-bill PDFs and checks them against POs and the ledger, department budgets vs actuals, project accounting |
+| **Close & control** | Month-end close checklist with evidence, **controller** tools (fixed-asset register reconciled to the GL, ASC 842 leases, journal-entry testing), multi-entity consolidation, tax and FX, data trust |
+| **Assistant** | Ask anything in plain English. It calls 108 read-only warehouse tools, shows every step and its sources, and anything that would change data becomes an approval card for a person to approve or reject |
+
+Every card has an **ⓘ**: hover it to see what the card shows and which tables its data comes from.
+
+## 3. How it helps: three examples
+
+**"Why is revenue 29% under budget?"** One click on the variance opens its case file. The number traces down through
+**12.6M API requests → 3,989 daily usage rows → 75 usage invoices → 75 journal lines**, the reconciliation shows it
+ties, and the root cause is named: the budget assumed growth the usage never delivered. An owner and a decision come
+with it.
+
+**"Is 7% revenue growth good news?"** On the same screen: the top 20% of customers produce 98% of gross margin, runway
+is 5+ years without new money, the churn model ranks who is likely to leave, and the payment model says when the big
+invoices will actually be paid. The conversation moves from *what are the numbers* to *what should we do*.
+
+**"Should we draw the venture debt?"** Treasury shows the $5M term loan would cost $45.8K a month in interest, and at
+today's burn it would *shorten* runway (138 → 128 months), with every covenant shown against its threshold.
+
+## 4. Architecture
+
+```mermaid
+flowchart TB
+  subgraph SRC["Source systems (simulated)"]
+    direction LR
+    A1["Usage API log<br/>197M requests"]
+    A2["Billing: Stripe sandbox (real API)"]
+    A3["ERP ledger: NetSuite export"]
+    A4["Payroll register"]
+    A5["GCP billing export + GPU jobs"]
+    A6["CRM: deals, contracts"]
+    A7["AP inbox: vendor-bill PDFs"]
+  end
+  SIM["Daily simulator<br/>(Claude Code decides events,<br/>code computes amounts)"] --> SRC
+  SRC --> LOAD["Python loaders"]
+  LOAD --> DUCK[("DuckDB<br/>local warehouse")]
+  LOAD --> BQ[("BigQuery<br/>cloud warehouse")]
+  DUCK --> DBT["dbt: 231 models + seeds<br/>staging → intermediate → marts<br/>+ 19 reconciliation checks"]
+  BQ --> DBT
+  DBT --> ML["ML: 8 models<br/>(scikit-learn, statsmodels)"]
+  DBT --> TOOLS["108 read-only tools<br/>(FastAPI)"]
+  ML --> TOOLS
+  TOOLS --> UI["React dashboards"]
+  TOOLS --> AI["AI assistant<br/>(Gemini on Vertex AI)"]
+  AI -->|"proposes"| APPROVE["Approval cards<br/>+ audit trail"]
+```
+
+The same dbt project builds on **DuckDB** (fast, local, free) and **BigQuery** (cloud scale); a parity check proves
+both produce identical results.
+
+## 5. Stack, and why
+
+| Layer | Choice | Why |
+|---|---|---|
+| Warehouse (local) | **DuckDB** | A full analytical warehouse in one file: the 197M-row company builds on a laptop, at no cost |
+| Warehouse (cloud) | **BigQuery** | The same models at cloud scale; tested on a 2,000-customer, 591M-request version of the company |
+| Transformation | **dbt** | Version-controlled SQL with tests, documentation and lineage; cross-database macros keep one codebase for both engines |
+| Language | **Python 3.14** | Loaders, simulator, tools, ML and the API in one language |
+| ML | **scikit-learn, statsmodels** | Gradient boosting, logistic regression, isolation forests and ETS: interpretable, well understood, and backtested against the methods they replace |
+| API | **FastAPI** | Typed, fast, and the same tools serve both the dashboards and the assistant, so they always show the same numbers |
+| Front end | **React + TypeScript + Vite + Recharts** | Interactive, cross-filtering dashboards; mobile layout; guided tour |
+| AI assistant | **Gemini 2.5 Flash on Vertex AI** | Tool calling at about $0.005 a question; tested on 111 questions (95% pass); authenticates with the cloud service account, so no API keys |
+| Data generation | **Claude Code** (headless) | Decides each day's business events; code validates them and computes every amount |
+| Hosting | **Google Cloud Run** | Scales to zero when idle: a portfolio demo that costs about $0–2 a month |
+| CI/CD | **GitHub Actions** + Workload Identity Federation | Every push to `master` rebuilds the company, runs all tests, then deploys, with no stored credentials |
+
+## 6. Data model
+
+**Layers.** Raw source tables are cleaned in *staging*, combined in *intermediate* models, and published as *marts*
+that the product reads. Reconciliation models check the marts against their sources.
+
+```mermaid
+flowchart LR
+  RAW["raw_* schemas<br/>(as each system exports it)"] --> STG["staging<br/>49 models<br/>clean, typed, renamed"]
+  SEEDS["seeds<br/>56 reference tables<br/>(policies, prices, plans)"] --> INT
+  STG --> INT["intermediate<br/>14 models<br/>rating, allocation, P&L"]
+  INT --> MARTS["marts<br/>101 models in 20 areas<br/>(finance, fpa, ar, ap, treasury,<br/>controller, planning, …)"]
+  STG --> MARTS
+  MARTS --> RECON["recon<br/>11 models, 19 checks<br/>subledger ↔ GL"]
+```
+
+**Core entities** (simplified; the full lineage is in dbt's docs):
+
+```mermaid
+erDiagram
+  CUSTOMER ||--o{ API_REQUEST : sends
+  CUSTOMER ||--o{ USAGE_DAILY : "rolls up to"
+  CUSTOMER ||--o{ INVOICE : "is billed"
+  CUSTOMER ||--o{ CONTRACT : signs
+  CUSTOMER ||--o{ PROJECT : buys
+  INVOICE ||--o{ PAYMENT : "is settled by"
+  INVOICE ||--|| JOURNAL_ENTRY : "posts"
+  OPPORTUNITY }o--|| SALES_REP : "owned by"
+  OPPORTUNITY ||--o| CUSTOMER : "becomes when won"
+  JOURNAL_ENTRY ||--|{ JOURNAL_LINE : has
+  JOURNAL_LINE }o--|| GL_ACCOUNT : "books to"
+  JOURNAL_LINE }o--|| DEPARTMENT : "charged to"
+  JOURNAL_LINE }o--|| ENTITY : "in legal entity"
+  VENDOR ||--o{ VENDOR_BILL : sends
+  VENDOR_BILL ||--|| JOURNAL_ENTRY : posts
+  EMPLOYEE ||--o{ PAY_LINE : "is paid"
+  PAY_LINE }o--|| JOURNAL_ENTRY : "posts via payroll"
+  GPU_JOB }o--|| CUSTOMER : "serves"
+  GPU_JOB }o--|| VENDOR : "runs on"
+```
+
+**Scale.** The same generator produces two sizes of Echo Labs:
+
+| | **S** (live demo) | **L** (scale test) |
+|---|---|---|
+| Customers | 116 | 2,000 |
+| API requests | 196M | 591M |
+| Journal entries | 4,307 | 58,772 |
+| Timeline | Jan 2025 → today, extended every morning | Jan 2025 → Sep 2026, generated once |
+| Where | DuckDB + BigQuery (`s_` datasets) | BigQuery |
+
+Altogether the BigQuery warehouse holds about **795M rows (107 GB)**.
+
+## 7. How it works
+
+**Every morning** (7:00, on the laptop) the company moves forward one day and everything downstream refreshes:
+
+```mermaid
+sequenceDiagram
+  participant S as Simulator
+  participant L as Loaders
+  participant W as Warehouse (dbt)
+  participant M as ML
+  participant C as Cloud Run app
+  S->>S: decide the day's events (signups, churn, payments, bills…)
+  S->>L: write journal entries, usage, invoices, PDFs
+  L->>W: load raw tables (DuckDB) + copy to BigQuery
+  W->>W: build 231 models, run tests and 19 reconciliations
+  W->>M: refresh features from the request log, retrain 8 models
+  M->>C: upload a slim snapshot (~70 MB) + model outputs
+  C->>C: picks up the new day within 10 minutes
+```
+
+**The assistant** reads only through tools, so every number in an answer comes from the warehouse. A validator flags
+any number in an answer that a tool did not return; an evidence block lists the sources; a daily question cap keeps
+the public demo affordable. Actions (rejecting a duplicate bill, fixing a misapplied payment, submitting a deal,
+disputing a commission) are proposals: a person approves or rejects them, with an audit trail.
+
+**The machine-learning models** each sit next to the method they would replace, with the backtest shown:
+
+| Model | Method | Result vs today's method |
+|---|---|---|
+| Churn (3 months) | logistic regression on weekly snapshots, 29 features incl. the API log | ROC AUC 0.72 vs 0.54 for the health rules |
+| Expansion | gradient boosting | 0.75 vs 0.61 for a usage-trend rule |
+| Payment timing | quantile gradient boosting | 3.65 days error vs 3.79 (6.1 vs 7.6 on invoices ≥ $10K) |
+| Cost anomalies | robust z-score + isolation forest | caught 12/12 planted anomaly periods vs 10/12 |
+| Revenue (bottom-up) | gradient boosting per customer | best one month out; ETS better further out |
+| Usage revenue | ETS time series | driver forecast was more accurate, and the page says so |
+| GPU & cloud spend | gradient boosting | growth method slightly more accurate |
+| Deal win | logistic regression | no signal with 56 closed deals; CRM stage weighting stays |
+
+Two of these lost to the simpler method. The product shows that, rather than hiding it.
+
+## 8. Trust: how the numbers are kept honest
+
+- **Reconciliations:** GL revenue vs rated usage, Stripe invoices and balance vs GL, payroll register vs GL, vendor
+  bills vs AP, GCP billing export vs the bill, request events vs daily drivers (to the millisecond), and more. 19
+  checks, every month.
+- **Two engines, one answer:** `python -m finance_os.warehouse_parity` compares every model on DuckDB and BigQuery. Today: **175 models, 0 differences**. Money never passes through a float.
+- **Closed months only:** monthly views stop at the last closed month; the open month has its own projected view.
+- **Leakage checks:** the ML tests fail if a model scores implausibly well (the deal model once scored a perfect 1.00
+  because the CRM assigns a customer ID only after a win).
+- **Tests:** 122 Python tests, hundreds of dbt tests, and 111 assistant questions with expected tools and values.
+
+## 9. Deployment and CI/CD
+
+```mermaid
+flowchart LR
+  DEV["git push master"] --> CI["GitHub Actions<br/>rebuild the company, dbt build,<br/>Python tests, web type-check"]
+  CI -->|"tests pass"| CD["Build container<br/>→ Artifact Registry"]
+  CD --> RUN["Cloud Run<br/>(scales to zero)"]
+  LAP["Laptop daily job"] -->|"snapshot + ML outputs"| GCS[("Cloud Storage")]
+  GCS --> RUN
+  RUN --> VTX["Vertex AI (Gemini)"]
+```
+
+- **Two GCP projects:** `finance-os-sivaram` holds the data (BigQuery); `finance-os-app-sivaram` runs the app.
+- **No key files anywhere:** GitHub signs in through Workload Identity Federation; the app uses its service account.
+- **Cost:** about $0–2 a month (Cloud Run scales to zero; Gemini about $0.005 a question, capped at 50 a day).
+
+## 10. Run it locally
 
 ```bash
 python -m venv .venv
-.venv/Scripts/pip install -e ".[dev]"          # installs the finance_os package from src/
-.venv/Scripts/python -m finance_os.generator                 # CSVs → data/synthetic/
-.venv/Scripts/python -m finance_os.ingestion.synthetic_loader  # → data/finance_os.duckdb, raw_* schemas
-.venv/Scripts/python -m finance_os.ingestion.ap_intake         # reads vendor bill PDFs in data/inbox/ap → raw_ap
-cd warehouse && ../.venv/Scripts/dbt build --profiles-dir .
-.venv/Scripts/python -m pytest tests
+.venv/Scripts/pip install -e ".[dev]"
+.venv/Scripts/python -m finance_os.generator                    # generate the company → data/synthetic/
+.venv/Scripts/python -m finance_os.ingestion.synthetic_loader  # load DuckDB → data/finance_os.duckdb
+cd warehouse && ../.venv/Scripts/dbt build --profiles-dir . && cd ..
+.venv/Scripts/python -m pytest -q
 ```
 
-## Status
-- Step 1: generator (customers, products, price list, daily usage), DuckDB loader, dbt staging + tests.
-- Step 2 (M2 unit economics): GPU job logs, cloud overhead, support/success pools, anomaly manifest;
-  seed-driven cost allocation; `fct_unit_economics_monthly`, `fct_customer_margin_monthly`.
-  Switch allocation drivers with `dbt build --vars '{allocation_scenario: hours}'`.
-  Revenue is rated usage and payment fees are modeled until Stripe is connected.
-- Step 3 (M3 tech spend): GPU vendor contract with reserved H100 hours, monthly vendor invoices,
-  `fct_tech_spend_daily` (label attribution), tagging coverage, untagged-spike detection, GPU capacity vs. commit,
-  vendor renewal flags, 3-month spend forecast, and `recon.recon_vendor_invoices` (invoice vs. modeled, 1%).
-  Uses synthetic cloud lines; the real GCP billing export joins on the BigQuery target.
-- Step 4 (M4 burn, runway, KPIs): employees and payroll, a double-entry GL (revenue, collections, fees,
-  vendor bills and payments, payroll, opex, funding), `fct_gl_monthly`, `fct_cash_monthly`, `fct_headcount_monthly`,
-  `fct_kpi_monthly`; recon checks GL ↔ rated revenue, payroll ↔ GL, vendor bills ↔ AP, all in `recon.recon_status`.
-  Unit economics now include unused reserved GPU hours, and support/success cost comes from payroll.
-- Customer lifecycle: self-serve and mid-market churn (voluntary and failed-payment, with win-backs),
-  expansion and contraction, a competitor price cut hitting mid-market, an enterprise account lost to a
-  competitor (A-M4-01) and a one-off backfill spike that inflates ARR (A-M4-02). Measured from revenue in
-  `fct_customer_revenue_monthly` and `fct_mrr_bridge_monthly`; churn KPIs added to the catalog.
-- Step 5 (M5 budget vs. actuals): original budgets for FY2025 (from plan) and FY2026 (from the Oct 2025
-  run-rate, optimistic), `fct_bva_monthly` (variance, YTD, full-year forecast), `fct_bva_alerts` routed to the
-  department owner (threshold in `seeds/variance_thresholds.csv`), and `fct_bva_drivers` (top journal lines behind
-  each alert, for the variance explainer). Anomaly A-M5-01: unbudgeted legal fees in G&A, Mar–May 2026.
-- Step 6 (M6 project accounting): six implementation projects (fixed fee, T&M, T&M with cap, federal T&M with
-  CLINs) with contracts, budgets by cost type, POs, weekly timesheets, subcontractor bills, ODCs, milestones,
-  project invoices and PM estimates; services revenue and project costs in the GL. Marts: `fct_project_costs_monthly`,
-  `fct_project_financials` (EAC, % complete, earned, unbilled, deferred, cap usage), `fct_contract_funding`
-  (75%/90% funding alerts), `fct_project_exceptions`. Recon: project invoices ↔ GL, project labor ≤ payroll.
-  ARR now counts usage revenue only. Anomalies A-M6-01..04 and A-M6-05 (unbilled milestone, for M7).
-- Step 7 (M7 billing operations): pre-bill validation on every invoice line (`fct_billing_exceptions`: rate,
-  hours, duplicates, milestone acceptance, cap, funding), the next billing run with unbilled-days alerts
-  (`fct_billing_run`), billing status per project (`fct_project_billing_status`), and invoice PDFs with backup
-  hours (`finance_os.reports.invoice_pdf`). Anomaly A-M7-01: a P-102 line billed at the wrong labor-category rate.
-- Step 8 (M8 AR and collections): customer payments recorded with remittance vs. applied invoice, and a dispute
-  log. Marts: `fct_ar_invoices`, `fct_ar_aging_snapshot` (month-end buckets), `fct_ar_monthly` (DSO, CEI),
-  `fct_customer_payment_behavior` (per customer and invoice type), `fct_collections_queue` (ranked; disputes and
-  cash-application problems held), `fct_cash_application_exceptions`, `fct_disputes`. AR subledger ties to GL 1200.
-  Reminder drafts: `python -m finance_os.collections.draft_reminders` (template or `--backend openai`; drafts only,
-  checked to quote the exact invoice and amount, never sent). Anomalies A-M8-01 (slow payer), A-M8-02 (misapplied payment).
-- AP document intake (M16): the generator writes 82 vendor bill PDFs in four vendor layouts to `data/inbox/ap`.
-  `ingestion/ap_intake` reads them (rules backend offline; OpenAI backend with `OPENAI_API_KEY`), and the warehouse
-  checks each one (`fct_ap_documents`): known vendor, total = lines, duplicate, PO exists and matches the vendor,
-  matches the posted bill. Failures go to `fct_ap_review_queue`; `fct_ap_extraction_accuracy` scores the extractor.
-  Anomalies A-AP-01..03 (arithmetic error, duplicate submission, wrong PO).
+Run the app (API on :8000, web on :5173):
 
-## The live company (runs every morning)
-After the synthetic history ends (30 Sep 2026), Echo Labs keeps operating on real dates. Each morning
-`python -m finance_os.daily` simulates every day since the last run, through today:
-- **AI decides what happens** (Claude Code headless on your Claude plan; it may only search the company's memory),
-  code validates every event and computes every amount: signups, churn, expansions, late payers, card failures,
-  refunds, project milestones, vendor price increases, duplicate bills, one-off bills from new vendors.
-- **Revenue side:** usage, GPU job logs and cloud costs daily; usage invoices on the 1st (also in the Stripe
-  sandbox), card charges and declines, collections on terms.
-- **AP side:** cloud/GPU costs accrued at month end; bills arrive on the 5th as PDFs in `data/inbox/ap` (read by
-  M16 intake) with any true-up; recurring opex on the 15th; Thursday payment runs with early-pay discounts;
-  payroll at month end; planned hires start on their dates.
-- Everything posts balanced journal entries, is appended to the warehouse after the history, and dbt rebuilds.
-  KPIs, forecasts and reconciliations use closed months (a month closes when it is billed on the 1st).
-
-Scheduled with Windows Task Scheduler at 7:00 (runs when the laptop is back if it was off):
-```bash
-powershell -ExecutionPolicy Bypass -File scripts/schedule_daily.ps1
-```
-Logs: `data/live/logs/<date>.log`. Settings in `.env`: `SIM_PROVIDERS=claude_code` (default; add `,api` for an API fallback);
-`SIM_API_KEY` / `SIM_BASE_URL` / `SIM_MODEL` for an OpenAI-compatible fallback (e.g. Groq's free tier), else
-OpenAI as the API provider; `STRIPE_SECRET_KEY` (sandbox) to mirror billing in Stripe.
-
-## Scale and BigQuery
-The generator has three company sizes: `--scale S` (default: 105 customers, ~32M API requests; local DuckDB,
-tests), `M` (400 customers) and `L` (2,000 customers, ~590M API requests, ~70 GB; BigQuery). Request-level usage
-events are generated inside the warehouse by SQL from the daily drivers, with duplicates, late arrivals, failed
-requests and a mid-2026 logging change; dbt dedupes and rolls them up, and `recon_usage_events` proves they add back
-to the drivers to the millisecond.
-```bash
-.venv/Scripts/python -m finance_os.generator.high_volume --engine duckdb
-```
-BigQuery (project `finance-os-sivaram`, your gcloud login, no key files):
-```bash
-.venv/Scripts/python -m finance_os.generator --scale L --out data/synthetic_L --inbox data/inbox_L/ap
-```
-```bash
-.venv/Scripts/python -m finance_os.ingestion.bigquery_loader --src data/synthetic_L
-```
-```bash
-.venv/Scripts/python -m finance_os.generator.high_volume --engine bigquery
-```
-Generation runs month by month (on-demand BigQuery caps CPU per byte scanned).
-
-**Every model runs on both engines.** DuckDB-only SQL goes through cross-database macros (`warehouse/macros/
-cross_db.sql`: dates, series, arrays, exact decimals, medians). Two companies live side by side in one project:
-L in the plain datasets (`raw_*`, `marts`, …) and the S company the live simulator runs in `s_*` datasets
-(`--vars "dataset_prefix: s_"`). The event rollup (`int_usage_daily_from_events`) is incremental and partitioned
-by day: a full L build processes ~44 GiB (≈ $0.27 on demand), a daily incremental run ~24 MB at S. Tests that
-scan every raw event are tagged `full_scan` and skipped in scheduled cloud builds (`--exclude tag:full_scan`).
-```bash
-.venv/Scripts/dbt build --project-dir warehouse --profiles-dir warehouse --target cloud --exclude tag:full_scan
-```
-**Parity:** `python -m finance_os.warehouse_parity` compares all 130 models between DuckDB and BigQuery (S): row
-counts and every numeric column's total. Books of record match exactly; forecast models (floating-point growth
-math) within one cent per row. Money never passes through a float: divisions use `fdiv` (exact to 9 places on
-both engines) and amounts round as decimals.
-
-## Deal desk, commissions, alerts, processes
-- **Deal desk (M9):** price a deal with real unit costs, check discount band / margin floor / term / commit
-  guardrails (`seeds/deal_guardrails.csv`, `deal_policy.csv`), auto-approve or route to Finance with reasons, print the
-  quote and order form. Workspace page "Deal desk"; assistant tools `price_deal`, `submit_deal`.
-- **Sales commissions (M10):** monthly statements per rep from billed revenue (credit above each account's previous
-  peak, so usage noise is never paid twice), quota attainment, accelerator, 90-day clawback, disputes as approval cards.
-- **Alerts (M13):** `fct_alerts` holds every condition true now; `python -m finance_os.alerts` sends new ones once as a
-  digest (Slack, email or Telegram, configured in `.env`; otherwise `data/live/alerts_outbox.md`), logs them, and
-  marks cleared ones resolved. Alerts page with acknowledge. Runs in the morning job.
-- **Processes (M15):** `docs/PROCESSES.md`: swim-lane maps, SIPOC, close runbook, controls, before/after.
-- **Board pack:** `python -m finance_os.reports.board_pack` adds the scenario outlook, cash and covenants, fundraising
-  and board-attention items to the KPI summary.
-
-## Source systems, as they really land
-- **ERP = NetSuite.** The ledger arrives as a NetSuite data export (`raw_netsuite`: `transaction`, `transactionline`,
-  `account`, `accountingperiod`, `department`, `entity`; NetSuite types such as CustInvc/VendBill/Check, internal
-  ids, custom body fields for the posting rule and source reference). ERP staging maps it back to account numbers
-  and codes. Live days are converted the same way by the live loader.
-- **Payroll = line-item register** (`raw_payroll.pay_register_lines`, like an ADP/Gusto export): earnings, federal and
-  state withholding, Social Security (to its wage base), Medicare, 401(k), medical, employer FUTA/SUTA and match,
-  net pay. The GL posts expense plus payroll tax and benefits liabilities, remitted on the 15th.
-- **Google Cloud = the detailed billing export** (`raw_gcp.gcp_billing_export_v1`, Google's nested schema: hourly
-  rows, service/SKU/project structs, key/value labels, sustained-use credits, invoice month). `recon_gcp_export_bill`
-  proves each invoice month's net cost equals the GCP bill to the cent.
-- **Scale:** headcount, opex and funding scale with the company (S 1×, M 3×, L 10×: L has ~520 people).
-
-## Web app
-Assistant panel (agentic, shows every tool step, approval cards) next to a card-based workspace: Home (KPIs, periods,
-position chart, Needs you, approvals, modules) and pages for Revenue, Tech spend, Budget, Projects, Billing,
-Receivables, AP inbox and Trust. Pages read the same tools as the assistant, so both show the same numbers.
-Chats are kept (History menu; the last chat reopens after a reload). Drop a vendor bill into the assistant (PDF,
-scanned PDF or photo): it is read (PDF text, or OpenAI vision OCR for scans and images), checked against vendors,
-POs and the ledger (duplicate, arithmetic, PO owner and open balance), and the assistant prepares an approve or
-reject card. Sample scans: `python -m finance_os.generator.documents.sample_scans` → `data/samples/`.
-On phones the app shows one panel at a time with a Workspace / Assistant switch.
-
-Run the API and the web dev server, then open http://localhost:5173:
 ```bash
 .venv/Scripts/python -m finance_os.app
 ```
@@ -159,43 +257,37 @@ Run the API and the web dev server, then open http://localhost:5173:
 npm --prefix web install && npm --prefix web run dev
 ```
 
-## Assistant backend (stage 1 of the web app)
-Agentic assistant over the warehouse: OpenAI with tool calling, 18 read-only tools, 3 proposal-only actions,
-a code validator for numbers and grounding, and an approve / reject / undo audit trail in `data/app.duckdb`.
-```bash
-.venv/Scripts/python -m finance_os.app
-```
-API at http://127.0.0.1:8000 (interactive docs at `/docs`). Eval (31 questions, real API, costs cents per question):
-```bash
-.venv/Scripts/python -m finance_os.app.eval --runs 3
-```
-Model: `OPENAI_ASSISTANT_MODEL` in `.env` (default `gpt-4.1`). Latest result: 93/93 over 3 runs (`evals/assistant/results/`).
+The full command reference (BigQuery, the daily job, ML training, the assistant tests) is in the
+[developer guide](docs/DEVELOPER_GUIDE.md); the design is in [docs/SYSTEM_DESIGN.md](docs/SYSTEM_DESIGN.md).
 
-## Using OpenAI for extraction
-Put the key in `.env` (git-ignored), then extract and score:
-```bash
-.venv/Scripts/python -m finance_os.ingestion.ap_intake --backend openai
-```
-```bash
-cd warehouse && ../.venv/Scripts/dbt build --profiles-dir . --vars "{ap_backend: openai}"
-```
-`.env` holds `OPENAI_API_KEY=...` and optionally `OPENAI_MODEL=...` (default `gpt-4.1-mini`).
+## 11. Repository layout
 
-## Metrics and board pack
-KPIs are defined in `warehouse/metrics/kpis.yml`. After editing it:
-```bash
-.venv/Scripts/python -m finance_os.reports.build_metric_catalog
 ```
-That writes `warehouse/seeds/metric_catalog.csv` and [docs/METRIC_CATALOG.md](docs/METRIC_CATALOG.md); dbt fails any KPI not in the catalog.
-
-One-page board summary for the latest month (written to `reports/`):
-```bash
-.venv/Scripts/python -m finance_os.reports.board_pack
+src/finance_os/
+  generator/      the simulated company (history) and request-level usage events
+  simulator/      the daily simulation (live days)
+  ingestion/      loaders: CSV, live records, Stripe, AP PDFs, BigQuery copy
+  ml/             feature store and the 8 models
+  app/            FastAPI app, 108 tools, assistant, cloud entry point
+  reports/        invoice PDFs, board pack, scheduled reports
+  corpfin.py      corporate-finance formulas (DCF, WACC, NPV, …)
+warehouse/        dbt project: models (staging, intermediate, marts, recon), seeds, macros, metric definitions
+web/              React front end
+tests/            Python tests
+evals/assistant/  assistant test questions and results
+docs/             system design, metric catalog, processes, developer guide
 ```
 
-Invoice PDF with backup detail (written to `reports/invoices/`):
-```bash
-.venv/Scripts/python -m finance_os.reports.invoice_pdf --invoice PINV00014
-```
+## 12. Limits, stated plainly
 
-After changing a seed's columns, run `dbt seed --full-refresh` once.
+- The company is **simulated**. Stripe is a real sandbox API; the ERP, payroll and CRM data follow real export formats but are generated.
+- Some reference inputs are **illustrative and labelled so**: lease terms, lender terms, FX hedges and peer valuation multiples.
+- Leases, debt and hedges are subledger schedules; the Controller page shows the entries to book rather than posting them.
+- The live demo serves the S company; the L company proves the pipeline at scale but is not updated daily.
+- Assistant answers can be wrong. They cite their sources so they can be checked.
+
+## 13. License, privacy and terms
+
+- **License:** [Apache License 2.0](LICENSE)
+- **Privacy:** [PRIVACY.md](PRIVACY.md): what the demo stores and processes
+- **Terms of use:** [TERMS.md](TERMS.md)
