@@ -3547,6 +3547,20 @@ def get_deal_predictions(wh):
     return _ml_result(r, "finance_os.ml.deals (logistic regression on closed opportunities)", r["rows"], pipeline=r["pipeline"])
 
 
+def get_entity_names(wh):
+    """What each short id means (customers, projects, contracts, deals, reps), for hover labels in the app."""
+    seg = {'enterprise': 'enterprise customer', 'mid_market': 'mid-market customer', 'self_serve': 'self-serve customer', 'federal': 'federal customer'}
+    rows = [{"id": r["customer_id"], "label": f"{r['customer_id']} · {r['customer_name']} · {seg.get(r['segment'], r['segment'])}"}
+            for r in wh.query("select customer_id, customer_name, segment from marts.dim_customer")]
+    rows += [{"id": r["project_id"], "label": f"{r['project_id']} · {r['project_name']} · project for {r['customer_id']}"}
+             for r in wh.query("select project_id, project_name, customer_id from staging.stg_projects__projects")]
+    rows += [{"id": r["contract_id"], "label": f"{r['contract_id']} · {r['contract_type'].replace('_', ' ')} contract with {r['customer_id']}"}
+             for r in wh.query("select contract_id, contract_type, customer_id from staging.stg_projects__contracts")]
+    rows += [{"id": r["opportunity_id"], "label": f"{r['opportunity_id']} · deal: {r['account_name']} ({r['stage'].replace('_', ' ')})"}
+             for r in wh.query("select opportunity_id, account_name, stage from staging.stg_crm__opportunities")]
+    return {"source": "marts.dim_customer, staging projects, contracts, opportunities", "row_count": len(rows), "rows": rows}
+
+
 def get_ml_models(wh):
     """The four ML models: what each predicts, when it was trained, and how it compares with the method it would
     replace on held-out data."""
@@ -3750,6 +3764,8 @@ TOOLS = {
     "get_cost_anomalies_ml": (get_cost_anomalies_ml, "Statistical/ML cost anomaly detection: ledger lines and daily cloud spend "
                               "out of line with their own history, with the expected range. Use for 'unusual costs', "
                               "'anomalies'.", _p({})),
+    "get_entity_names": (get_entity_names, "What short ids mean: each customer, project, contract and deal id with its "
+                         "name and type.", _p({})),
     "get_ml_models": (get_ml_models, "The machine-learning models in Finance OS (churn, expansion, bottom-up revenue, usage "
                       "ETS, GPU/cloud spend, payment timing, deal win, cost anomalies): method, when trained, and backtest "
                       "results vs the current methods. Use for 'what ML do you use', 'how accurate are the predictions'.", _p({})),

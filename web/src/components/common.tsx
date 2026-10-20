@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { describe, useNames } from './names'
 import { applyFilters, FilterContext, inPeriod, usePeriod } from './Dash'
 import { api, fmt, label, type Row, type ToolResult } from '../api'
 
@@ -107,6 +108,7 @@ const PAGE = 15
 export function DataTable({ rows, columns, onRow, empty = 'Nothing here.', title = 'export', pageSize = PAGE }:
   { rows: Row[]; columns: Column[]; onRow?: (r: Row) => void; empty?: string; title?: string; pageSize?: number }) {
   const { inspect } = useWorkspace()
+  useNames()
   // inside a <Dash> page, the page's cross-filters apply to any table whose rows carry the filtered field
   const pageFilters = useContext(FilterContext)?.filters
   const allRows = rows
@@ -181,7 +183,7 @@ export function DataTable({ rows, columns, onRow, empty = 'Nothing here.', title
                   <td key={c.key} className={numeric(c) ? 'num' : ''}>
                     {c.render ? c.render(r)
                       : ENTITY_KEYS[c.key] && r[c.key] ? (
-                        <button className="link" title="Open details" onClick={(e) => { e.stopPropagation(); inspect({ kind: ENTITY_KEYS[c.key], id: String(r[c.key]) }) }}>
+                        <button className="link" title={`${describe(r[c.key]) ?? String(r[c.key])} · click for details`} onClick={(e) => { e.stopPropagation(); inspect({ kind: ENTITY_KEYS[c.key], id: String(r[c.key]) }) }}>
                           {String(r[c.key])}
                         </button>)
                       : c.chip ? (r[c.key] == null ? '—' : <Chip value={String(r[c.key])} />)

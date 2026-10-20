@@ -2,6 +2,7 @@
 // every KPI, chart and DataTable on the page by that value (rows that carry the same field). A chart never filters
 // itself: it highlights the selection and dims the rest, so the selection's share stays visible.
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
+import { describe, useNames } from './names'
 import { Bar, BarChart, Brush, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, Rectangle, ReferenceLine, ResponsiveContainer, Sector, Tooltip, XAxis, YAxis } from 'recharts'
 import { fmt, label, type Row } from '../api'
 import { WorkspaceContext } from './common'
@@ -37,6 +38,18 @@ export const TONE = { good: 'var(--good, #2f9e6b)', ok: 'var(--warn, #c98a1b)', 
 const AXIS = { tick: { fontSize: 11, fill: 'var(--faint)' }, tickLine: false, axisLine: false } as const
 const TIP = { contentStyle: { background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 } }
 const pretty = (v: string) => v.replace(/_/g, ' ')
+
+// a category label that shows what an id means on hover (EN-004 -> "Enterprise Customer 4 · enterprise customer")
+function IdTick({ x, y, payload }: { x?: number | string; y?: number | string; payload?: { value?: unknown } }) {
+  const v = String(payload?.value ?? '')
+  const full = describe(v)
+  return (
+    <text x={x} y={y} dy={4} textAnchor="end" fontSize={11} fill="var(--faint)" style={full ? { textDecoration: 'underline dotted' } : undefined}>
+      {full && <title>{full}</title>}
+      {pretty(v)}
+    </text>
+  )
+}
 
 // Recharts 3 ignores onClick on <Pie>/<Cell> in some layouts, so clicks are attached to the drawn SVG shape itself.
 type ShapeProps = Record<string, unknown> & { payload?: Record<string, unknown> }
@@ -167,6 +180,7 @@ export function Donut(props: Breakdown) {
 
 /** Horizontal bars (top N by value) that filter on click. `stack` splits each bar by a second field. */
 export function Bars({ top = 8, stack, signed, refX, valueFormat, ...props }: Breakdown & { top?: number; signed?: boolean; refX?: { x: number; label: string }[]; valueFormat?: (v: number) => string; stack?: { key: string; values: string[]; labels?: Record<string, string>; colors?: Record<string, string> } }) {
+  useNames()  // redraw when id names arrive, for the hover labels
   const f = useFilters()
   const own = useFiltered(props.rows, props.dim)
   const selected = f?.filters[props.dim]
@@ -188,9 +202,9 @@ export function Bars({ top = 8, stack, signed, refX, valueFormat, ...props }: Br
         <BarChart data={data} layout="vertical" margin={{ left: 8, right: 16, top: 4, bottom: 4 }} style={{ cursor: 'pointer' }}>
           <CartesianGrid stroke="var(--border)" horizontal={false} />
           <XAxis type="number" tickFormatter={show} allowDecimals={!!props.measure} {...AXIS} />
-          <YAxis type="category" dataKey="name" width={110} tickFormatter={pretty} {...AXIS} style={{ cursor: 'pointer' }}
+          <YAxis type="category" dataKey="name" width={110} {...AXIS} tick={IdTick} style={{ cursor: 'pointer' }}
             onClick={(t: unknown) => { const v = (t as { value?: string })?.value; if (v != null) f?.toggle(props.dim, String(v)) }} />
-          <Tooltip formatter={(v) => show(v)} labelFormatter={(l) => pretty(String(l))} {...TIP} />
+          <Tooltip formatter={(v) => show(v)} labelFormatter={(l) => describe(l) ?? pretty(String(l))} {...TIP} />
           {stack ? stack.values.map((s, i) => (
             <Bar key={s} dataKey={s} name={stack.labels?.[s] ?? pretty(s)} stackId="s" fill={stack.colors?.[s] ?? PALETTE[i]} isAnimationActive animationDuration={700}
               shape={clickableBar((p) => f?.toggle(props.dim, String(p.payload?.name)))}>
