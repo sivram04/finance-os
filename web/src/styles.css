@@ -547,3 +547,14 @@ tbody tr { transition: background 0.12s ease; }
 .checks-list li.no b { color: var(--bad); }
 
 .mtd-banner { margin: 12px 24px 0; padding: 8px 12px; border-radius: 8px; background: var(--warn-soft); color: var(--warn); font-size: 13px; }
+
+/* approval cards: badges on their own row above the text; actions on the right */
+.attention .item.approval-item { grid-template-columns: 1fr auto; row-gap: 6px; }
+.attention .item.approval-item > div:first-child { grid-column: 1 / -1; display: flex !important; flex-wrap: wrap; gap: 6px; align-items: center; }
+.attention .item.approval-item > .detail { grid-column: 1; font-size: 13px; }
+.attention .item.approval-item > div:last-child { grid-column: 2; grid-row: 2; }
+.approval-ev > .link { justify-self: start; text-align: left; padding: 0; }
+@media (max-width: 800px) {
+  .attention .item.approval-item { grid-template-columns: 1fr; }
+  .attention .item.approval-item > div:last-child { grid-column: 1; grid-row: auto; }
+}
