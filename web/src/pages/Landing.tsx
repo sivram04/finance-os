@@ -140,11 +140,13 @@ export function Landing({ theme, onTheme }: { theme: 'light' | 'dark'; onTheme: 
         <div className="section-head reveal"><h2>How it helps</h2><p>The finance team's slowest questions, answered in a click. Hover a card, then open it.</p></div>
         <div className="help-grid">
           {HELPS.map((x, i) => (
-            <div key={x.pain} className={`help-card reveal ${hover === i ? 'on' : ''}`} style={{ transitionDelay: `${i * 60}ms` }}
-              onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}>
-              <div className="pain">{x.pain}</div>
-              <div className="gain">{x.gain}</div>
-              <div className="help-foot"><span className="muted">{x.proof}</span><button className="link" onClick={() => go(x.page)}>Open →</button></div>
+            // the fade-in sits on a wrapper React never re-renders, so hovering (which changes the card's class) can't hide it
+            <div key={x.pain} className="reveal help-wrap" style={{ transitionDelay: `${i * 60}ms` }}>
+              <div className={`help-card ${hover === i ? 'on' : ''}`} onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}>
+                <div className="pain">{x.pain}</div>
+                <div className="gain">{x.gain}</div>
+                <div className="help-foot"><span className="muted">{x.proof}</span><button className="link" onClick={() => go(x.page)}>Open →</button></div>
+              </div>
             </div>
           ))}
         </div>

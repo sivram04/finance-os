@@ -3585,6 +3585,175 @@ def get_data_scale(wh, month=None):
     return {"source": "raw_usage.api_requests, staging, marts", **compute_data_scale(wh, month)}
 
 
+# ---- corporate finance: valuation; controller: assets, leases, JE testing; treasury: debt, FX -----------------
+
+def get_valuation(wh, terminal_growth=0.03, exit_ebitda_multiple=18.0):
+    """What Echo Labs is worth, three ways: a DCF on the five-year plan's free cash flow (terminal value by perpetual
+    growth and by an exit EBITDA multiple) discounted at the company WACC, trading multiples of (illustrative) public
+    peers on next-twelve-month revenue, and the last funding round; with a WACC x growth sensitivity grid and a
+    football-field summary of the ranges, per share and in total."""
+    from finance_os import corpfin as cf
+    plan = wh.query("select year, revenue, ebitda, free_cash_flow from marts.fct_long_range_plan order by year")
+    fcf = [float(r["free_cash_flow"]) for r in plan]
+    rate = company_wacc(wh)
+    g, mult = float(terminal_growth), float(exit_ebitda_multiple)
+    cash = float(wh.query("select closing_cash from marts.fct_cash_monthly where month <= ?::date order by month desc limit 1", [str(wh.latest_month())[:10]])[0]["closing_cash"])
+    debt = float(wh.query("select coalesce(sum(drawn), 0) as d from seeds.debt_facilities")[0]["d"])
+    cap = wh.query("""select sum(shares) as fd, (select price_per_share from seeds.cap_table where security_class like 'series%'
+                                                 order by issue_date desc, price_per_share desc limit 1) as px from seeds.cap_table""")[0]
+    shares, round_px = float(cap["fd"]), float(cap["px"])
+    to_equity = lambda ev: ev + cash - debt  # noqa: E731
+    growth = cf.dcf(fcf, rate, terminal_growth=g)
+    exit_ = cf.dcf(fcf, rate, exit_multiple=mult, exit_metric=float(plan[-1]["ebitda"]))
+    grid, evs = [], []
+    for dr in (rate - 0.02, rate - 0.01, rate, rate + 0.01, rate + 0.02):
+        row = {"wacc": round(dr, 4)}
+        for gg in (0.02, 0.03, 0.04):
+            ev = cf.dcf(fcf, dr, terminal_growth=gg)["enterprise_value"]
+            row[f"g {gg:.0%}"] = round(to_equity(ev) / shares, 2)
+            evs.append(ev)
+        grid.append(row)
+    peers = wh.query("select peer, segment, ev_to_ntm_revenue, ntm_revenue_growth, gross_margin, note from seeds.peer_multiples")
+    mults = [float(p["ev_to_ntm_revenue"]) for p in peers]
+    ntm_rev = float(plan[0]["revenue"])
+    lo, mid, hi = (cf.percentile(mults, q) for q in (0.25, 0.5, 0.75))
+    per_share = lambda ev: round(to_equity(ev) / shares, 2)  # noqa: E731
+    football = [
+        {"method": "DCF (WACC +/- 2 pts, growth 2-4%)", "low": per_share(min(evs)), "high": per_share(max(evs)),
+         "mid": per_share(growth["enterprise_value"])},
+        {"method": f"DCF exit at {mult:.0f}x EBITDA", "low": per_share(exit_["enterprise_value"] * 0.85),
+         "high": per_share(exit_["enterprise_value"] * 1.15), "mid": per_share(exit_["enterprise_value"])},
+        {"method": "Trading peers, EV / NTM revenue (P25-P75)", "low": per_share(lo * ntm_rev), "high": per_share(hi * ntm_rev),
+         "mid": per_share(mid * ntm_rev)},
+        {"method": "Last funding round", "low": round_px, "high": round_px, "mid": round_px},
+    ]
+    return {"source": "marts.fct_long_range_plan, fct_cash_monthly, seeds.peer_multiples, cap_table, capital_market_assumptions",
+            "as_of": str(wh.latest_month())[:7], "wacc": round(rate, 4), "terminal_growth": g, "exit_ebitda_multiple": mult,
+            "cash": round(cash, 2), "debt": round(debt, 2), "fully_diluted_shares": shares, "last_round_price": round_px,
+            "plan": [{"year": r["year"], "revenue": r["revenue"], "ebitda": r["ebitda"], "free_cash_flow": r["free_cash_flow"],
+                      "pv_fcf": pv} for r, pv in zip(plan, growth["pv_fcf"])],
+            "dcf_perpetual_growth": {**growth, "equity_value": round(to_equity(growth["enterprise_value"]), 2),
+                                     "per_share": per_share(growth["enterprise_value"])},
+            "dcf_exit_multiple": {**exit_, "equity_value": round(to_equity(exit_["enterprise_value"]), 2),
+                                  "per_share": per_share(exit_["enterprise_value"])},
+            "comparables": {"ntm_revenue": round(ntm_rev, 2), "p25": round(lo, 2), "median": round(mid, 2), "p75": round(hi, 2),
+                            "peers": peers},
+            "sensitivity_per_share": grid, "row_count": len(football), "rows": football,
+            "note": "Peer multiples are illustrative, not market data. NTM revenue is the plan's first year. The plan's "
+                    "early cash burn means most of the DCF value sits in the terminal value; read the per-share range, "
+                    "not a point."}
+
+
+def get_fixed_assets(wh):
+    """Fixed-asset register (from GL capex entries), net book value, and depreciation reconciled to the GL."""
+    reg = wh.query("select * from marts.fct_fixed_asset_register order by acquired_date")
+    rec = wh.query("""select status, count(*) as months, sum(difference) as difference
+                      from marts.fct_depreciation_reconciliation group by 1""")
+    by_month = wh.query("""select strftime(month, '%Y-%m') as month, sum(register_depreciation) as register_depreciation,
+                                  sum(gl_depreciation) as gl_depreciation, sum(difference) as difference
+                           from marts.fct_depreciation_reconciliation group by 1 order by 1""")
+    tot = {k: round(sum(float(r[k]) for r in reg), 2) for k in ("cost", "accumulated_depreciation", "net_book_value")}
+    return _result(reg, "marts.fct_fixed_asset_register, fct_depreciation_reconciliation", totals=tot,
+                   reconciliation=rec, depreciation_by_month=by_month,
+                   note="The register is built from the ledger's capex entries; depreciation is straight line from the "
+                        "month after purchase. 'ties' means the GL booked exactly what the register says.")
+
+
+def get_leases(wh, month=None):
+    """ASC 842 operating leases: liability and right-of-use asset at a closed month (current vs non-current), the
+    month's interest and straight-line cost, and the cumulative straight-line vs cash difference to book."""
+    m = _month(month, wh)
+    now = wh.query("""select * from marts.fct_lease_schedule_monthly where month = ?::date order by lease_id""", [m])
+    nxt = wh.query("""select lease_id, sum(cash_payment - interest) as principal_12m
+                      from marts.fct_lease_schedule_monthly where month > ?::date and month <= ?::date + interval 12 month
+                      group by 1""", [m, m])
+    cur = {r["lease_id"]: float(r["principal_12m"]) for r in nxt}
+    cum = wh.query("""select lease_id, sum(cost_minus_cash) as cumulative_cost_minus_cash, sum(cash_payment) as cash_to_date,
+                             sum(straight_line_cost) as cost_to_date
+                      from marts.fct_lease_schedule_monthly where month <= ?::date group by 1""", [m])
+    cmap = {r["lease_id"]: r for r in cum}
+    rows = []
+    for r in now:
+        liab = float(r["closing_liability"])
+        c12 = min(cur.get(r["lease_id"], 0.0), liab)
+        rows.append({**r, "current_liability": round(c12, 2), "non_current_liability": round(liab - c12, 2),
+                     "cumulative_cost_minus_cash": cmap.get(r["lease_id"], {}).get("cumulative_cost_minus_cash")})
+    schedule = wh.query("""select lease_id, strftime(month, '%Y-%m') as month, cash_payment, interest, straight_line_cost,
+                                  closing_liability, closing_rou_asset, is_future
+                           from marts.fct_lease_schedule_monthly order by lease_id, month""")
+    tot = {k: round(sum(float(r[k] or 0) for r in rows), 2) for k in
+           ("closing_liability", "current_liability", "non_current_liability", "closing_rou_asset", "straight_line_cost",
+            "cash_payment", "cumulative_cost_minus_cash")}
+    return _result(rows, "marts.fct_lease_schedule_monthly (seeds/leases.csv)", month=m[:7], totals=tot, schedule=schedule,
+                   note="Lease terms are simulated. Operating leases: one straight-line cost a month; the liability "
+                        "unwinds with interest at the incremental borrowing rate. cumulative_cost_minus_cash is the "
+                        "accrual to book against cash rent in the GL.")
+
+
+def get_journal_entry_tests(wh, min_score=2):
+    """Audit-style journal-entry testing: entries flagged as manual, weekend, round amount, period-end or outlier,
+    with a risk score; the entries scoring at least min_score are the sample to review."""
+    rows = wh.query("""select * from marts.fct_journal_entry_tests where risk_score >= ? order by risk_score desc, amount desc""",
+                    [int(min_score)])
+    dist = wh.query("select risk_score, count(*) as entries from marts.fct_journal_entry_tests group by 1 order by 1")
+    flags = wh.query("""select sum(cast(is_manual as integer)) as manual, sum(cast(is_weekend as integer)) as weekend,
+                               sum(cast(is_round as integer)) as round_amount, sum(cast(is_outlier as integer)) as outlier,
+                               sum(cast(is_period_end as integer)) as period_end, count(*) as entries
+                        from marts.fct_journal_entry_tests""")[0]
+    return _result(rows, "marts.fct_journal_entry_tests", distribution=dist, flag_counts=flags,
+                   note="Flags: manual (keyed by hand), weekend, round amount and period-end apply to manual entries; "
+                        "outlier (over 10x the median for the entry type) applies to all.")
+
+
+def get_debt_facilities(wh):
+    """Debt facilities (venture term loan and bank revolver; illustrative terms): what is available and undrawn,
+    the commitment fees, a pro-forma schedule if the term loan were drawn, its effect on runway, and the covenant
+    tests (minimum cash, runway, liquidity)."""
+    fac = wh.query("select * from seeds.debt_facilities order by facility_id")
+    sched = wh.query("""select facility_id, strftime(month, '%Y-%m') as month, schedule_month, actual_commitment_fee,
+                               pro_forma_opening_balance, pro_forma_interest, pro_forma_principal, pro_forma_closing_balance,
+                               pro_forma_debt_service from marts.fct_debt_schedule_monthly order by facility_id, month""")
+    term = [r for r in sched if r["facility_id"] == "VD-01"]
+    first12 = term[:12]
+    cash = float(wh.query("select closing_cash from marts.fct_cash_monthly where month <= ?::date order by month desc limit 1", [str(wh.latest_month())[:10]])[0]["closing_cash"])
+    burn = wh.query("select avg(net_burn) as b from (select net_burn from marts.fct_cash_monthly where month <= ?::date order by month desc limit 3)", [str(wh.latest_month())[:10]])[0]["b"]
+    burn = float(burn or 0)
+    interest_m = float(first12[0]["pro_forma_interest"]) if first12 else 0.0
+    draw = float(term[0]["pro_forma_opening_balance"]) if term else 0.0
+    runway = lambda c, b: None if b <= 0 else round(c / b, 1)  # noqa: E731
+    cov = wh.query("""select rule_id, description, value, threshold, status from marts.fct_treasury_covenants
+                      where not is_forecast and month = (select max(month) from marts.fct_treasury_covenants where not is_forecast)""")
+    return {"source": "seeds.debt_facilities, marts.fct_debt_schedule_monthly, fct_treasury_covenants, fct_cash_monthly",
+            "row_count": len(fac), "rows": fac, "schedule": sched,
+            "summary": {"total_commitment": round(sum(float(f["commitment"]) for f in fac), 2),
+                        "drawn": round(sum(float(f["drawn"]) for f in fac), 2),
+                        "commitment_fees_per_month": round(sum(float(r["actual_commitment_fee"]) for r in sched if r["schedule_month"] == 1), 2),
+                        "pro_forma_draw": draw, "pro_forma_interest_per_month": interest_m,
+                        "pro_forma_interest_first_12m": round(sum(float(r["pro_forma_interest"]) for r in first12), 2),
+                        "net_burn_t3m": round(burn, 2),
+                        "runway_months_now": runway(cash, burn), "runway_months_if_drawn": runway(cash + draw, burn + interest_m)},
+            "covenants": cov,
+            "note": "Lender terms are illustrative and the facilities are undrawn, so no debt or interest is in the GL; "
+                    "the schedule shows what a full draw would cost."}
+
+
+def get_fx_hedging(wh, month=None):
+    """FX exposure from the UK and India subsidiaries and the forward hedges against it: next-quarter exposure in
+    local currency, the amount hedged and the hedge ratio, and each forward's mark-to-market (realized at maturity)."""
+    m = _month(month, wh)
+    expo = wh.query("""select * from marts.fct_fx_exposure_monthly where month = ?::date order by entity_id""", [m])
+    trend = wh.query("""select entity_id, strftime(month, '%Y-%m') as month, hedge_ratio, next_quarter_exposure_usd
+                        from marts.fct_fx_exposure_monthly order by entity_id, month""")
+    mtm = wh.query("""select hedge_id, currency, entity_id, strftime(maturity_month, '%Y-%m') as maturity_month, notional_fc,
+                             forward_rate, spot_rate, mtm_usd, status, is_projected
+                      from marts.fct_fx_hedge_mtm where month = least(maturity_month, ?::date) and trade_month <= ?::date
+                      order by hedge_id""", [m, m])
+    return _result(expo, "marts.fct_fx_exposure_monthly, fct_fx_hedge_mtm (seeds/fx_hedges.csv)", month=m[:7],
+                   hedges=mtm, trend=trend, policy="Hedge 50-80% of the next quarter's subsidiary costs.",
+                   total_mtm_usd=round(sum(float(h["mtm_usd"]) for h in mtm), 2),
+                   note="Forward trades are simulated; exposure is the subsidiaries' real cost base from the GL.")
+
+
 def get_entity_names(wh):
     """What each short id means (customers, projects, contracts, deals, reps), for hover labels in the app."""
     seg = {'enterprise': 'enterprise customer', 'mid_market': 'mid-market customer', 'self_serve': 'self-serve customer', 'federal': 'federal customer'}
@@ -3802,6 +3971,22 @@ TOOLS = {
     "get_cost_anomalies_ml": (get_cost_anomalies_ml, "Statistical/ML cost anomaly detection: ledger lines and daily cloud spend "
                               "out of line with their own history, with the expected range. Use for 'unusual costs', "
                               "'anomalies'.", _p({})),
+    "get_valuation": (get_valuation, "What the company is worth: DCF on the five-year plan (perpetual growth and exit "
+                      "EBITDA multiple) at the company WACC, trading-peer EV/revenue multiples, the last funding round, a "
+                      "WACC x growth sensitivity grid and a football-field summary per share. Use for valuation, DCF, "
+                      "'what are we worth', enterprise value.",
+                      _p({"terminal_growth": {"type": "number"}, "exit_ebitda_multiple": {"type": "number"}})),
+    "get_fixed_assets": (get_fixed_assets, "Fixed-asset register (cost, accumulated depreciation, net book value) and the "
+                         "depreciation reconciliation to the GL.", _p({})),
+    "get_leases": (get_leases, "ASC 842 operating leases: lease liability (current and non-current), right-of-use asset, "
+                   "interest, straight-line cost vs cash rent, and the schedule.", _p({"month": MONTH})),
+    "get_journal_entry_tests": (get_journal_entry_tests, "Audit-style journal-entry testing: manual, weekend, round-amount, "
+                                "period-end and outlier entries with a risk score; the sample to review.",
+                                _p({"min_score": {"type": "integer"}})),
+    "get_debt_facilities": (get_debt_facilities, "Debt facilities (venture term loan, revolver): commitment, drawn, fees, "
+                            "pro-forma schedule and interest if drawn, runway effect, and covenant tests.", _p({})),
+    "get_fx_hedging": (get_fx_hedging, "FX exposure from the UK and India subsidiaries, forward hedges, hedge ratio and "
+                       "mark-to-market.", _p({"month": MONTH})),
     "get_data_scale": (get_data_scale, "How much data stands behind the numbers: the usage-revenue chain for the "
                        "closed month (API requests -> daily usage -> invoices -> journal lines) and the warehouse's size.", _p({})),
     "get_entity_names": (get_entity_names, "What short ids mean: each customer, project, contract and deal id with its "

@@ -1,0 +1,6 @@
+peer,segment,ev_to_ntm_revenue,ntm_revenue_growth,gross_margin,note
+Peer A (speech AI API),ai_api,9.5,0.32,0.68,Illustrative public-peer multiple; not market data
+Peer B (developer API platform),ai_api,7.8,0.24,0.74,Illustrative public-peer multiple; not market data
+Peer C (contact-centre AI),applied_ai,5.6,0.18,0.62,Illustrative public-peer multiple; not market data
+Peer D (infrastructure software),infra,6.9,0.21,0.71,Illustrative public-peer multiple; not market data
+Peer E (usage-priced data platform),infra,8.4,0.27,0.66,Illustrative public-peer multiple; not market data

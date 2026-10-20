@@ -5,7 +5,7 @@ import { api, fmt, label, type Row, type ToolResult } from '../api'
 
 // ---- app context: navigation and handing questions to the assistant ------------------------------
 
-export type Page = 'home' | 'alerts' | 'reports' | 'financials' | 'analysis' | 'growth' | 'pipeline' | 'scenarios' | 'entities' | 'deals' | 'comp' | 'revenue' | 'spend' | 'budget' | 'plan' | 'cash' | 'close' | 'projects' | 'billing' | 'ar' | 'ap' | 'pricing' | 'capital' | 'tax' | 'trust' | 'contracts' | 'drivers' | 'ceo' | 'explore' | 'corpfin' | 'calculators' | 'kpis' | 'predictions' | 'welcome'
+export type Page = 'home' | 'alerts' | 'reports' | 'financials' | 'analysis' | 'growth' | 'pipeline' | 'scenarios' | 'entities' | 'deals' | 'comp' | 'revenue' | 'spend' | 'budget' | 'plan' | 'cash' | 'close' | 'projects' | 'billing' | 'ar' | 'ap' | 'pricing' | 'capital' | 'tax' | 'trust' | 'contracts' | 'drivers' | 'ceo' | 'explore' | 'corpfin' | 'calculators' | 'kpis' | 'predictions' | 'treasury' | 'controller' | 'welcome'
 
 export type EntityKind = 'customer' | 'vendor' | 'project' | 'kpi' | 'invoice'
 export interface Entity { kind: EntityKind; id: string }

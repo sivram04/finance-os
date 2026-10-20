@@ -1,0 +1,27 @@
+version: 2
+
+models:
+  - name: fct_fixed_asset_register
+    description: "Fixed-asset register from GL capex entries (account 1500), classed by seeds/asset_classes.csv, with accumulated depreciation and net book value at the last close."
+    columns:
+      - name: asset_id
+        tests: [unique, not_null]
+  - name: fct_depreciation_reconciliation
+    description: "Register depreciation vs GL account 6600 by department and month; status 'ties' when within $1."
+    tests:
+      - dbt_utils_free_unique_combination:
+          columns: [department_id, month]
+    columns:
+      - name: status
+        tests:
+          - accepted_values: {values: [ties, difference]}
+  - name: fct_lease_schedule_monthly
+    description: "ASC 842 operating-lease schedule (seeds/leases.csv, simulated terms): liability, interest, straight-line cost, ROU asset, and straight-line cost minus cash."
+    tests:
+      - dbt_utils_free_unique_combination:
+          columns: [lease_id, month]
+  - name: fct_journal_entry_tests
+    description: "Audit-style journal-entry testing: weekend, round-amount and period-end manual entries, and size outliers, with a risk score."
+    columns:
+      - name: entry_id
+        tests: [unique, not_null]

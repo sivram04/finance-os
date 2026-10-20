@@ -2,6 +2,7 @@
 // assistant uses (get_corporate_finance, evaluate_project, finance_calculator).
 import { useMemo, useState } from 'react'
 import { KpiRow } from '../components/Dash'
+import { Valuation } from './Valuation'
 import { api, fmt, type Row, type ToolResult } from '../api'
 import { AskButton, Card, DataTable, Loading, Source, useTool } from '../components/common'
 
@@ -94,6 +95,7 @@ export function CorporateFinance() {
           <Pairs obj={cc} format={(k, v) => (k === 'note' ? String(v) : /beta|debt_to_equity/.test(k) ? x(v) : pct(v))} />
         </Card>
       </div>
+      <Valuation />
       <ProjectEvaluator wacc={Number(cc.wacc)} taxRate={Number(cc.tax_rate)} />
       <Source data={d.data} />
     </div>

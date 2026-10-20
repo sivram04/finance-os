@@ -7,6 +7,8 @@ import { WorkspaceContext, type Entity, type Page } from './components/common'
 import { PeriodContext, type Period } from './components/Dash'
 import { Home } from './pages/Home'
 import { Predictions } from './pages/Predictions'
+import { Treasury } from './pages/Treasury'
+import { Controller } from './pages/Controller'
 import { Growth, Pipeline } from './pages/Exec'
 import { Alerts, Analysis, Entities, Scenarios, Financials, Reports, Capital, Cash, Close, Commissions, DealDesk, Plan, Pricing, TaxFx } from './pages/Finance'
 import { AP, AR, Billing, Budget, Projects, Revenue, Spend, Trust } from './pages/Modules'
@@ -19,10 +21,10 @@ import { Calculators, CorporateFinance } from './pages/CorpFin'
 // pages grouped into sections: the top row picks a section, the second row its pages
 const SECTIONS: { name: string; pages: [Page, string][] }[] = [
   { name: 'Overview', pages: [['home', 'Home'], ['ceo', 'CEO one-pager'], ['kpis', 'Decision KPIs'], ['explore', 'Explore'], ['financials', 'Financials'], ['alerts', 'Alerts'], ['reports', 'Reports']] },
-  { name: 'Plan & cash', pages: [['plan', 'Plan'], ['analysis', 'Analysis'], ['scenarios', 'Scenarios'], ['predictions', 'Predictions'], ['drivers', 'Drivers'], ['corpfin', 'Corporate finance'], ['calculators', 'Calculators'], ['cash', 'Cash'], ['capital', 'Capital'], ['pricing', 'Pricing']] },
+  { name: 'Plan & cash', pages: [['plan', 'Plan'], ['analysis', 'Analysis'], ['scenarios', 'Scenarios'], ['predictions', 'Predictions'], ['drivers', 'Drivers'], ['corpfin', 'Corporate finance'], ['calculators', 'Calculators'], ['cash', 'Cash'], ['treasury', 'Treasury'], ['capital', 'Capital'], ['pricing', 'Pricing']] },
   { name: 'Revenue', pages: [['revenue', 'Revenue'], ['growth', 'Growth'], ['pipeline', 'Pipeline'], ['contracts', 'Contracts'], ['deals', 'Deal desk'], ['comp', 'Commissions'], ['billing', 'Billing'], ['ar', 'Receivables']] },
   { name: 'Spend', pages: [['spend', 'Tech spend'], ['ap', 'AP inbox'], ['budget', 'Budget'], ['projects', 'Projects']] },
-  { name: 'Close & control', pages: [['close', 'Close'], ['entities', 'Entities'], ['tax', 'Tax & FX'], ['trust', 'Trust']] },
+  { name: 'Close & control', pages: [['close', 'Close'], ['controller', 'Controller'], ['entities', 'Entities'], ['tax', 'Tax & FX'], ['trust', 'Trust']] },
 ]
 
 export default function App() {
@@ -131,6 +133,8 @@ export default function App() {
               {page === 'explore' && <Explore />}
               {page === 'kpis' && <DecisionKpis />}
               {page === 'predictions' && <Predictions />}
+              {page === 'treasury' && <Treasury />}
+              {page === 'controller' && <Controller />}
               {page === 'corpfin' && <CorporateFinance />}
               {page === 'calculators' && <Calculators />}
               {page === 'growth' && <Growth />}

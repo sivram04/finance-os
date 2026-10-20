@@ -1,0 +1,4 @@
+class_id,match_keyword,asset_class,useful_life_months,method
+AC-IT,laptop,Computers and office IT,36,straight_line
+AC-SRV,server,Inference servers,48,straight_line
+AC-BLD,build-out,Leasehold improvements,60,straight_line

@@ -18,3 +18,18 @@ models:
       - name: status
         tests:
           - accepted_values: {values: [pass, breach, not_burning]}
+  - name: fct_debt_schedule_monthly
+    description: "Debt facilities (seeds/debt_facilities.csv, illustrative terms): actual undrawn position and commitment fee, plus a pro-forma schedule if fully drawn after the last close."
+    tests:
+      - dbt_utils_free_unique_combination:
+          columns: [facility_id, month]
+  - name: fct_fx_exposure_monthly
+    description: "UK and India subsidiary costs in local currency, next-quarter exposure, forwards maturing in that quarter and the hedge ratio."
+    tests:
+      - dbt_utils_free_unique_combination:
+          columns: [entity_id, month]
+  - name: fct_fx_hedge_mtm
+    description: "Forward contracts (seeds/fx_hedges.csv, simulated) marked to market monthly from trade to maturity."
+    tests:
+      - dbt_utils_free_unique_combination:
+          columns: [hedge_id, month]

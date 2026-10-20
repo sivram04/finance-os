@@ -1,0 +1,7 @@
+hedge_id,currency,entity_id,trade_month,maturity_month,notional_fc,forward_rate,instrument,purpose
+FWD-GBP-01,GBP,UK01,2026-07-01,2026-10-01,20000,1.3150,forward_buy,UK payroll and rent
+FWD-GBP-02,GBP,UK01,2026-08-01,2026-11-01,20000,1.3120,forward_buy,UK payroll and rent
+FWD-GBP-03,GBP,UK01,2026-09-01,2026-12-01,20000,1.3080,forward_buy,UK payroll and rent
+FWD-INR-01,INR,IN01,2026-07-01,2026-10-01,9000000,0.011900,forward_buy,India payroll
+FWD-INR-02,INR,IN01,2026-08-01,2026-11-01,9000000,0.011850,forward_buy,India payroll
+FWD-INR-03,INR,IN01,2026-09-01,2026-12-01,9000000,0.011800,forward_buy,India payroll

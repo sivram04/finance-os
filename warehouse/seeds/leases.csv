@@ -1,0 +1,4 @@
+lease_id,description,entity_id,department_id,commencement_month,term_months,monthly_payment,annual_escalation,incremental_borrowing_rate,lease_type
+LS-01,San Francisco HQ office (floor 4),US01,GA,2025-01-01,60,22000.00,0.0300,0.0800,operating
+LS-02,San Francisco HQ expansion (floor 5),US01,GA,2025-11-01,48,6500.00,0.0300,0.0850,operating
+LS-03,Colocation cage for inference servers,US01,INF,2025-07-01,36,9000.00,0.0000,0.0850,operating

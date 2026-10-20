@@ -613,3 +613,20 @@ tbody tr { transition: background 0.12s ease; }
   .shell.chat-closed { grid-template-columns: 1fr; }
   .shell.chat-closed .assistant { display: none; }
 }
+
+/* valuation football field */
+.football { display: flex; flex-direction: column; gap: 12px; padding: 4px 0; }
+.ff-row { display: grid; grid-template-columns: minmax(120px, 34%) 1fr auto; align-items: center; gap: 10px; font-size: 12.5px; }
+.ff-label { color: var(--muted); }
+.ff-track { position: relative; height: 16px; background: var(--chip); border-radius: 4px; }
+.ff-bar { position: absolute; top: 2px; bottom: 2px; background: var(--accent); border-radius: 3px; opacity: .8; }
+.ff-mid { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--text); }
+.ff-val { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.kv { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.kv > div { display: flex; justify-content: space-between; gap: 12px; }
+.kv span { color: var(--muted); }
+@media (max-width: 800px) { .ff-row { grid-template-columns: 1fr; } }
+
+.help-wrap { display: grid; }
+.help-wrap > .help-card { height: 100%; }
+.help-card .help-foot .link { white-space: nowrap; flex: none; }

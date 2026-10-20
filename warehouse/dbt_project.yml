@@ -77,6 +77,16 @@ seeds:
       +column_types: {threshold: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,2)' }}"}
     vendor_payment_terms:
       +column_types: {payment_terms_days: integer, early_pay_discount_pct: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}", discount_days: integer}
+    asset_classes:
+      +column_types: {useful_life_months: integer}
+    leases:
+      +column_types: {commencement_month: date, term_months: integer, monthly_payment: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,2)' }}", annual_escalation: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,6)' }}", incremental_borrowing_rate: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,6)' }}"}
+    debt_facilities:
+      +column_types: {commitment: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,2)' }}", drawn: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,2)' }}", annual_rate: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,6)' }}", undrawn_fee: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,6)' }}", interest_only_months: integer, amortization_months: integer, available_from: date, expires: date}
+    fx_hedges:
+      +column_types: {trade_month: date, maturity_month: date, notional_fc: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,2)' }}", forward_rate: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,6)' }}"}
+    peer_multiples:
+      +column_types: {ev_to_ntm_revenue: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,6)' }}", ntm_revenue_growth: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,6)' }}", gross_margin: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,6)' }}"}
     prepaid_contracts:
       +column_types: {account_id: "{{ 'string' if target.type == 'bigquery' else 'varchar' }}", start_month: date, months: integer, amount: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,2)' }}"}
     price_scenarios:

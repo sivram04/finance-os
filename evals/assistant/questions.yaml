@@ -486,3 +486,27 @@ questions:
     persona: CFO
     ask: Give me the bottom-up revenue forecast built customer by customer.
     expect_tools: [get_revenue_forecast_ml]
+  - id: corpfin-valuation
+    persona: CFO
+    ask: What is Echo Labs worth per share on a DCF, and how does that compare with peers and the last round?
+    expect_tools: [get_valuation]
+  - id: controller-fixed-assets
+    persona: Controller
+    ask: Does the depreciation in the GL tie to the fixed-asset register?
+    expect_tools: [get_fixed_assets]
+  - id: controller-leases
+    persona: Controller
+    ask: What is our lease liability under ASC 842, split current and non-current?
+    expect_tools: [get_leases]
+  - id: controller-je-testing
+    persona: Auditor
+    ask: Which journal entries look risky and should be sampled for review?
+    expect_tools: [get_journal_entry_tests]
+  - id: treasury-debt
+    persona: CFO
+    ask: Should we draw the venture debt? What would it cost and how would it change runway?
+    expect_tools: [get_debt_facilities]
+  - id: treasury-fx
+    persona: Treasurer
+    ask: How much of our UK and India cost exposure is hedged?
+    expect_tools: [get_fx_hedging]

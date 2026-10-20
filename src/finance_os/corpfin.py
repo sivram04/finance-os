@@ -439,3 +439,28 @@ def split(shares, price, ratio=None, stock_dividend_pct=None):
     """A split (e.g. 2 for 1 → ratio 2) or stock dividend (0.10 = 10%): more shares, lower price, same value."""
     k = ratio if ratio else 1 + (stock_dividend_pct or 0)
     return {"shares_after": round(shares * k, 2), "price_after": _r(price / k), "market_value": round(shares * price, 2)}
+
+
+def dcf(fcf, rate, terminal_growth=None, exit_multiple=None, exit_metric=None):
+    """Enterprise value from yearly free cash flows (year 1 is one year out), with a terminal value by the Gordon
+    growth model on the last year's FCF, or by an exit multiple on a terminal-year metric (e.g. EBITDA)."""
+    pv = [f / (1 + rate) ** (t + 1) for t, f in enumerate(fcf)]
+    n = len(fcf)
+    if terminal_growth is not None:
+        if rate <= terminal_growth:
+            raise ValueError("discount rate must exceed terminal growth")
+        tv = fcf[-1] * (1 + terminal_growth) / (rate - terminal_growth)
+    else:
+        tv = exit_multiple * exit_metric
+    pv_tv = tv / (1 + rate) ** n
+    ev = sum(pv) + pv_tv
+    return {"pv_fcf": [_r(x, 2) for x in pv], "sum_pv_fcf": _r(sum(pv), 2), "terminal_value": _r(tv, 2),
+            "pv_terminal_value": _r(pv_tv, 2), "enterprise_value": _r(ev, 2),
+            "terminal_share_of_ev": _r(pv_tv / ev, 4) if ev else None}
+
+
+def percentile(values, q):
+    v = sorted(values)
+    k = (len(v) - 1) * q
+    lo, hi = int(k), min(int(k) + 1, len(v) - 1)
+    return v[lo] + (v[hi] - v[lo]) * (k - lo)
