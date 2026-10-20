@@ -75,3 +75,17 @@ def test_company_corporate_finance():
     assert r["break_even"]["cash"] < r["break_even"]["accounting"] < r["break_even"]["financial"]
     assert 0.08 < r["cost_of_capital"]["wacc"] < 0.25
     assert tools.finance_calculator(wh, "bond_price", {"face": 1000, "coupon_rate": 0.06, "ytm": 0.08, "years": 10})["result"]["value"] == pytest.approx(864.10, abs=0.01)
+
+
+def test_personal_tax_marginal_vs_average():
+    t = cf.us_personal_tax(185000, "single")
+    assert t["taxable_income"] == 170000 and t["tax"] == 33647 and t["marginal_rate"] == 0.24
+    assert t["average_rate_on_gross"] < t["marginal_rate"]  # average is always below marginal in a progressive system
+    assert cf.us_personal_tax(10000)["tax"] == 0  # under the standard deduction
+
+
+@pytest.mark.skipif(not WAREHOUSE.exists(), reason="build the warehouse first")
+def test_market_value_ratios_use_last_round_price():
+    mv = tools.get_corporate_finance(Warehouse())["ratios"]["market_value"]
+    assert mv["price_per_share"] == 4.5 and mv["implied_equity_value"] == mv["price_per_share"] * mv["fully_diluted_shares"]
+    assert "private-company estimate" in mv["basis"]

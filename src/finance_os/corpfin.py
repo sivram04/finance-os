@@ -72,6 +72,34 @@ def tax_on(income, bands):
     return {"taxable_income": income, "tax": round(tax, 2), "average_rate": round(tax / income, 4), "marginal_rate": marginal}
 
 
+US_BRACKETS_2025 = {  # federal ordinary income brackets (upper limit of each band, rate) and the standard deduction
+    "single": ([(11_925, 0.10), (48_475, 0.12), (103_350, 0.22), (197_300, 0.24), (250_525, 0.32), (626_350, 0.35), (None, 0.37)], 15_000),
+    "married": ([(23_850, 0.10), (96_950, 0.12), (206_700, 0.22), (394_600, 0.24), (501_050, 0.32), (751_600, 0.35), (None, 0.37)], 30_000),
+}
+
+
+def us_personal_tax(income, filing="single", deduction=None):
+    """US federal income tax on wages (2025 brackets): taxable income after the standard deduction (or the one given),
+    the tax by bracket, the marginal rate (on the next dollar) and the average rate on gross and on taxable income."""
+    bands, std = US_BRACKETS_2025[filing]
+    taxable = max(0.0, float(income) - float(std if deduction is None else deduction))
+    by_band, lower, tax, marginal = [], 0.0, 0.0, bands[0][1]
+    for upper, rate in bands:
+        top = taxable if upper is None else min(taxable, upper)
+        if top > lower:
+            t = (top - lower) * rate
+            by_band.append({"band": f"{lower:,.0f} to {'and above' if upper is None else f'{upper:,.0f}'}", "rate": rate,
+                            "taxed": round(top - lower, 2), "tax": round(t, 2)})
+            tax += t
+            marginal = rate
+        if upper is None or taxable <= upper:
+            break
+        lower = upper
+    return {"gross_income": float(income), "deduction": float(std if deduction is None else deduction), "taxable_income": round(taxable, 2),
+            "tax": round(tax, 2), "marginal_rate": marginal, "average_rate_on_gross": _r(tax / float(income)) if income else 0.0,
+            "average_rate_on_taxable": _r(tax / taxable) if taxable else 0.0, "rows": by_band}
+
+
 def uk_corporation_tax(profit):
     """UK from April 2023: 19% up to £50,000, 25% above £250,000, marginal relief in between (fraction 3/200), which
     makes the marginal rate 26.5% inside the band."""

@@ -62,6 +62,13 @@ export function CorporateFinance() {
           ))}
         </div>
       </Card>
+      {r.market_value ? (
+        <Card title="Market value ratios (private-company estimate)" sub={String((r.market_value as Row).basis)}>
+          <Pairs obj={Object.fromEntries(Object.entries(r.market_value as Row).filter(([k]) => k !== 'basis'))}
+            format={(k, v) => (v == null ? 'n/m (negative earnings)' : k === 'price_per_share' || k === 'eps' ? `$${Number(v).toFixed(k === 'eps' ? 4 : 2)}`
+              : k === 'implied_equity_value' ? usd(v) : k === 'fully_diluted_shares' ? Number(v).toLocaleString() : `${Number(v).toFixed(2)}x`)} />
+        </Card>
+      ) : null}
       <Card title="Corporate income tax by legal entity" sub={String(tax.note)}>
         <DataTable rows={d.data.taxes as Row[]} columns={[{ key: 'entity_id', label: 'Entity' }, { key: 'currency' }, { key: 'pre_tax_income_local', label: 'Pre-tax income (local)', render: (q) => Number(q.pre_tax_income_local).toLocaleString(undefined, { maximumFractionDigits: 0 }) },
           { key: 'pre_tax_income_usd', label: 'Pre-tax (USD)', unit: 'usd' }, { key: 'tax_usd', label: 'Tax (USD)', unit: 'usd' }, { key: 'average_rate', label: 'Average rate', unit: 'ratio' }, { key: 'marginal_rate', label: 'Marginal rate', unit: 'ratio' },
@@ -162,6 +169,18 @@ const EXAMPLES: Record<string, { title: string; module: string; inputs: Record<s
   crossover: { title: 'Crossover rate between two projects', module: 'Capital budgeting', inputs: { flows_a: [-500, 250, 250, 250], flows_b: [-400, 150, 200, 250] } },
   tax: { title: 'Marginal vs average tax (bands)', module: 'Taxes', inputs: { income: 335000, bands: [[50000, 0.15], [75000, 0.25], [100000, 0.34], [335000, 0.39], [null, 0.34]] } },
   uk_tax: { title: 'UK corporation tax with marginal relief', module: 'Taxes', inputs: { profit: 150000 } },
+  personal_tax: { title: 'Personal income tax, US federal 2025 (marginal vs average)', module: 'Taxes', inputs: { income: 185000, filing: 'single', deduction: null } },
+}
+
+// calculator outputs read as money, percentages or plain numbers depending on what they are
+const RATE_KEY = /rate|yield|return|share|weight|pct|coverage|deviation|variance|cost_of|wacc|average|premium|flotation/
+const MONEY_KEY = /income|tax$|tax_|deduction|price|value|amount|payment|interest|principal|balance|sales|ocf|payoff|money|dividend|taxed|fund|raise|cost$|shield/
+function calcFmt(k: string, v: unknown): string {
+  if (v == null) return '—'
+  if (typeof v !== 'number') return String(v)
+  if (RATE_KEY.test(k) && Math.abs(v) <= 1.5 && !/price|shares/.test(k)) return `${(v * 100).toFixed(2).replace(/\.00$/, '')}%`
+  if (MONEY_KEY.test(k)) return `$${v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  return v.toLocaleString(undefined, { maximumFractionDigits: 4 })
 }
 
 export function Calculators() {
@@ -209,10 +228,10 @@ export function Calculators() {
               {Object.entries(result).map(([k, v]) => (
                 <div key={k} className="tree-row" style={{ gridTemplateColumns: '1fr 1fr' }}>
                   <span>{words(k)}</span>
-                  <span><b>{typeof v === 'object' && v !== null ? Object.entries(v as Row).map(([a, b]) => `${words(a)}: ${String(b)}`).join(' · ') : String(v)}</b></span>
+                  <span><b>{typeof v === 'object' && v !== null ? Object.entries(v as Row).map(([a, b]) => `${words(a)}: ${calcFmt(a, b)}`).join(' · ') : calcFmt(k, v)}</b></span>
                 </div>
               ))}
-              {res.rows?.length ? <DataTable rows={res.rows} pageSize={12} columns={Object.keys(res.rows[0]).map((k) => ({ key: k }))} /> : null}
+              {res.rows?.length ? <DataTable rows={res.rows} pageSize={12} columns={Object.keys(res.rows[0]).map((k) => ({ key: k, render: (r: Row) => calcFmt(k, r[k]) }))} /> : null}
             </div>
           ))}
         </Card>

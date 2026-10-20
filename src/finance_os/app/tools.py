@@ -2622,6 +2622,23 @@ def get_corporate_finance(wh):
 
     ratio = cf.ratios({**st, "inventory": 0.0})
     ratio["operating_leverage"] = None
+    # market value: Echo Labs is private, so the share price is the last funding round's price per share
+    cap = wh.query("""select sum(shares) as fd, (select price_per_share from seeds.cap_table where security_class like 'series%'
+                                                 order by issue_date desc, price_per_share desc limit 1) as px,
+                             (select issue_date from seeds.cap_table where security_class like 'series%' order by issue_date desc limit 1) as d
+                      from seeds.cap_table""")[0]
+    fd, px = float(cap["fd"] or 0), float(cap["px"] or 0)
+    if fd and px:
+        cap_value = fd * px
+        eps = st["net_income"] / fd
+        ratio["market_value"] = {
+            "price_per_share": px, "fully_diluted_shares": fd, "implied_equity_value": round(cap_value, 2),
+            "eps": round(eps, 4), "pe_ratio": None if eps <= 0 else round(px / eps, 2),
+            "market_to_book": round(cap_value / st["equity"], 2) if st["equity"] else None,
+            "price_to_sales": round(cap_value / st["revenue"], 2) if st["revenue"] else None,
+            "ev_to_revenue": round((cap_value - st["cash"]) / st["revenue"], 2) if st["revenue"] else None,
+            "basis": f"private-company estimate: last round price ${px:.2f} ({str(cap['d'])[:10]}) x {fd:,.0f} fully diluted shares; "
+                     "P/E not meaningful while earnings are negative"}
 
     # corporate income tax by entity, trailing 12 months, in local currency
     ent = wh.query("""select entity_id, currency,
@@ -2747,6 +2764,7 @@ CALCULATORS = {
     "bid_price": ("bid_price", ["investment", "life", "units", "variable_cost", "fixed_costs", "tax_rate", "rate", "salvage", "nwc"]),
     "crossover": ("crossover_rate", ["flows_a", "flows_b"]), "tax": ("tax_on", ["income", "bands"]),
     "uk_tax": ("uk_corporation_tax", ["profit"]),
+    "personal_tax": ("us_personal_tax", ["income", "filing", "deduction"]),
 }
 
 
