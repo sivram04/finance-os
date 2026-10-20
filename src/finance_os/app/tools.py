@@ -1217,7 +1217,7 @@ def evaluate_marketing_campaign(wh, spend, new_customers, years=3, discount_rate
 # (metric, label, unit, higher_is_better, source): the scorecard a VP reads first
 SCORECARD = [
     ("revenue", "Revenue (month)", "usd", True, "kpi"), ("arr", "ARR", "usd", True, "kpi"),
-    ("net_new_arr", "Net new ARR", "usd", True, "growth"), ("gross_margin_pct", "Gross margin", "ratio", True, "kpi"),
+    ("net_new_arr", "Net new ARR (usage run-rate x 12)", "usd", True, "growth"), ("gross_margin_pct", "Gross margin", "ratio", True, "kpi"),
     ("nrr", "Net revenue retention", "ratio", True, "kpi"), ("logo_churn_rate", "Logo churn (month)", "ratio", False, "kpi"),
     ("net_burn", "Net burn", "usd", False, "kpi"), ("burn_multiple", "Burn multiple", "ratio", False, "growth"),
     ("closing_cash", "Cash (month end)", "usd", True, "kpi"), ("runway_months", "Runway (months)", "months", True, "kpi"),
@@ -1278,10 +1278,18 @@ def get_kpi_scorecard(wh, month=None):
             "benchmark_good": b and float(b["good"]), "benchmark_median": b and float(b["median"]),
             "benchmark_source": b and b["source"], "status": status,
             "spark": [f(s.get(_shift(m, -i))) for i in range(11, -1, -1)],
+            "spark_months": [_shift(m, -i) for i in range(11, -1, -1)],
         })
+        if key == "runway_months" and v is not None and v > 60:
+            rows[-1]["value_text"] = "60+ months (burn near zero; the exact figure is not meaningful)"
+        if key == "runway_months":  # the trend as the assistant should quote it: 60+ wherever burn is near zero
+            rows[-1]["spark_text"] = [None if x is None else ("60+" if x > 60 else round(x, 1)) for x in rows[-1]["spark"]]
     return _result(rows, "marts.fct_kpi_monthly, fct_growth_efficiency_monthly, fct_saas_metrics_monthly, fct_bva_monthly, "
                          "seeds.metric_benchmarks", month=m,
-                   note="status compares to the benchmark: good = at or past 'good', ok = past the median, bad = below it.")
+                   note="status compares to the benchmark: good = at or past 'good', ok = past the median, bad = below it. "
+                        "spark is the last 12 closed months (spark_months), so one call answers a multi-month comparison. "
+                        "ARR is trailing-3-month revenue x 4; net new ARR is the month's change in usage run-rate x 12, "
+                        "so it does not equal the change in ARR. Runway above 60 months: say 60+ (runway has spark_text: quote that, never the raw spark).")
 
 
 def _usd_text(v):
@@ -3501,7 +3509,8 @@ TOOLS = {
                                        ["spend", "new_customers"])),
     "get_kpi_scorecard": (get_kpi_scorecard, "The executive scorecard for a month: each headline metric with last month, "
                           "last year, budget, a 12-month trend and how it compares to SaaS benchmarks. Use for 'how are we "
-                          "doing?' and any 'compared to what?' question.", _p({"month": MONTH})),
+                          "doing?' and any 'compared to what?' question. For 'compare the last N months' call it ONCE "
+                          "(no month) and read spark / spark_months.", _p({"month": MONTH})),
     "get_month_summary": (get_month_summary, "What changed this month and why: revenue drivers (price/volume/mix, biggest "
                           "customer moves), margin, cost changes and budget variances, cash and efficiency, customer risk and "
                           "pipeline, each with a status. Use for monthly reviews and 'what happened this month?'.", _p({"month": MONTH})),
@@ -3764,4 +3773,12 @@ def run_tool(wh, name, args):
     as_of = args.pop("_as_of", None)
     if as_of and "month" in inspect.signature(fn).parameters and not args.get("month"):
         args["month"] = str(as_of)[:7]
-    return fn(wh, **args)
+    out = fn(wh, **args)
+    asked = str(args.get("month") or "")[:7]
+    got = str(out.get("month") or "")[:7] if isinstance(out, dict) else ""
+    if asked and got and asked != got:
+        out["requested_month"] = asked
+        out["month_note"] = (f"{asked} is not a closed month, so these figures are for {got} (the last closed month). "
+                             f"Label them {got}, not {asked}; do not ask for {asked} again. For the open month use "
+                             "get_month_to_date.")
+    return out
