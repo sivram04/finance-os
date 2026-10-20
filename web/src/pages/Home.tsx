@@ -4,6 +4,7 @@ import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YA
 import { api, fmt, type Action, type Row } from '../api'
 import { Card, Chip, Loading, useTool, useWorkspace, type Page } from '../components/common'
 import { usePeriod } from '../components/Dash'
+import { MonthToDate } from '../components/MonthToDate'
 import { ApprovalEvidence, useEvidence, VerdictBadge } from '../components/ApprovalEvidence'
 
 const QUICK = [
@@ -144,6 +145,8 @@ export function Home({ asOf }: { asOf?: string }) {
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         {QUICK.map(([l, q]) => <button key={l} className="btn" onClick={() => ask(q)}>{l}</button>)}
       </div>
+      {period === 'mtd' && <MonthToDate />}
+      {period === 'mtd' && <h2 style={{ margin: '8px 0 -4px' }}>Last closed month ({label})</h2>}
       <Scorecard month={m} />
       <MonthSummary month={m} />
       {m && (

@@ -150,8 +150,7 @@ def answer_evidence(wh, text, calls, unverified):
                 "effective_from": str(c["effective_from"])[:10], "owner": c["owner"]}
                for c in catalog
                if (c["label"] and c["label"].lower() in low) or c["metric_name"].replace("_", " ") in low]
-    world = Path(__file__).resolve().parents[3] / "data" / "live" / "world.json"
-    live = json.loads(world.read_text(encoding="utf-8")).get("as_of") if world.exists() else None
+    live = live_through(wh)
     recon = wh.query("select count(*) as n from recon.recon_status where status <> 'pass'")[0]["n"]
     return {
         "drill": _evidence_drill(wh, low, calls, metrics),
@@ -2889,7 +2888,7 @@ def get_decision_kpis(wh, month=None):
     recon = {}
     for r in wh.query("select check_name, status, explanation from recon.recon_status where period = ?::date", [m]):
         recon.setdefault(r["check_name"], []).append(r)
-    live = wh.query("select max(entry_date) as d from staging.stg_erp__journal_entries")[0]["d"]
+    live = live_through(wh)
     out = []
     for name, sp in spec.items():
         v = vals.get(name)
@@ -3266,6 +3265,115 @@ def get_invoice_detail(wh, invoice_ref):
                    stripe=stripe, checks=checks, pdf_url=f"/api/invoices/{ref}/pdf",
                    note="The PDF is generated from this same data, so it always matches what was billed and posted.")
 
+
+def live_through(wh):
+    """The live date of the books: the simulator's own date when it is running (quiet days post nothing), else the
+    last day anything was posted. Every 'live through' label uses this one date."""
+    import json
+    world = Path(__file__).resolve().parents[3] / "data" / "live" / "world.json"
+    try:
+        d = json.loads(world.read_text(encoding="utf-8")).get("as_of") if world.exists() else None
+    except (OSError, ValueError):
+        d = None
+    return str(d or wh.query("select max(entry_date) as d from staging.stg_erp__journal_entries")[0]["d"])[:10]
+
+
+def get_month_to_date(wh):
+    """The open month so far (it closes when it is invoiced on the 1st of next month), marked as unclosed:
+      usage revenue   daily audio hours x each customer's effective rate last month (an estimate until invoicing)
+      services        project invoices posted this month
+      GPU and cloud   actual daily spend
+      cash            the ledger's cash today; collections, vendor payments and payroll remitted this month
+      customers       active this month, new (no usage last month), gone quiet (usage last month, none yet)
+    with a straight-line projection to month end on the daily run rate, compared with last month and the budget."""
+    import calendar
+    closed = _month(None, wh)
+    y, mo = int(closed[:4]), int(closed[5:7])
+    om = f"{y + mo // 12:04d}-{mo % 12 + 1:02d}-01"  # the open month
+    live = live_through(wh)
+    usage_through = str(wh.query("select max(usage_date) as d from intermediate.int_usage_daily_from_events")[0]["d"])[:10]
+    gl_through = str(wh.query("select max(entry_date) as d from staging.stg_erp__journal_entries")[0]["d"])[:10]
+    dim = calendar.monthrange(int(om[:4]), int(om[5:7]))[1]
+    days = max(1, int(usage_through[8:10]) if usage_through[:7] == om[:7] else 0)
+
+    rates = {r["customer_id"]: float(r["rph"]) for r in wh.query("""
+        select customer_id, sum(revenue) / nullif(sum(audio_hours), 0) as rph from marts.fct_unit_economics_monthly
+        where month = ?::date group by 1 having sum(audio_hours) > 0""", [closed])}
+    avg_rate = wh.query("""select sum(revenue) / nullif(sum(audio_hours), 0) as r from marts.fct_unit_economics_monthly
+                           where month = ?::date""", [closed])[0]["r"]
+    avg_rate = float(avg_rate or 0)
+    daily = wh.query("""select strftime(usage_date, '%Y-%m-%d') as day, customer_id, sum(audio_hours) as hours
+                        from intermediate.int_usage_daily_from_events
+                        where usage_date >= ?::date and usage_date < ?::date + interval 1 month group by 1, 2""", [om, om])
+    by_day, by_cust, hours = {}, {}, 0.0
+    for r in daily:
+        rev = float(r["hours"]) * rates.get(r["customer_id"], avg_rate)
+        by_day[r["day"]] = by_day.get(r["day"], 0.0) + rev
+        by_cust[r["customer_id"]] = by_cust.get(r["customer_id"], 0.0) + rev
+        hours += float(r["hours"])
+    usage_rev = sum(by_day.values())
+    prior = wh.query("""select strftime(month, '%d') as d, 0 as x from marts.fct_kpi_monthly limit 0""")  # placeholder for shape
+    last = {r["metric_name"]: float(r["value"]) for r in wh.query(
+        "select metric_name, value from marts.fct_kpi_monthly where month = ?::date", [closed])}
+    gl = {r["k"]: float(r["v"] or 0) for r in wh.query("""
+        select case when l.account_id = '4100' then 'services' when e.entry_type = 'collection' or e.entry_type = 'project_collection' then 'collections'
+                    when e.entry_type = 'vendor_payment' then 'vendor_payments' when e.entry_type = 'payroll_remittance' then 'payroll_remitted'
+                    else 'other' end as k,
+               sum(case when l.account_id = '4100' then l.credit - l.debit when l.account_id = '1000' then abs(l.debit - l.credit) else 0 end) as v
+        from staging.stg_erp__journal_entries e join staging.stg_erp__journal_lines l using (entry_id)
+        where e.entry_month = ?::date group by 1""", [om])}
+    cash_today = float(wh.query("select sum(debit - credit) as v from staging.stg_erp__journal_lines where account_id = '1000'")[0]["v"] or 0)
+    spend = wh.query("""select coalesce(sum(cost), 0) as c, count(distinct spend_date) as d, max(spend_date) as last
+                        from marts.fct_tech_spend_daily where spend_month = ?::date""", [om])[0]
+    spend_mtd, spend_days = float(spend["c"]), int(spend["d"] or 0)
+    last_spend = float(wh.query("select coalesce(sum(cost), 0) as c from marts.fct_tech_spend_daily where spend_month = ?::date", [closed])[0]["c"])
+    budget = {r["k"]: float(r["v"] or 0) for r in wh.query("""
+        select case when account_id = '4000' then 'usage' else 'services' end as k, sum(amount) as v from staging.stg_erp__budgets
+        where month = ?::date and account_id in ('4000', '4100') group by 1""", [om])}
+    prev_cust = {r["customer_id"] for r in wh.query("""select distinct customer_id from intermediate.int_usage_daily_from_events
+                                                     where usage_date >= ?::date and usage_date < ?::date + interval 1 month""", [closed, closed])}
+    now_cust = set(by_cust)
+    proj = lambda v, d=days: v / d * dim if d else None  # noqa: E731
+    services = gl.get("services", 0.0)
+    usage_proj = proj(usage_rev)
+    last_usage = last.get("revenue", 0.0) - float(wh.query("""select coalesce(sum(natural_amount), 0) as v from marts.fct_gl_monthly
+                                                               where month = ?::date and account_id = '4100'""", [closed])[0]["v"])
+    tiles = [
+        {"metric": "usage_revenue", "label": "Usage revenue (estimated)", "unit": "usd", "mtd": round(usage_rev, 2),
+         "projected": round(usage_proj, 2) if usage_proj else None, "last_month": round(last_usage, 2), "budget": budget.get("usage"),
+         "basis": f"audio hours x each customer's {closed[:7]} rate; invoiced on {om[:4]}-{int(om[5:7]) % 12 + 1:02d}-01"},
+        {"metric": "services_revenue", "label": "Services revenue (posted)", "unit": "usd", "mtd": round(services, 2),
+         "projected": None, "last_month": round(last.get("revenue", 0.0) - last_usage, 2), "budget": budget.get("services"),
+         "basis": "project invoices posted so far; billed on milestones, not straight-line"},
+        {"metric": "audio_hours", "label": "Audio hours", "unit": "count", "mtd": round(hours, 0), "projected": round(proj(hours), 0) if days else None,
+         "last_month": None, "budget": None, "basis": f"usage events through {usage_through}"},
+        {"metric": "gpu_cloud_spend", "label": "GPU and cloud spend", "unit": "usd", "mtd": round(spend_mtd, 2),
+         "projected": round(proj(spend_mtd, spend_days), 2) if spend_days else None, "last_month": round(last_spend, 2), "budget": None,
+         "basis": f"actual daily spend through {str(spend['last'])[:10]}"},
+        {"metric": "collections", "label": "Cash collected", "unit": "usd", "mtd": round(gl.get("collections", 0.0), 2), "projected": None,
+         "last_month": None, "budget": None, "basis": f"customer payments posted through {gl_through}"},
+        {"metric": "cash", "label": "Cash today", "unit": "usd", "mtd": round(cash_today, 2), "projected": None,
+         "last_month": last.get("closing_cash"), "budget": None, "basis": f"operating cash in the ledger at {gl_through}"},
+    ]
+    for t in tiles:
+        ref = t["projected"] if t["projected"] is not None else None
+        t["vs_last_month_pct"] = round(ref / t["last_month"] - 1, 4) if ref and t["last_month"] else None
+        t["vs_budget_pct"] = round(ref / t["budget"] - 1, 4) if ref and t["budget"] else None
+    days_series = []
+    for i in range(1, dim + 1):
+        d = f"{om[:8]}{i:02d}"
+        days_series.append({"day": d, "usage_revenue": round(by_day[d], 2) if d in by_day else None})
+    top = sorted(((c, v) for c, v in by_cust.items()), key=lambda x: -x[1])[:10]
+    customers = {"active": len(now_cust), "new_this_month": sorted(now_cust - prev_cust), "gone_quiet": sorted(prev_cust - now_cust)}
+    return _result(tiles, "int_usage_daily_from_events, fct_unit_economics_monthly (last month's rates), fct_tech_spend_daily, "
+                          "journal entries (open month), raw_erp.budgets",
+                   month=om[:7], status="open (not closed)", live_through=live, usage_through=usage_through, gl_through=gl_through,
+                   days_elapsed=days, days_in_month=dim, daily=days_series, payroll_remitted=round(gl.get("payroll_remitted", 0.0), 2),
+                   vendor_payments=round(gl.get("vendor_payments", 0.0), 2), customers=customers,
+                   top_customers=[{"customer_id": c, "usage_revenue_estimated": round(v, 2)} for c, v in top],
+                   note=f"{om[:7]} is open: it closes when usage is invoiced on the 1st. Usage revenue is estimated at last month's "
+                        f"rates; projections are straight-line on {days} of {dim} days.")
+
 def get_treasury_sweep(wh):
     """Simulated cash sweeps over the 13-week forecast. Each week the operating account takes the net flow, then:
     excess above six weeks of outflows sweeps to the money market fund; a shortfall below the four-week policy pulls
@@ -3495,6 +3603,10 @@ TOOLS = {
                            "header, terms, lines, tax and currency, payments, disputes, journal entries, the Stripe invoice, "
                            "and checks that lines, ledger and Stripe agree; plus a link to its PDF.",
                            _p({"invoice_ref": {"type": "string"}}, ["invoice_ref"])),
+    "get_month_to_date": (get_month_to_date, "The open month so far (not closed): estimated usage revenue, posted services, "
+                          "audio hours, GPU and cloud spend, cash collected and cash today, each projected to month end on "
+                          "the daily run rate and compared with last month and the budget; active, new and quiet customers.",
+                          _p({})),
     "get_contracts": (get_contracts, "Committed-use customer contracts: RPO, current RPO (next 12 months), contracted ARR "
                       "vs run-rate ARR, burn pace (usage vs commitment), projected shortfall / overage, renewal base, "
                       "revenue at risk, prepaid credit pools; per contract and as a monthly trend.",

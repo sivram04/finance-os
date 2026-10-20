@@ -10,14 +10,14 @@ import { CountText } from './Motion'
 export type Filters = Record<string, string>
 
 // ---- Period: the year range every time chart and monthly table shows (picked in the page bar) ----------------
-export type Period = 'all' | '12m' | `${number}`
+export type Period = 'all' | '12m' | 'mtd' | `${number}`
 export const PeriodContext = createContext<{ period: Period; setPeriod: (p: Period) => void }>({ period: 'all', setPeriod: () => {} })
 export const usePeriod = () => useContext(PeriodContext)
 const MONTHLY = /^\d{4}-\d{2}/
 
 /** Rows inside the period, judged on the first field that holds a YYYY-MM value (month, week, date). */
 export function inPeriod(rows: Row[], period: Period, x?: string) {
-  if (period === 'all' || !rows.length) return rows
+  if (period === 'all' || period === 'mtd' || !rows.length) return rows
   const key = x ?? ['month', 'week_start', 'week', 'spend_date', 'date'].find((k) => rows.some((r) => MONTHLY.test(String(r[k] ?? ''))))
   if (!key || !rows.some((r) => MONTHLY.test(String(r[key] ?? '')))) return rows
   if (period === '12m') {

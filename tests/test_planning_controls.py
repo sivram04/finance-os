@@ -186,3 +186,12 @@ def test_approval_evidence_shows_why(wh):
     ev = {k: v for k, v in deal.items() if k not in ("source", "row_count", "rows")}
     r = tools.get_approval_evidence(wh, "deal_approval", "Q-x", {"evaluation": ev})
     assert r["failed"] > 0 and r["proposal_agrees_with_checks"] is False  # approving would override failed guardrails
+
+
+def test_month_to_date_is_the_open_month(wh):
+    r = tools.get_month_to_date(wh)
+    closed = tools._month(None, wh)
+    assert r["month"] > closed[:7] and r["status"].startswith("open")
+    usage = next(t for t in r["rows"] if t["metric"] == "usage_revenue")
+    assert usage["mtd"] > 0 and usage["projected"] >= usage["mtd"]
+    assert r["live_through"] >= r["gl_through"] and 0 < r["days_elapsed"] <= r["days_in_month"]

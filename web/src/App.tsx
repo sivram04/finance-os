@@ -41,6 +41,12 @@ export default function App() {
     document.documentElement.dataset.theme = theme
     try { localStorage.setItem('theme', theme) } catch { /* private window */ }
   }, [theme])
+  // the open month (not closed yet): the one after the last closed month
+  const openLabel = useMemo(() => {
+    if (!asOf) return 'Month to date'
+    const d = new Date(asOf.slice(0, 7) + '-01T00:00'); d.setMonth(d.getMonth() + 1)
+    return `${d.toLocaleString('en', { month: 'short' })} to date`
+  }, [asOf])
   const years = useMemo(() => {
     const last = asOf ? Number(asOf.slice(0, 4)) : new Date().getFullYear()
     return [String(last - 1), String(last)]
@@ -77,7 +83,7 @@ export default function App() {
             {section.pages.map(([p, l]) => <button key={p} className={`tab ${page === p ? 'active' : ''}`} onClick={() => go(p)}>{l}</button>)}
             <div className="period-pick" title="Year range for every trend and monthly table">
               <span className="label">Period</span>
-              {([['all', 'All'], ...years.map((y) => [y, y]), ['12m', 'Last 12 mo']] as [Period, string][]).map(([v, l]) =>
+              {([['all', 'All'], ...years.map((y) => [y, y]), ['12m', 'Last 12 mo'], ['mtd', openLabel]] as [Period, string][]).map(([v, l]) =>
                 <button key={v} className={period === v ? 'on' : ''} onClick={() => setPeriod(v)}>{l}</button>)}
             </div>
           </nav>
@@ -85,6 +91,9 @@ export default function App() {
             <div className="page"><div className="error">Can't reach the Finance OS API. Start it with <code>python -m finance_os.app</code> and reload.</div></div>
           ) : (
             <>
+              {period === 'mtd' && page !== 'home' && page !== 'kpis' && (
+                <div className="mtd-banner">{openLabel} is open (not closed): its figures are on Home and Decision KPIs. This page shows the last closed month and daily data where it has it.</div>
+              )}
               <div key={page} className="page-enter">
               {page === 'home' && <Home asOf={asOf} />}
               {page === 'revenue' && <Revenue />}

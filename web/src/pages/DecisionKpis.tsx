@@ -5,6 +5,8 @@ import { useEffect, useState } from 'react'
 import { Bridge, KpiRow } from '../components/Dash'
 import { fmt, type Row } from '../api'
 import { CountText } from '../components/Motion'
+import { MonthToDate } from '../components/MonthToDate'
+import { usePeriod } from '../components/Dash'
 import { Recommend } from '../components/Recommend'
 import { AskButton, Card, Chip, DataTable, Loading, Source, useTool, useWorkspace, type Page } from '../components/common'
 
@@ -26,6 +28,7 @@ function compareText(r: Row) {
 
 export function DecisionKpis() {
   const k = useTool('get_decision_kpis')
+  const { period } = usePeriod()
   const [open, setOpen] = useState<Row | null>(null)
   if (!k.data) return <div className="page"><Loading state={k} /></div>
   const rows = k.data.rows as Row[]
@@ -43,6 +46,7 @@ export function DecisionKpis() {
         { label: 'Green', value: String(counts.green), note: 'within threshold', tone: 'good' },
         { label: 'Data trust', value: Number(trust.recon_checks_failing) ? `${String(trust.recon_checks_failing)} breaks` : 'All reconciled', note: `${String(trust.recon_checks_run)} checks this month · live through ${String(trust.live_through)}`, tone: Number(trust.recon_checks_failing) ? 'bad' : 'good' },
       ]} />
+      {period === 'mtd' && <MonthToDate compact />}
       <Card title="KPIs by status" sub="Click a KPI for its definition, owner, source, lineage, reconciliation and an AI recommendation on today's data">
         <div className="kpi-decision-grid">
           {rows.map((r) => (

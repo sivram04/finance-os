@@ -545,3 +545,5 @@ tbody tr { transition: background 0.12s ease; }
 .checks-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 13px; }
 .checks-list li.ok b { color: var(--good); }
 .checks-list li.no b { color: var(--bad); }
+
+.mtd-banner { margin: 12px 24px 0; padding: 8px 12px; border-radius: 8px; background: var(--warn-soft); color: var(--warn); font-size: 13px; }
