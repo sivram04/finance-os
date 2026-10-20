@@ -1,6 +1,6 @@
 // Machine-learning predictions: churn probability, usage revenue forecast with a range, payment timing and cost
 // anomalies. Each card shows the model's backtest against the method it would replace, so it is clear when ML wins.
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Columns, Dash, KpiRow, Trend } from '../components/Dash'
 import { fmt, type Row } from '../api'
 import { AskButton, Card, Chip, DataTable, Loading, useTool, useWorkspace } from '../components/common'
@@ -37,6 +37,9 @@ function Body() {
   const anom = useTool('get_cost_anomalies_ml')
   const { refresh } = useWorkspace()
   const [busy, setBusy] = useState(false)
+  // the deployed demo serves models the daily job trained; retraining happens only locally
+  const [demo, setDemo] = useState(false)
+  useEffect(() => { fetch('/api/demo').then((r) => setDemo(r.ok)).catch(() => setDemo(false)) }, [])
   const all = [churn, usage, pay, anom, models, exp, revf, spend, deals]
   if (!churn.data || !usage.data || !pay.data || !anom.data || !models.data || !exp.data || !revf.data || !spend.data || !deals.data) {
     return <div className="page"><Loading state={all.find((s) => s.error) ?? churn} /></div>
@@ -79,7 +82,7 @@ function Body() {
       <div className="page-head">
         <div><h1>Predictions</h1><p>Machine-learning models next to the methods they would replace, each backtested on months it did not see · trained {trained} UTC</p></div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button className="btn" onClick={retrain} disabled={busy}>{busy ? 'Retraining…' : 'Retrain now'}</button>
+          {!demo && <button className="btn" onClick={retrain} disabled={busy}>{busy ? 'Retraining…' : 'Retrain now'}</button>}
           <AskButton text="Which customers are most likely to churn, when will our big invoices be paid, and are there unusual costs? Use the ML predictions and say how reliable each model is.">Ask the assistant</AskButton>
         </div>
       </div>

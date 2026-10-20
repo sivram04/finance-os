@@ -741,7 +741,7 @@ def get_forecast(wh, scenario="base"):
                         f"zero (looked for over {out['summary']['runway_horizon']} months; null = not within it).")
 
 
-SNAPSHOTS = Path(__file__).resolve().parents[3] / "data" / "live" / "forecast_snapshots.jsonl"
+SNAPSHOTS = ROOT / "data" / "live" / "forecast_snapshots.jsonl"
 
 
 def save_forecast_snapshot(wh, path=SNAPSHOTS):
@@ -2816,7 +2816,7 @@ def metric_lineage(model):
     if model in _LINEAGE:
         return _LINEAGE[model]
     import json
-    path = Path(__file__).resolve().parents[3] / "warehouse" / "target" / "manifest.json"
+    path = ROOT / "warehouse" / "target" / "manifest.json"
     if not path.exists():
         return {"sources": [], "seeds": [], "models": []}
     man = json.loads(path.read_text(encoding="utf-8"))
@@ -2907,7 +2907,7 @@ def get_decision_kpis(wh, month=None):
     month's result) and data freshness. Answers 'which numbers need a decision this month and why'."""
     import yaml
     m = _month(month, wh)
-    spec = {x["name"]: x for x in yaml.safe_load((Path(__file__).resolve().parents[3] / "warehouse" / "metrics" / "kpis.yml")
+    spec = {x["name"]: x for x in yaml.safe_load((ROOT / "warehouse" / "metrics" / "kpis.yml")
                                                   .read_text(encoding="utf-8"))["metrics"]}
     vals = {r["metric_name"]: float(r["value"]) for r in wh.query(
         "select metric_name, value from marts.fct_metric_values_monthly where month = ?::date", [m])}
@@ -3308,7 +3308,7 @@ def live_through(wh):
     """The live date of the books: the simulator's own date when it is running (quiet days post nothing), else the
     last day anything was posted. Every 'live through' label uses this one date."""
     import json
-    world = Path(__file__).resolve().parents[3] / "data" / "live" / "world.json"
+    world = ROOT / "data" / "live" / "world.json"
     try:
         d = json.loads(world.read_text(encoding="utf-8")).get("as_of") if world.exists() else None
     except (OSError, ValueError):

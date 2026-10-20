@@ -211,24 +211,28 @@ export function Bars({ top = 8, stack, signed, refX, valueFormat, ...props }: Br
 }
 
 /** A trend by month (or week): lines, with optional target / reference lines. Not a filter source. */
-export function Trend({ rows, x, series, unit = 'usd', refs = [], height = 220, format }: {
+export function Trend({ rows, x, series, unit = 'usd', refs = [], height = 220, format, xTicks, xFormat }: {
   rows: Row[]; x: string; series: { key: string; label: string; color?: string; dashed?: boolean }[]; unit?: string
   refs?: { y: number; label: string; color?: string }[]; height?: number; format?: (v: number) => string
+  // a numeric x axis with fixed ticks (e.g. 0-100% of customers) instead of one label per row; no zoom slider
+  xTicks?: number[]; xFormat?: (v: number) => string
 }) {
   const show = format ?? ((v: number) => fmt(series[0]?.key ?? 'value', v, unit))
   const { period } = usePeriod()
   const f = useFilters()
   rows = useMemo(() => inPeriod(rows, period, x), [rows, period, x])
   const drill = drillTo(f, x)
-  const zoom = rows.length > 12
+  const zoom = !xTicks && rows.length > 12
   return (
     <div style={{ height: height + (zoom ? 30 : 0) }}>
       <ResponsiveContainer>
         <LineChart data={rows} margin={{ left: 8, right: 16, top: 8 }} onClick={drill ? (st) => drill((st as { activeLabel?: string })?.activeLabel) : undefined} style={drill ? { cursor: 'pointer' } : undefined}>
           <CartesianGrid stroke="var(--border)" vertical={false} />
-          <XAxis dataKey={x} {...AXIS} />
+          {xTicks
+            ? <XAxis dataKey={x} type="number" domain={[xTicks[0], xTicks[xTicks.length - 1]]} ticks={xTicks} tickFormatter={(v) => (xFormat ? xFormat(v as number) : String(v))} {...AXIS} />
+            : <XAxis dataKey={x} {...AXIS} />}
           <YAxis tickFormatter={(v) => show(v as number)} width={64} {...AXIS} />
-          <Tooltip formatter={(v) => show(v as number)} {...TIP} />
+          <Tooltip formatter={(v) => show(v as number)} labelFormatter={(l) => (xFormat ? xFormat(Number(l)) : String(l))} {...TIP} />
           {series.length > 1 && <Legend wrapperStyle={{ fontSize: 12 }} />}
           {refs.map((r) => <ReferenceLine key={r.label} y={r.y} stroke={r.color ?? 'var(--faint)'} strokeDasharray="4 4" label={{ value: r.label, fontSize: 11, fill: 'var(--faint)', position: 'insideTopRight' }} />)}
           {series.map((s, i) => <Line key={s.key} dataKey={s.key} name={s.label} stroke={s.color ?? PALETTE[i]} strokeWidth={2} strokeDasharray={s.dashed ? '5 4' : undefined} dot={false} activeDot={{ r: 5 }} isAnimationActive animationDuration={700} />)}

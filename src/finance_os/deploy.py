@@ -65,7 +65,12 @@ def _gcloud():
 
 
 def upload(log=print):
+    dbt_manifest = OUT / "dbt_manifest.json"  # lineage for answer evidence; renamed so it can't clash with ours
+    src = ROOT / "warehouse" / "target" / "manifest.json"
+    if src.exists():
+        shutil.copyfile(src, dbt_manifest)
     files = [SNAPSHOT, ROOT / "data" / "alerts.duckdb", ROOT / "data" / "live" / "world.json",
+             ROOT / "data" / "live" / "forecast_snapshots.jsonl", dbt_manifest,
              *sorted((ROOT / "data" / "ml").glob("*.json"))]
     files = [f for f in files if f.exists()]
     dest = f"gs://{BUCKET}/current/"

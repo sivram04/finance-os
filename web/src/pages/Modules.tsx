@@ -33,8 +33,8 @@ function RevenueBody() {
   const below = rows.filter((r) => r.is_below_floor)
   const sorted = [...rows].sort((a, b) => Number(b.gross_margin) - Number(a.gross_margin))
   let run = 0
-  const whale = sorted.map((r, i) => { run += Number(r.gross_margin); return { pct: `${Math.round(((i + 1) / sorted.length) * 100)}%`, cum: gm ? run / gm : 0 } })
-  const top20 = whale[Math.max(0, Math.ceil(sorted.length * 0.2) - 1)]?.cum ?? 0
+  const whale = [{ pct: 0, cum: 0 }, ...sorted.map((r, i) => { run += Number(r.gross_margin); return { pct: ((i + 1) / sorted.length) * 100, cum: gm ? run / gm : 0 } })]
+  const top20 = whale[Math.max(1, Math.ceil(sorted.length * 0.2))]?.cum ?? 0
   const losing = rows.filter((r) => Number(r.contribution_margin) < 0)
   const b = mv.data?.rows[0]
   if (!ue.data) return <div className="page"><Loading state={ue} /></div>
@@ -52,7 +52,7 @@ function RevenueBody() {
       ]} />
       <div className="grid cols-3">
         <Card title="Where the profit comes from" sub="Cumulative share of gross margin, customers sorted best to worst">
-          <Trend rows={whale} x="pct" unit="ratio" format={(v) => `${Math.round(v * 100)}%`} series={[{ key: 'cum', label: 'Cumulative gross margin', color: '#2f9e6b' }]} refs={[{ y: 1, label: '100%' }]} />
+          <Trend rows={whale} x="pct" unit="ratio" format={(v) => `${Math.round(v * 100)}%`} xTicks={[0, 20, 40, 60, 80, 100]} xFormat={(v) => `${Math.round(v)}%`} series={[{ key: 'cum', label: 'Cumulative gross margin', color: '#2f9e6b' }]} refs={[{ y: 1, label: '100%' }]} />
         </Card>
         <Card title="Revenue by segment" sub="Click to filter"><Donut rows={all} dim="segment" measure="revenue" /></Card>
         <Card title="Contribution by customer" sub="Largest gains and losses · click to filter">

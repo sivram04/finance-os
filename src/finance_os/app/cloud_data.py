@@ -20,6 +20,8 @@ PLACES = {  # object name -> local path
     "finance_os_app.duckdb": ROOT / "data" / "deploy" / "finance_os_app.duckdb",
     "alerts.duckdb": ROOT / "data" / "alerts.duckdb",
     "world.json": ROOT / "data" / "live" / "world.json",
+    "forecast_snapshots.jsonl": ROOT / "data" / "live" / "forecast_snapshots.jsonl",
+    "dbt_manifest.json": ROOT / "warehouse" / "target" / "manifest.json",
 }
 STATE = {"manifest": None, "error": None, "checked_at": None}
 

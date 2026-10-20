@@ -406,6 +406,9 @@ def create_app(state: AppState | None = None, wh: tools.Warehouse | None = None,
     @app.post("/api/ml/retrain")
     def ml_retrain():
         """Retrain the four ML models on the current warehouse (seconds); the daily job also does this."""
+        import os
+        if os.environ.get("FINANCE_OS_NO_TRAIN"):
+            raise HTTPException(403, "Models are retrained by the daily job, not in the deployed demo.")
         from finance_os import ml
         return {name: r["card"]["headline"] for name, r in ml.train_all(wh, log=lambda m: None).items()}
 
