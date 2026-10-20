@@ -19,7 +19,9 @@ export function useCountUp(target: number, ms = 900) {
       else from.current = target
     }
     raf = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(raf)
+    // a background tab pauses animation frames: land on the real value regardless
+    const done = window.setTimeout(() => { setV(target); from.current = target }, ms + 80)
+    return () => { cancelAnimationFrame(raf); window.clearTimeout(done) }
   }, [target, ms])
   return v
 }

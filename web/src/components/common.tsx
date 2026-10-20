@@ -25,7 +25,11 @@ export const useWorkspace = () => useContext(WorkspaceContext)!
 
 export function useTool(tool: string, args: Record<string, unknown> = {}) {
   const { refreshKey } = useWorkspace()
-  const key = JSON.stringify(args)
+  const { period } = usePeriod()
+  // a year in the Period control means "as of that year's last month" for every tool that takes a month (the API
+  // applies it only where the tool has a month argument and none was given; the latest closed month caps it)
+  const asOf = /^\d{4}$/.test(period) && !FORWARD.test(tool) ? `${period}-12` : null
+  const key = JSON.stringify(asOf && !('month' in args) ? { ...args, _as_of: asOf } : args)
   const [state, setState] = useState<{ data?: ToolResult; error?: string; loading: boolean }>({ loading: true })
   useEffect(() => {
     let live = true
@@ -35,7 +39,6 @@ export function useTool(tool: string, args: Record<string, unknown> = {}) {
       .catch((e) => live && setState({ error: String(e), loading: false }))
     return () => { live = false }
   }, [tool, key, refreshKey])
-  const { period } = usePeriod()
   // the Period control (top bar) narrows every monthly series a page loads, so hand-built charts follow it too;
   // forward-looking tools (forecasts, scenarios) and Explore keep their own ranges
   return useMemo(() => {

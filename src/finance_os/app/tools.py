@@ -2820,19 +2820,53 @@ def _status(x, better, amber, red):
     return "red" if x >= red else "amber" if x >= amber else "green"
 
 
-def _status_reason(status, x, shown, t, better):
-    """Why a KPI has its status, from the data only: the comparison and the boundary it crossed (no advice)."""
+MULTIPLES = {"quick_ratio", "burn_multiple", "magic_number", "ltv_to_cac_burdened"}
+BASIS_LABEL = {"value": "", "month-over-month": " vs last month", "vs budget (favorable +)": " vs budget",
+               "payroll vs budget (overrun +)": " payroll vs budget", "vs run-rate ARR": " vs run-rate ARR"}
+
+
+def _fmt_metric(v, unit, metric):
+    """A metric value the way a reader expects it: 81.2%, 65.1 days, $53.8K, 1.87x, 5."""
+    if v is None:
+        return "n/a"
+    if metric == "rule_of_40":
+        return f"{v * 100:.0f}"
+    if metric in MULTIPLES:
+        return f"{v:.2f}x"
+    if unit == "ratio":
+        return f"{v * 100:.1f}%"
+    if unit == "usd":
+        return _usd_text(v)
+    if unit == "days":
+        return f"{v:.1f} days"
+    if unit == "months":
+        return f"{v:.1f} months"
+    return f"{v:,.0f}"
+
+
+def _status_reason(status, x, shown, t, better, unit="", metric=""):
+    """Why a KPI has its status, from the data only: the comparison and the line it crossed (no advice)."""
     if x is None:
         return "No comparison available this month"
-    pct_basis = shown != "value"
-    val = f"{x * 100:+.1f}%" if pct_basis else (f"{x:,.2f}" if abs(x) < 100 else f"{x:,.0f}")
-    fmt_b = (lambda b: f"{b * 100:+.0f}%") if pct_basis else (lambda b: f"{b:,}")
+    if shown == "value":
+        f = lambda v: _fmt_metric(v, unit, metric)  # noqa: E731
+        val = f(x)
+    else:
+        f = lambda v: f"{v * 100:+.0f}%" if abs(v * 100 - round(v * 100)) < 1e-9 else f"{v * 100:+.1f}%"  # noqa: E731
+        val = f"{x * 100:+.1f}%"
+    label = BASIS_LABEL.get(shown, f" {shown}")
     side = "below" if better == "higher" else "above"
+    if shown == "value":  # the card already shows the value: say only where it sits
+        if status == "red":
+            return f"{side.capitalize()} the red line of {f(t.get('red'))}"
+        if status == "amber":
+            return f"Past the amber line of {f(t.get('amber'))}; red at {f(t.get('red'))}"
+        return f"Within threshold (amber at {f(t.get('amber'))})"
     if status == "red":
-        return f"{val} {shown}: {side} the red line ({fmt_b(t.get('red'))})"
+        return f"{val}{label}: {side} the red line of {f(t.get('red'))}"
     if status == "amber":
-        return f"{val} {shown}: past the amber line ({fmt_b(t.get('amber'))}), not yet red ({fmt_b(t.get('red'))})"
-    return f"{val} {shown}: within threshold (amber at {fmt_b(t.get('amber'))})"
+        return f"{val}{label}: past the amber line of {f(t.get('amber'))}; red at {f(t.get('red'))}"
+    return f"{val}{label}: within threshold (amber at {f(t.get('amber'))})"
 
 
 def get_decision_kpis(wh, month=None):
@@ -2890,7 +2924,7 @@ def get_decision_kpis(wh, month=None):
         out.append({"metric": name, "label": sp["label"], "unit": sp["unit"], "value": v, "prior": prev.get(name),
                     "compare_basis": shown, "compare_value": None if x is None else round(x, 4),
                     "status": st, "threshold": {k: t.get(k) for k in ("basis", "better", "amber", "red")},
-                    "status_reason": _status_reason(st, x, shown, t, better),
+                    "status_reason": _status_reason(st, x, shown, t, better, sp["unit"], name),
                     "purpose": sp["purpose"], "formula": sp["formula"], "owner": sp["owner"], "source_model": sp["source_model"],
                     "lineage_sources": lin["sources"], "lineage_seeds": lin["seeds"], "lineage_models": lin["models"],
                     "recon_checks": checks, "recon_status": recon_status, "version": sp.get("version"),
@@ -3586,5 +3620,12 @@ def openai_tool_specs(extra=None):
 
 
 def run_tool(wh, name, args):
+    """Run a read tool. `_as_of` (from the workspace Period control) becomes the tool's month when the tool takes one
+    and none was given; tools without a month ignore it."""
+    import inspect
     fn = TOOLS[name][0]
+    args = dict(args or {})
+    as_of = args.pop("_as_of", None)
+    if as_of and "month" in inspect.signature(fn).parameters and not args.get("month"):
+        args["month"] = str(as_of)[:7]
     return fn(wh, **args)
