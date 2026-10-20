@@ -37,7 +37,7 @@ function Spark({ values, good }: { values: (number | null)[]; good: boolean | nu
       <ResponsiveContainer>
         <LineChart data={pts} margin={{ top: 2, bottom: 2, left: 0, right: 0 }}>
           <YAxis hide domain={['dataMin', 'dataMax']} />
-          <Line dataKey="v" stroke={good == null ? 'var(--accent)' : good ? TONE.good : TONE.bad} strokeWidth={1.6} dot={false} isAnimationActive={false} connectNulls />
+          <Line dataKey="v" stroke={good == null ? 'var(--accent)' : good ? TONE.good : TONE.bad} strokeWidth={1.6} dot={false} isAnimationActive animationDuration={700} connectNulls />
         </LineChart>
       </ResponsiveContainer>
     </div>
@@ -45,10 +45,22 @@ function Spark({ values, good }: { values: (number | null)[]; good: boolean | nu
 }
 
 // percent change is only meaningful for a positive base; ratios move in points; huge runways don't move at all
+const NEEDS_YEAR = new Set(['nrr', 'grr', 'rule_of_40'])
+
 function deltaText(r: Row, change: number | null) {
-  if (change == null) return 'no prior month'
-  const m = String(r.metric), u = String(r.unit), prior = r.prior as number | null
-  if (m === 'runway_months' && (r.value as number) > 60 && (prior ?? 0) > 60) return 'more than 5 years either way'
+  const m = String(r.metric), u = String(r.unit), prior = r.prior as number | null, v = r.value as number | null
+  if (v == null && NEEDS_YEAR.has(m)) return 'needs 12 months of history'
+  if (r.undefined_reason) return String(r.undefined_reason)
+  if (change == null) return r.prior == null && v != null ? 'not defined last month' : 'no prior month'
+  if (m === 'runway_months') {  // months, never percent; anything past five years is "60+"
+    if ((v ?? 0) > 60 && (prior ?? 0) > 60) return 'above 5 years, unchanged'
+    if ((v ?? 0) > 60) return `up from ${(prior ?? 0).toFixed(1)} mo`
+    if ((prior ?? 0) > 60) return 'down from 60+ mo'
+    return `${change > 0 ? '▲' : '▼'} ${Math.abs(change).toFixed(1)} mo vs last month`
+  }
+  if (u === 'usd' && ((v ?? 0) < 0 || (prior ?? 0) < 0)) {  // a percent across zero means nothing: show dollars
+    return `${change > 0 ? '▲' : '▼'} ${show(m, u, Math.abs(change))} vs last month`
+  }
   const arrow = change > 0 ? '▲' : change < 0 ? '▼' : '·'
   const size = u === 'ratio' && m !== 'burn_multiple' && m !== 'rule_of_40' ? `${(Math.abs(change) * 100).toFixed(1)} pts`
     : m === 'rule_of_40' ? `${(Math.abs(change) * 100).toFixed(0)} pts`
@@ -72,22 +84,26 @@ function contextText(r: Row) {
 
 // ---- Scorecard ---------------------------------------------------------------------------------------------
 
-export function Scorecard() {
+export function Scorecard({ month }: { month?: string } = {}) {
   const { inspect } = useWorkspace()
-  const s = useTool('get_kpi_scorecard')
+  const s = useTool('get_kpi_scorecard', month ? { month } : {})
   if (!s.data) return <Loading state={s} />
+  const netBurn = ((s.data.rows as Row[]).find((x) => x.metric === 'net_burn')?.value ?? null) as number | null
   return (
     <div className="grid cols-6 scorecard">
-      {(s.data.rows as Row[]).map((r) => {
+      {(s.data.rows as Row[]).map((row) => {
+        let r = row
         const change = r.change as number | null
-        const better = change == null || change === 0 ? null : (change > 0) === (r.higher_is_better as boolean)
+        const flatRunway = r.metric === 'runway_months' && Number(r.value) > 60 && Number(r.prior ?? 0) > 60
+        if (r.metric === 'burn_multiple' && netBurn != null && netBurn <= 0) r = { ...r, value: null, undefined_reason: 'not meaningful: cash generated this month', status: null }
+        const better = change == null || change === 0 || flatRunway || r.undefined_reason || r.value == null ? null : (change > 0) === (r.higher_is_better as boolean)
         const kpiId = ['net_new_arr', 'burn_multiple', 'rule_of_40', 'cac_payback_months'].includes(String(r.metric)) ? null : String(r.metric)
         return (
           <button key={String(r.metric)} className="card kpi clickable score" disabled={!kpiId}
             title={r.benchmark_source ? `Benchmark: ${r.benchmark_source}` : 'Open the trend and definition'}
             onClick={() => kpiId && inspect({ kind: 'kpi', id: kpiId })}
             style={{ borderTop: `3px solid ${r.status ? TONE[String(r.status)] : 'var(--border)'}` }}>
-            <div className="label">{String(r.label)}</div>
+            <div className="label">{r.metric === 'net_burn' && Number(r.value) < 0 ? 'Net burn (cash generated)' : String(r.label)}</div>
             <div className="value">{show(String(r.metric), String(r.unit), r.value)}</div>
             <div className="delta" style={{ color: better == null ? 'var(--faint)' : better ? TONE.good : TONE.bad }}>
               {deltaText(r, change)}
@@ -106,10 +122,10 @@ export function Scorecard() {
 
 // ---- What changed and why -----------------------------------------------------------------------------------
 
-export function MonthSummary() {
-  const s = useTool('get_month_summary')
+export function MonthSummary({ month }: { month?: string } = {}) {
+  const s = useTool('get_month_summary', month ? { month } : {})
   return (
-    <Card title="This month: what changed and why" sub={s.data ? String(s.data.headline) : undefined}
+    <Card title={`${s.data?.month ? String(s.data.month) : 'This month'}: what changed and why`} sub={s.data ? String(s.data.headline) : undefined}
       right={<AskButton text="Walk me through this month: what changed, why, and what I should do about it. Lead with the conclusion.">Dig in</AskButton>}>
       {s.data ? (
         <div className="summary-grid">
@@ -149,8 +165,8 @@ function Waterfall({ row }: { row: Row }) {
           <XAxis dataKey="name" {...AXIS} />
           <YAxis tickFormatter={usd} width={70} domain={[Math.max(0, lo), 'auto']} allowDataOverflow {...AXIS} />
           <Tooltip formatter={(v, n) => (n === 'base' ? null : usd(v))} {...TIP} />
-          <Bar dataKey="base" stackId="w" fill="transparent" isAnimationActive={false} />
-          <Bar dataKey="v" stackId="w" radius={[3, 3, 0, 0]} isAnimationActive={false}>
+          <Bar dataKey="base" stackId="w" fill="transparent" isAnimationActive animationDuration={700} />
+          <Bar dataKey="v" stackId="w" radius={[3, 3, 0, 0]} isAnimationActive animationDuration={700}>
             {data.map((d, i) => <Cell key={i} fill={color(d.sign)} />)}
           </Bar>
         </BarChart>
@@ -352,9 +368,9 @@ export function Pipeline() {
                   <YAxis tickFormatter={usd} width={70} {...AXIS} />
                   <Tooltip formatter={usd} {...TIP} />
                   <Legend wrapperStyle={{ fontSize: 12 }} />
-                  <Line dataKey="capacity_arr" name="Capacity" stroke="#7a8699" strokeDasharray="5 4" strokeWidth={2} dot={false} isAnimationActive={false} />
-                  <Line dataKey="credited_arr" name="Credited ARR (new + expansion)" stroke={TONE.good} strokeWidth={2} dot={false} isAnimationActive={false} />
-                  <Line dataKey="bookings_arr" name="New-logo bookings" stroke="var(--accent)" strokeWidth={2} dot={false} isAnimationActive={false} />
+                  <Line dataKey="capacity_arr" name="Capacity" stroke="#7a8699" strokeDasharray="5 4" strokeWidth={2} dot={false} isAnimationActive animationDuration={700} />
+                  <Line dataKey="credited_arr" name="Credited ARR (new + expansion)" stroke={TONE.good} strokeWidth={2} dot={false} isAnimationActive animationDuration={700} />
+                  <Line dataKey="bookings_arr" name="New-logo bookings" stroke="var(--accent)" strokeWidth={2} dot={false} isAnimationActive animationDuration={700} />
                 </LineChart>
               </ResponsiveContainer>
             </div>

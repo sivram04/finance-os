@@ -5,6 +5,7 @@ import { createContext, useCallback, useContext, useMemo, useState, type ReactNo
 import { Bar, BarChart, Brush, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, Rectangle, ReferenceLine, ResponsiveContainer, Sector, Tooltip, XAxis, YAxis } from 'recharts'
 import { fmt, label, type Row } from '../api'
 import { WorkspaceContext } from './common'
+import { CountText } from './Motion'
 
 export type Filters = Record<string, string>
 
@@ -112,7 +113,7 @@ export function KpiRow({ items }: { items: Kpi[] }) {
       {items.map((k) => (
         <div key={k.label} className="card kpi" title={k.title} style={{ borderTop: `3px solid ${k.tone ? TONE[k.tone] : 'var(--border)'}` }}>
           <div className="label">{k.label}</div>
-          <div className="value" style={k.tone === 'bad' ? { color: TONE.bad } : undefined}>{k.value}</div>
+          <div className="value" style={k.tone === 'bad' ? { color: TONE.bad } : undefined}><CountText text={String(k.value)} /></div>
           {k.note != null && <div className="note">{k.note}</div>}
         </div>
       ))}
@@ -142,7 +143,7 @@ export function Donut(props: Breakdown) {
       <div style={{ height: props.height ?? 200, position: 'relative' }}>
         <ResponsiveContainer>
           <PieChart>
-            <Pie data={data} dataKey="value" nameKey="name" innerRadius="58%" outerRadius="88%" paddingAngle={1} isAnimationActive={false}
+            <Pie data={data} dataKey="value" nameKey="name" innerRadius="58%" outerRadius="88%" paddingAngle={1} isAnimationActive animationDuration={700}
               shape={clickableSector((p) => click(String(p.payload?.name ?? p.name)))}>
               {data.map((d, i) => <Cell key={d.name} fill={color(d.name, i)} fillOpacity={!selected || selected === d.name ? 1 : 0.25} stroke="var(--card)"
                 />)}
@@ -191,12 +192,12 @@ export function Bars({ top = 8, stack, signed, refX, valueFormat, ...props }: Br
             onClick={(t: unknown) => { const v = (t as { value?: string })?.value; if (v != null) f?.toggle(props.dim, String(v)) }} />
           <Tooltip formatter={(v) => show(v)} labelFormatter={(l) => pretty(String(l))} {...TIP} />
           {stack ? stack.values.map((s, i) => (
-            <Bar key={s} dataKey={s} name={stack.labels?.[s] ?? pretty(s)} stackId="s" fill={stack.colors?.[s] ?? PALETTE[i]} isAnimationActive={false}
+            <Bar key={s} dataKey={s} name={stack.labels?.[s] ?? pretty(s)} stackId="s" fill={stack.colors?.[s] ?? PALETTE[i]} isAnimationActive animationDuration={700}
               shape={clickableBar((p) => f?.toggle(props.dim, String(p.payload?.name)))}>
               {data.map((d) => <Cell key={String(d.name)} fillOpacity={opacity(d.name)} />)}
             </Bar>
           )) : (
-            <Bar dataKey="value" radius={[0, 3, 3, 0]} isAnimationActive={false} shape={clickableBar((p) => f?.toggle(props.dim, String(p.payload?.name)))}>
+            <Bar dataKey="value" radius={[0, 3, 3, 0]} isAnimationActive animationDuration={700} shape={clickableBar((p) => f?.toggle(props.dim, String(p.payload?.name)))}>
               {data.map((d, i) => <Cell key={String(d.name)} fill={signed ? ((d.value as number) >= 0 ? TONE.good : TONE.bad) : props.colors?.[String(d.name)] ?? PALETTE[props.colors ? i : 0]} fillOpacity={opacity(d.name)} />)}
             </Bar>
           )}
@@ -230,7 +231,7 @@ export function Trend({ rows, x, series, unit = 'usd', refs = [], height = 220, 
           <Tooltip formatter={(v) => show(v as number)} {...TIP} />
           {series.length > 1 && <Legend wrapperStyle={{ fontSize: 12 }} />}
           {refs.map((r) => <ReferenceLine key={r.label} y={r.y} stroke={r.color ?? 'var(--faint)'} strokeDasharray="4 4" label={{ value: r.label, fontSize: 11, fill: 'var(--faint)', position: 'insideTopRight' }} />)}
-          {series.map((s, i) => <Line key={s.key} dataKey={s.key} name={s.label} stroke={s.color ?? PALETTE[i]} strokeWidth={2} strokeDasharray={s.dashed ? '5 4' : undefined} dot={false} activeDot={{ r: 5 }} isAnimationActive={false} />)}
+          {series.map((s, i) => <Line key={s.key} dataKey={s.key} name={s.label} stroke={s.color ?? PALETTE[i]} strokeWidth={2} strokeDasharray={s.dashed ? '5 4' : undefined} dot={false} activeDot={{ r: 5 }} isAnimationActive animationDuration={700} />)}
           {f?.filters[x] && <ReferenceLine x={f.filters[x]} stroke="var(--accent)" strokeWidth={2} />}
           {zoom && <Brush dataKey={x} height={22} stroke="var(--accent)" fill="var(--panel)" travellerWidth={8} />}
         </LineChart>
@@ -256,7 +257,7 @@ export function Columns({ rows, x, y, unit = 'usd', color = PALETTE[0], height =
           <XAxis dataKey={x} tickFormatter={xFormat} {...AXIS} />
           <YAxis tickFormatter={(v) => fmt(y, v as number, unit)} width={64} {...AXIS} />
           <Tooltip formatter={(v) => fmt(y, v as number, unit)} labelFormatter={(l) => (xFormat ? xFormat(String(l)) : String(l))} {...TIP} />
-          <Bar dataKey={y} radius={[3, 3, 0, 0]} isAnimationActive={false}>
+          <Bar dataKey={y} radius={[3, 3, 0, 0]} isAnimationActive animationDuration={700}>
             {rows.map((r, i) => <Cell key={i} fill={color} fillOpacity={f?.filters[x] && f.filters[x] !== String(r[x]) ? 0.3 : 1} />)}
           </Bar>
           {zoom && <Brush dataKey={x} height={22} stroke="var(--accent)" fill="var(--panel)" travellerWidth={8} />}
@@ -294,8 +295,8 @@ export function Bridge({ start, steps, end, height = 260, format }: {
           <YAxis tickFormatter={(v) => show(v as number)} width={70} domain={[Math.min(0, lo - pad), hi + pad]} {...AXIS} />
           <Tooltip formatter={(v, n, item) => (n === 'base' ? null : show((item.payload as { kind: string }).kind === 'down' ? -(v as number) : (v as number)))} {...TIP} />
           <ReferenceLine y={0} stroke="var(--faint)" />
-          <Bar dataKey="base" stackId="w" fill="transparent" isAnimationActive={false} />
-          <Bar dataKey="v" stackId="w" radius={[3, 3, 0, 0]} isAnimationActive={false}>
+          <Bar dataKey="base" stackId="w" fill="transparent" isAnimationActive animationDuration={700} />
+          <Bar dataKey="v" stackId="w" radius={[3, 3, 0, 0]} isAnimationActive animationDuration={700}>
             {rows.map((d, i) => <Cell key={i} fill={color(d.kind)} />)}
           </Bar>
         </BarChart>
@@ -323,7 +324,7 @@ export function GroupedBars({ rows, dim, series, unit = 'usd', height = 240, ref
           <Legend wrapperStyle={{ fontSize: 12 }} />
           {refs.map((r) => <ReferenceLine key={r.label} y={r.y} stroke="var(--faint)" strokeDasharray="4 4" label={{ value: r.label, fontSize: 11, fill: 'var(--faint)', position: 'insideTopRight' }} />)}
           {series.map((s, i) => (
-            <Bar key={s.key} dataKey={s.key} name={s.label} fill={s.color ?? PALETTE[i]} radius={[3, 3, 0, 0]} isAnimationActive={false}
+            <Bar key={s.key} dataKey={s.key} name={s.label} fill={s.color ?? PALETTE[i]} radius={[3, 3, 0, 0]} isAnimationActive animationDuration={700}
               shape={clickableBar((p) => f?.toggle(dim, String(p.payload?.[dim])))}>
               {own.map((d) => <Cell key={String(d[dim])} fillOpacity={!selected || selected === String(d[dim]) ? 1 : 0.25} />)}
             </Bar>

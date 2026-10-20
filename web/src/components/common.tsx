@@ -4,7 +4,7 @@ import { api, fmt, label, type Row, type ToolResult } from '../api'
 
 // ---- app context: navigation and handing questions to the assistant ------------------------------
 
-export type Page = 'home' | 'alerts' | 'reports' | 'financials' | 'analysis' | 'growth' | 'pipeline' | 'scenarios' | 'entities' | 'deals' | 'comp' | 'revenue' | 'spend' | 'budget' | 'plan' | 'cash' | 'close' | 'projects' | 'billing' | 'ar' | 'ap' | 'pricing' | 'capital' | 'tax' | 'trust' | 'contracts' | 'drivers' | 'ceo' | 'explore' | 'corpfin' | 'calculators' | 'kpis'
+export type Page = 'home' | 'alerts' | 'reports' | 'financials' | 'analysis' | 'growth' | 'pipeline' | 'scenarios' | 'entities' | 'deals' | 'comp' | 'revenue' | 'spend' | 'budget' | 'plan' | 'cash' | 'close' | 'projects' | 'billing' | 'ar' | 'ap' | 'pricing' | 'capital' | 'tax' | 'trust' | 'contracts' | 'drivers' | 'ceo' | 'explore' | 'corpfin' | 'calculators' | 'kpis' | 'welcome'
 
 export type EntityKind = 'customer' | 'vendor' | 'project' | 'kpi'
 export interface Entity { kind: EntityKind; id: string }
@@ -69,7 +69,7 @@ export function Card({ title, sub, right, children, className = '' }:
 
 export function Loading({ state }: { state: { loading: boolean; error?: string } }) {
   if (state.error) return <div className="error">Could not load: {state.error}</div>
-  return <div className="muted"><span className="spinner" /> Loading…</div>
+  return <div className="skeleton" aria-label="Loading"><span /><span /><span /></div>
 }
 
 const GOOD = new Set(['pass', 'paid', 'auto_approve', 'approved', 'current', 'answered'])

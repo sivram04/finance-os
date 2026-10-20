@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'react'
 import { Bridge, KpiRow } from '../components/Dash'
 import { fmt, type Row } from '../api'
+import { CountText } from '../components/Motion'
 import { AskButton, Card, Chip, DataTable, Loading, Source, useTool, useWorkspace, type Page } from '../components/common'
 
 const STATUS_COLOR: Record<string, string> = { red: 'var(--bad)', amber: 'var(--warn)', green: 'var(--good)', grey: 'var(--faint)' }
@@ -46,7 +47,7 @@ export function DecisionKpis() {
           {rows.map((r) => (
             <button key={String(r.metric)} className={`kpi-decision ${open?.metric === r.metric ? 'on' : ''}`} style={{ borderTopColor: STATUS_COLOR[String(r.status)] }} onClick={() => setOpen(r)}>
               <span className="label">{String(r.label)}</span>
-              <span className="value">{show(r)}</span>
+              <span className="value"><CountText text={show(r)} /></span>
               <span className="note">{compareText(r)}</span>
               <span className="decision" style={{ color: r.status === 'green' ? 'var(--muted)' : STATUS_COLOR[String(r.status)] }}>{String(r.decision)}</span>
               <span className="owner">{String(r.owner)} · recon {String(r.recon_status)}</span>

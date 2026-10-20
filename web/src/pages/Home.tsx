@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { api, fmt, type Action, type Row } from '../api'
 import { Card, Chip, Loading, useTool, useWorkspace, type Page } from '../components/common'
+import { usePeriod } from '../components/Dash'
 
 const QUICK = [
   ['Summarize what needs attention', 'What needs my attention right now? Group it by urgency.'],
@@ -119,24 +120,28 @@ export function Home({ asOf }: { asOf?: string }) {
   const { go, ask } = useWorkspace()
   const att = useTool('get_attention_items')
   const counts = (att.data?.counts_by_area ?? {}) as Record<string, number>
-  const m = asOf?.slice(0, 7) ?? ''
+  const { period } = usePeriod()
+  // a year in the Period control shows that year as of its last closed month (December, or the latest month this year)
+  const latest = asOf?.slice(0, 7) ?? ''
+  const m = /^\d{4}$/.test(period) && latest && period < latest.slice(0, 4) ? `${period}-12` : latest
+  const label = m ? new Date(m + '-01T00:00').toLocaleString('en', { month: 'long', year: 'numeric' }) : '…'
   const year = m.slice(0, 4)
   const qStartMonth = m ? String(Math.floor((Number(m.slice(5, 7)) - 1) / 3) * 3 + 1).padStart(2, '0') : ''
   return (
     <div className="page">
       <div className="page-head">
-        <div><h1>Echo Labs · Finance OS</h1><p>Your finance command center. Monthly figures are for the last closed month ({asOf ? new Date(asOf + 'T00:00').toLocaleString('en', { month: 'long', year: 'numeric' }) : '…'}).</p></div>
+        <div><h1>Echo Labs · Finance OS</h1><p>Your finance command center. Monthly figures are for {m === latest ? 'the last closed month' : `the last month of ${period}`} ({label}){m !== latest ? ' · pick All in Period to return to the latest month' : ''}.</p></div>
       </div>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         {QUICK.map(([l, q]) => <button key={l} className="btn" onClick={() => ask(q)}>{l}</button>)}
       </div>
-      <Scorecard />
-      <MonthSummary />
+      <Scorecard month={m} />
+      <MonthSummary month={m} />
       {m && (
         <div className="grid cols-3">
-          <PeriodCard title="This month" start={m} end={m} />
-          <PeriodCard title="This quarter" start={`${year}-${qStartMonth}`} end={m} />
-          <PeriodCard title="This year" start={`${year}-01`} end={m} />
+          <PeriodCard title={m === latest ? 'This month' : 'Month'} start={m} end={m} />
+          <PeriodCard title={m === latest ? 'This quarter' : 'Quarter'} start={`${year}-${qStartMonth}`} end={m} />
+          <PeriodCard title={m === latest ? 'This year' : `Year ${year}`} start={`${year}-01`} end={m} />
         </div>
       )}
       <PositionChart />

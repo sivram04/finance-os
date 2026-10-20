@@ -11,6 +11,7 @@ import { AP, AR, Billing, Budget, Projects, Revenue, Spend, Trust } from './page
 import { CeoOnePager, Contracts, Drivers } from './pages/Insights'
 import { Explore } from './pages/Explore'
 import { DecisionKpis } from './pages/DecisionKpis'
+import { Landing } from './pages/Landing'
 import { Calculators, CorporateFinance } from './pages/CorpFin'
 
 // pages grouped into sections: the top row picks a section, the second row its pages
@@ -23,7 +24,7 @@ const SECTIONS: { name: string; pages: [Page, string][] }[] = [
 ]
 
 export default function App() {
-  const [page, setPage] = useState<Page>(() => (location.hash.slice(1).split('?')[0] as Page) || 'home')
+  const [page, setPage] = useState<Page>(() => (location.hash.slice(1).split('?')[0] as Page) || 'welcome')
   const [pending, setPending] = useState<{ text: string; n: number } | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const [asOf, setAsOf] = useState<string>()
@@ -47,11 +48,11 @@ export default function App() {
 
   useEffect(() => { api.health().then((h) => { setAsOf(h.data_through); setLiveThrough(h.live_through) }).catch(() => setDown(true)) }, [])
   useEffect(() => {  // links and the Back button change the hash; follow it
-    const onHash = () => setPage((location.hash.slice(1).split('?')[0] as Page) || 'home')
+    const onHash = () => setPage((location.hash.slice(1).split('?')[0] as Page) || 'welcome')
     window.addEventListener('hashchange', onHash)
     return () => window.removeEventListener('hashchange', onHash)
   }, [])
-  const go = useCallback((p: Page) => { setPage(p); location.hash = p; setMobile('workspace'); document.querySelector('.workspace')?.scrollTo({ top: 0 }) }, [])
+  const go = useCallback((p: Page) => { setPage(p); location.hash = p; setMobile('workspace'); document.querySelector('.workspace')?.scrollTo({ top: 0 }); window.scrollTo({ top: 0 }) }, [])
   const ask = useCallback((text: string) => { setPending((p) => ({ text, n: (p?.n ?? 0) + 1 })); setMobile('assistant') }, [])
   const refresh = useCallback(() => setRefreshKey((k) => k + 1), [])
   const inspect = useCallback((e: Entity) => setEntity(e), [])
@@ -61,10 +62,12 @@ export default function App() {
   return (
     <PeriodContext.Provider value={periodCtx}>
     <WorkspaceContext.Provider value={ctx}>
+      {page === 'welcome' ? <Landing theme={theme} onTheme={() => setTheme(theme === 'light' ? 'dark' : 'light')} /> : (
       <div className={`shell show-${mobile}`}>
         <Assistant pending={pending} />
         <main className="workspace">
           <nav className="topbar sections">
+            <button className="brand-home" onClick={() => go('welcome')} title="About Finance OS">◆</button>
             {SECTIONS.map((s) => <button key={s.name} className={`tab ${s === section ? 'active' : ''}`} onClick={() => go(s.pages[0][0])}>{s.name}</button>)}
             <span className="spacer" />
             <button className="theme-toggle" onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')} title="Switch light / dark">{theme === 'light' ? 'Dark mode' : 'Light mode'}</button>
@@ -82,6 +85,7 @@ export default function App() {
             <div className="page"><div className="error">Can't reach the Finance OS API. Start it with <code>python -m finance_os.app</code> and reload.</div></div>
           ) : (
             <>
+              <div key={page} className="page-enter">
               {page === 'home' && <Home asOf={asOf} />}
               {page === 'revenue' && <Revenue />}
               {page === 'spend' && <Spend />}
@@ -114,6 +118,7 @@ export default function App() {
               {page === 'pricing' && <Pricing />}
               {page === 'capital' && <Capital />}
               {page === 'tax' && <TaxFx />}
+              </div>
             </>
           )}
         </main>
@@ -123,6 +128,7 @@ export default function App() {
           <button className={mobile === 'assistant' ? 'on' : ''} onClick={() => setMobile('assistant')}>Assistant</button>
         </nav>
       </div>
+      )}
     </WorkspaceContext.Provider>
     </PeriodContext.Provider>
   )

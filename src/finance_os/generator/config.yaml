@@ -241,9 +241,9 @@ anomalies:
 # --- Budgets (raw_erp.budgets, M5). Built from the plan, never from actuals of the budgeted year. ---
 budget:
   fy2025:
-    revenue_start: "120000.00"        # January 2025 plan
+    revenue_start: "650000.00"        # January 2025 plan (about the December 2024 run rate plus new logos)
     revenue_growth: "0.045"           # monthly
-    gross_margin_pct: "0.50"
+    gross_margin_pct: "0.60"
   fy2026:
     revenue_base_month: 2025-10-01    # planned in Q4 2025 from the October run-rate
     revenue_growth: "0.050"           # optimistic: the plan assumed no big churn and no price war

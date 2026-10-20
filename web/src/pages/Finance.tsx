@@ -8,6 +8,7 @@ import { api, fmt, type Row } from '../api'
 import { Bars, Columns, Dash, Donut, GroupedBars, KpiRow, Trend, useFiltered } from '../components/Dash'
 import { AskButton, Card, Chip, DataTable, Loading, Source, useTool, useWorkspace, type Page } from '../components/common'
 import { ForecastErrorByDriver } from './Insights'
+import { CountText } from '../components/Motion'
 
 const AXIS = { tick: { fontSize: 11, fill: 'var(--faint)' }, tickLine: false, axisLine: false } as const
 const TIP = { contentStyle: { background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 } }
@@ -27,7 +28,7 @@ function Kpi({ label, value, note, tone }: { label: string; value: string; note?
   return (
     <div className="card kpi">
       <div className="label">{label}</div>
-      <div className="value" style={tone ? { color: tone === 'bad' ? 'var(--bad, #d1495b)' : 'var(--good, #2f9e6b)' } : undefined}>{value}</div>
+      <div className="value" style={tone ? { color: tone === 'bad' ? 'var(--bad, #d1495b)' : 'var(--good, #2f9e6b)' } : undefined}><CountText text={value} /></div>
       {note && <div className="note">{note}</div>}
     </div>
   )
@@ -896,7 +897,7 @@ function SegmentPnl() {
                 <Tooltip formatter={usd} {...TIP} />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
                 <ReferenceLine y={0} stroke="var(--faint)" />
-                {segs.map((sg, i) => <Line key={sg} dataKey={sg} name={`${sg} operating income`} stroke={['#3b6fd8', '#2f9e6b', '#c98a1b', '#8a63d2'][i % 4]} strokeWidth={2} dot={false} isAnimationActive={false} />)}
+                {segs.map((sg, i) => <Line key={sg} dataKey={sg} name={`${sg} operating income`} stroke={['#3b6fd8', '#2f9e6b', '#c98a1b', '#8a63d2'][i % 4]} strokeWidth={2} dot={false} isAnimationActive animationDuration={700} />)}
               </LineChart>
             </ResponsiveContainer>
           </div>

@@ -294,7 +294,7 @@ export function ForecastErrorByDriver() {
   return (
     <Card title="Forecast error by driver" sub={`The forecast re-run as of each of the last ${String(d.data.versions)} closes vs what closed, ${String(d.data.horizon)} months ahead · positive = forecast too high · biggest miss: ${label[String(d.data.biggest_driver)] ?? ''}`}>
       <div className="grid cols-2">
-        <Bars rows={summary.filter((r) => !['revenue', 'ebitda'].includes(String(r.driver)))} dim="driver_label" measure="avg_abs_error" />
+        <Bars rows={summary.filter((r) => !['revenue', 'ebitda'].includes(String((r as Row).driver)))} dim="driver_label" measure="avg_abs_error" />
         <DataTable rows={summary} columns={[{ key: 'driver_label', label: 'Driver' }, { key: 'bias', label: 'Bias (avg)', unit: 'usd' }, { key: 'avg_abs_error', label: 'Avg abs error', unit: 'usd' }, { key: 'share_of_abs_ebitda_error', label: 'Share of error', unit: 'ratio' }]} />
       </div>
       <DataTable title="forecast_error_by_driver" rows={(d.data.rows ?? []) as Row[]} columns={[{ key: 'as_of' }, { key: 'month' }, { key: 'months_ahead', label: 'Ahead' }, { key: 'existing_customers', label: 'Existing', unit: 'usd' }, { key: 'new_customers', label: 'New', unit: 'usd' },

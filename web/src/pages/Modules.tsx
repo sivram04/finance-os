@@ -151,7 +151,7 @@ export function Budget() {
 function BudgetBody() {
   const s = useTool('get_budget_dashboard')
   const [alert, setAlert] = useState<string | null>(() => new URLSearchParams(location.hash.split('?')[1] ?? '').get('alert'))
-  const { ask } = useWorkspace()
+  useWorkspace()
   const all = (s.data?.rows ?? []) as Row[]
   const rows = useFiltered(all)
   const sum = (rs: Row[], k: string) => rs.reduce((a, r) => a + Number(r[k] ?? 0), 0)

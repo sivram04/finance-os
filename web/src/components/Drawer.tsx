@@ -17,7 +17,7 @@ function Trend({ rows, x, y, unit = 'usd' }: { rows: Row[]; x: string; y: string
           <XAxis dataKey={x} {...AXIS} />
           <YAxis tickFormatter={(v) => fmt(y, v as number, unit)} width={64} {...AXIS} />
           <Tooltip formatter={(v) => fmt(y, v as number, unit)} contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }} />
-          <Area type="monotone" dataKey={y} stroke="var(--accent)" strokeWidth={2} fill="var(--accent)" fillOpacity={0.12} isAnimationActive={false} />
+          <Area type="monotone" dataKey={y} stroke="var(--accent)" strokeWidth={2} fill="var(--accent)" fillOpacity={0.12} isAnimationActive animationDuration={700} />
         </AreaChart>
       </ResponsiveContainer>
     </div>
