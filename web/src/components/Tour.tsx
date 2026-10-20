@@ -11,13 +11,18 @@ const STEPS: Step[] = [
   { target: '.period-pick', title: 'Time range', body: 'Changes the period for every chart and monthly table on the page. "Oct to date" shows the month that is still open, projected to month end.' },
   { target: '.kpi-row, .scorecard', title: 'Headline numbers', body: 'The key figures for the page, coloured by how they compare with benchmarks or budget. Hover a card for what it means.' },
   { target: '.card:not(.kpi) .recharts-wrapper', title: 'Charts you can click', body: 'Click a bar or slice to filter the whole page by it; click a month on a trend to drill into that month. Hover a short id like EN-004 for its full name (EN = enterprise, MM = mid-market, SS = self-serve customer).' },
-  { target: '.assistant', title: 'Ask the assistant', body: 'Ask anything in plain English ("why did revenue drop?"). It answers only from the warehouse, shows each step and its sources, and anything that changes data becomes an approval card for you to approve or reject.' },
+  { target: '.assistant, .mobile-switch', title: 'Ask the assistant', body: 'Ask anything in plain English ("why did revenue drop?"). It answers only from the warehouse, shows each step and its sources, and anything that changes data becomes an approval card for you to approve or reject.' },
   { target: '.topbar.sections .tab:nth-child(3)', title: 'Predictions (machine learning)', body: 'Under Plan & cash, Predictions shows the ML models: churn, expansion, revenue and spend forecasts, payment timing and cost anomalies, each tested against the method it would replace.' },
   { target: '.demo-banner', title: 'This is a demo', body: 'The company is simulated and refreshed daily. Approvals only change this demo, and assistant questions are capped per day.' },
   { title: "You're set", body: 'Start anywhere. Replay this tour any time with the Tour button at the top right.' },
 ]
 
 const KEY = 'finance-os.tour-done'
+
+// the first element matching the selector that is actually on screen (phones hide the assistant panel, for example)
+function visible(selector: string): Element | null {
+  return [...document.querySelectorAll(selector)].find((e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0 }) ?? null
+}
 
 function seen() {
   try { return localStorage.getItem(KEY) === '1' } catch { return false }
@@ -47,7 +52,7 @@ export function Tour({ onClose }: { onClose: () => void }) {
   // steps whose element is on screen now (re-checked every render: KPIs and charts load after the tour opens)
   const [, tick] = useState(0)
   useEffect(() => { const t = setInterval(() => tick((n) => n + 1), 500); return () => clearInterval(t) }, [])
-  const steps = STEPS.filter((s) => !s.target || document.querySelector(s.target))
+  const steps = STEPS.filter((s) => !s.target || visible(s.target))
   const [current, setCurrent] = useState(STEPS[0].title)
   const i = Math.max(0, steps.findIndex((s) => s.title === current))
   const setI = (n: number | ((n: number) => number)) => {
@@ -61,7 +66,7 @@ export function Tour({ onClose }: { onClose: () => void }) {
   const step = steps[i]
 
   useLayoutEffect(() => {
-    const el = step.target ? document.querySelector(step.target) : null
+    const el = step.target ? visible(step.target) : null
     if (!el) { setBox(null); return }
     el.scrollIntoView({ block: 'center' })
     const measure = () => setBox(el.getBoundingClientRect())

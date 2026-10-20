@@ -579,3 +579,19 @@ tbody tr { transition: background 0.12s ease; }
 .tour-actions button.link { border: none; background: none; color: var(--faint); padding: 6px 0; }
 
 .pulse.idle { background: var(--faint); animation: none; }
+
+/* phones: nothing important hidden off-screen */
+@media (max-width: 800px) {
+  .topbar { flex-wrap: wrap; overflow-x: visible; row-gap: 4px; }
+  .topbar .spacer { display: none; }
+  .topbar .faint { display: none; }                 /* "books closed through" is on Home and the landing page */
+  .topbar.sections .theme-toggle { font-size: 12px; padding: 4px 8px; }
+  .topbar.sections .tab { padding: 6px 8px; font-size: 14px; }
+  .topbar.subpages .tab { padding: 5px 8px; }
+  .period-pick { margin-left: 0; flex-basis: 100%; overflow-x: auto; scrollbar-width: none; padding-top: 2px; }
+  .filter-bar.empty { display: none; }               /* the desktop hint about dragging chart sliders */
+  .demo-banner, .mtd-banner { margin: 10px 16px 0; font-size: 12.5px; }
+  .error { overflow-wrap: anywhere; }
+  .error code { white-space: normal; }
+  .tour-pop p { font-size: 13px; }
+}
