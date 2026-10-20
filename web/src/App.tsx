@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from './api'
 import { Assistant } from './components/Assistant'
 import { Drawer } from './components/Drawer'
+import { Tour, useTour } from './components/Tour'
 import { WorkspaceContext, type Entity, type Page } from './components/common'
 import { PeriodContext, type Period } from './components/Dash'
 import { Home } from './pages/Home'
@@ -68,18 +69,21 @@ export default function App() {
   const inspect = useCallback((e: Entity) => setEntity(e), [])
   const ctx = useMemo(() => ({ page, go, ask, refreshKey, refresh, inspect }), [page, go, ask, refreshKey, refresh, inspect])
   const section = SECTIONS.find((s) => s.pages.some(([p]) => p === page)) ?? SECTIONS[0]
+  const tour = useTour(page !== 'welcome' && !down)  // first visit to the dashboard, once per browser
 
   return (
     <PeriodContext.Provider value={periodCtx}>
     <WorkspaceContext.Provider value={ctx}>
       {page === 'welcome' ? <Landing theme={theme} onTheme={() => setTheme(theme === 'light' ? 'dark' : 'light')} /> : (
       <div className={`shell show-${mobile}`}>
+        {tour.open && <Tour onClose={tour.close} />}
         <Assistant pending={pending} />
         <main className="workspace">
           <nav className="topbar sections">
             <button className="brand-home" onClick={() => go('welcome')} title="About Finance OS">◆</button>
             {SECTIONS.map((s) => <button key={s.name} className={`tab ${s === section ? 'active' : ''}`} onClick={() => go(s.pages[0][0])}>{s.name}</button>)}
             <span className="spacer" />
+            <button className="theme-toggle" onClick={tour.start} title="A 1-minute tour of what each part does">Tour</button>
             <button className="theme-toggle" onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')} title="Switch light / dark">{theme === 'light' ? 'Dark mode' : 'Light mode'}</button>
             <span className="faint" style={{ fontSize: 12 }}>{asOf ? `Books closed through ${new Date(asOf + 'T00:00').toLocaleString('en', { month: 'short', year: 'numeric' })}${liveThrough ? ` · live through ${new Date(liveThrough + 'T00:00').toLocaleString('en', { day: 'numeric', month: 'short' })}` : ''}` : ''}</span>
           </nav>

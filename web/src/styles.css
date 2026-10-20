@@ -564,3 +564,16 @@ tbody tr { transition: background 0.12s ease; }
 .ml-verdict.warn { background: var(--warn-soft); }
 
 .demo-banner { margin: 12px 24px 0; padding: 8px 12px; border-radius: 8px; background: var(--accent-soft, rgba(59,111,216,.1)); color: var(--text); font-size: 13px; }
+
+/* guided tour */
+.tour { position: fixed; inset: 0; z-index: 1000; }
+.tour-dim { position: fixed; inset: 0; background: rgba(15, 20, 30, .55); }
+.tour-spot { position: fixed; border-radius: 10px; box-shadow: 0 0 0 9999px rgba(15, 20, 30, .55); outline: 2px solid var(--accent, #3b6fd8); transition: all .25s ease; pointer-events: none; }
+.tour-pop { position: fixed; background: var(--card); color: var(--text); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; box-shadow: 0 12px 32px rgba(0, 0, 0, .25); transition: top .25s ease, left .25s ease; }
+.tour-pop h3 { margin: 2px 0 6px; font-size: 16px; }
+.tour-pop p { margin: 0 0 14px; font-size: 13.5px; line-height: 1.5; color: var(--muted, var(--text)); }
+.tour-count { font-size: 11px; color: var(--faint); text-transform: uppercase; letter-spacing: .04em; }
+.tour-actions { display: flex; align-items: center; gap: 8px; }
+.tour-actions button { padding: 6px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel); color: var(--text); cursor: pointer; font-size: 13px; }
+.tour-actions button.primary { background: var(--accent, #3b6fd8); border-color: var(--accent, #3b6fd8); color: #fff; }
+.tour-actions button.link { border: none; background: none; color: var(--faint); padding: 6px 0; }
