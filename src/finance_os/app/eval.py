@@ -1,4 +1,4 @@
-"""Run the assistant eval (design §9.3): python -m finance_os.app.eval [--model gpt-4.1] [--runs 1] [--only id,id]
+"""Run the assistant eval (design §9.3): python -m finance_os.app.eval [--model google/gemini-2.5-flash] [--runs 1] [--only id,id]
 
 Each question runs in a fresh conversation against a throwaway app database. Results are written to
 evals/assistant/results/<timestamp>_<model>.csv with pass/fail per check, unverified numbers, steps, tokens
@@ -6,6 +6,7 @@ and latency, and a summary is printed. It calls the real OpenAI API, so it costs
 """
 import argparse
 import csv
+import json
 import re
 import tempfile
 import time
@@ -80,6 +81,7 @@ def main():
     p.add_argument("--model")
     p.add_argument("--runs", type=int, default=1)
     p.add_argument("--only", help="comma-separated question ids")
+    p.add_argument("--workers", type=int, default=6, help="questions run in parallel")
     a = p.parse_args()
     load_dotenv(ROOT / ".env")
     from finance_os.app.agent import default_model
@@ -88,16 +90,31 @@ def main():
     if a.only:
         keep = set(a.only.split(","))
         questions = [q for q in questions if q["id"] in keep]
-    wh = Warehouse()
-    rows = []
-    for run in range(1, a.runs + 1):
-        for q in questions:
-            r = {"run": run, **run_question(q, wh, model)}
-            rows.append(r)
-            print(f"{'PASS' if r['passed'] else 'FAIL'}  {r['id']:28} steps={r['steps']:<2} {r['latency_s']:>5}s  {r['checks']}"
-                  + (f"  unverified: {r['unverified']}" if r["unverified"] else ""))
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    local, lock = threading.local(), threading.Lock()
+    jobs = [(run, q) for run in range(1, a.runs + 1) for q in questions]
     RESULTS.mkdir(parents=True, exist_ok=True)
-    out = RESULTS / f"{datetime.now():%Y%m%d-%H%M%S}_{model}.csv"
+    partial = RESULTS / f"{datetime.now():%Y%m%d-%H%M%S}_{model.replace('/', '-')}.partial.jsonl"
+    done = {"n": 0, "passed": 0}
+
+    def one(run, q):
+        if not hasattr(local, "wh"):
+            local.wh = Warehouse()  # a warehouse connection per worker thread
+        r = {"run": run, **run_question(q, local.wh, model)}
+        with lock:  # progress line and a saved row per question, so a stopped run keeps what it finished
+            done["n"] += 1
+            done["passed"] += bool(r["passed"])
+            with open(partial, "a", encoding="utf-8") as f:
+                f.write(json.dumps(r, default=str) + "\n")
+            print(f"[{done['n']}/{len(jobs)} done, {done['passed']} passed] {'PASS' if r['passed'] else 'FAIL'}  {r['id']:28} "
+                  f"steps={r['steps']:<2} {r['latency_s']:>5}s  {r['checks']}"
+                  + (f"  unverified: {r['unverified']}" if r["unverified"] else ""), flush=True)
+        return r
+    with ThreadPoolExecutor(max_workers=a.workers) as pool:
+        rows = list(pool.map(lambda j: one(*j), jobs))
+    RESULTS.mkdir(parents=True, exist_ok=True)
+    out = RESULTS / f"{datetime.now():%Y%m%d-%H%M%S}_{model.replace("/", "-")}.csv"
     with open(out, "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=list(rows[0]))
         w.writeheader()

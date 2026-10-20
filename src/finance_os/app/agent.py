@@ -31,17 +31,20 @@ SYSTEM = """You are the Finance OS assistant for Echo Labs, a voice-AI API compa
 
 How you work:
 - Use tools to get every fact, including definitions (get_metric_definition). Never answer from general knowledge. Plan briefly, call the tools you need (several if useful), then answer.
-- A question naming a metric ("What is ARR?", "What's DSO?") asks for Echo Labs' current value: give the number first, then one line on what it means.
+- A question naming a metric ("What is ARR?", "What's DSO?", "What's net revenue retention?") asks for Echo Labs' current value: get it with a data tool (get_kpis or the metric's own tool, not only get_metric_definition), give the number first, then one line on what it means.
+- When the answer is a date, a year or a name picked by a number ("which year do we turn EBITDA positive?", "which customer is largest?"), also give the number that decides it.
+- Never answer a data question without calling a tool first, even when it looks simple or general.
 - For counts, use the count fields tools return; don't count rows yourself.
 - MRR is monthly and ARR is MRR x 12: never label one as the other. ARR means run-rate ARR unless the user asks for \
 contracted ARR (committed minimums).
 - "New MRR" is MRR from brand-new customers only (the MRR bridge in get_revenue_movements: new_mrr); it is not net new ARR (new + expansion - contraction - churn, x12).
 - When asked what to do, recommend from today's data: call the tools first, tie every action to a number they returned, name an owner and the trade-off, and say what in the data would change your view. Never give generic advice; the system stores no canned actions, so the recommendation is yours to reason from the evidence.
 - For LTV to CAC or CAC payback, give both the S&M-only figure and the fully burdened one, each labelled.
-- When the user asks to fix something and the tool result names the fix, call the propose_* tool right away instead \
-of asking them to confirm; the approval card is their confirmation.
+- When the user asks to fix, reject, submit or dispute something, look up the ids yourself with the read tools \
+(e.g. get_ar_exceptions for a misapplied payment, get_ap_review_queue for a bill) and then call the \
+matching propose_* tool right away. Never ask the user for ids or to confirm; the approval card is their confirmation.
 - Every number you write must be copied from a tool result. Never compute, add, subtract, average or estimate a \
-number yourself; if a figure you want isn't returned by a tool, say what the tools do show instead. You may \
+number yourself, and never show arithmetic (no "a + b = c"): quote the tool's own totals and percentages; if a figure you want isn't returned by a tool, say what the tools do show instead. You may \
 round (e.g. $30.3K, 46.4%).
 - Cite where numbers come from by naming the source table in a short "Sources:" line at the end.
 - Reconciliation status for this data is given below. If a check relevant to the question is failing, say the \
@@ -67,6 +70,45 @@ def openai_complete(messages, tool_specs, model):
     return r.json()
 
 
+_VERTEX_TOKEN = {"cred": None}
+MAX_OUTPUT_TOKENS = 2000
+
+
+def vertex_complete(messages, tool_specs, model):
+    """Gemini on Vertex AI in the GCP project, through its OpenAI-compatible chat endpoint (same request and response
+    shape as openai_complete). Auth is the gcloud login (Application Default Credentials); no key file."""
+    import google.auth
+    import google.auth.transport.requests
+    cred = _VERTEX_TOKEN["cred"]
+    if cred is None:
+        cred, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+        _VERTEX_TOKEN["cred"] = cred
+    if not cred.valid:
+        cred.refresh(google.auth.transport.requests.Request())
+    project = os.environ.get("FINANCE_OS_GCP_PROJECT", "finance-os-sivaram")
+    location = os.environ.get("VERTEX_LOCATION", "global")
+    host = "aiplatform.googleapis.com" if location == "global" else f"{location}-aiplatform.googleapis.com"
+    url = f"https://{host}/v1/projects/{project}/locations/{location}/endpoints/openapi/chat/completions"
+    for attempt in range(4):  # transient 403 / 429 / 5xx (quota warm-up, rate limits) get a short backoff
+        r = httpx.post(url, timeout=120, headers={"Authorization": f"Bearer {cred.token}"},
+                       json={"model": model, "temperature": 0, "messages": messages, "tools": tool_specs,
+                             "max_tokens": MAX_OUTPUT_TOKENS})  # stops a runaway (repeating) answer
+        if r.status_code not in (403, 429, 500, 502, 503) or attempt == 3:
+            break
+        time.sleep(2 * 2 ** attempt)
+    r.raise_for_status()
+    return r.json()
+
+
+def provider():
+    """vertex (Gemini, default) or openai; ASSISTANT_PROVIDER in .env chooses."""
+    return os.environ.get("ASSISTANT_PROVIDER", "vertex").lower()
+
+
+def default_complete(messages, tool_specs, model):
+    return (openai_complete if provider() == "openai" else vertex_complete)(messages, tool_specs, model)
+
+
 VALIDATOR_PREFIX = "Validator:"
 
 
@@ -84,11 +126,13 @@ UPLOAD_SPEC = {"type": "function", "function": {
 
 
 def default_model():
-    return os.environ.get("OPENAI_ASSISTANT_MODEL", "gpt-4.1")
+    if provider() == "openai":
+        return os.environ.get("OPENAI_ASSISTANT_MODEL", "gpt-4.1")
+    return os.environ.get("VERTEX_ASSISTANT_MODEL", "google/gemini-2.5-flash")
 
 
 class Agent:
-    def __init__(self, state: AppState, wh: tools.Warehouse | None = None, complete=openai_complete, model=None):
+    def __init__(self, state: AppState, wh: tools.Warehouse | None = None, complete=default_complete, model=None):
         self.state, self.wh, self.complete = state, wh or tools.Warehouse(), complete
         self.model = model or default_model()
 
@@ -202,7 +246,15 @@ class Agent:
                     return {"error": f"No uploaded document {args.get('document_id')}."}
                 return {k: v for k, v in doc.items() if k != "path"}
             if name in tools.TOOLS:
-                return tools.run_tool(self.wh, name, args)
+                # arguments the tool does not take are dropped (and named), so a guessed filter still returns data
+                import inspect
+                accepted = set(inspect.signature(tools.TOOLS[name][0]).parameters) - {"wh"}
+                unknown = sorted(k for k in args if k not in accepted and not k.startswith("_"))
+                out = tools.run_tool(self.wh, name, {k: v for k, v in args.items() if k not in unknown})
+                if unknown and isinstance(out, dict):
+                    out["argument_note"] = (f"{name} has no argument(s) {', '.join(unknown)}; ignored. It accepts: "
+                                            f"{', '.join(sorted(accepted)) or 'none'}. Read the rows for the case asked about.")
+                return out
             if name in act.ACTIONS:
                 return act.ACTIONS[name][0](self.wh, self.state, cid, **args)
             return {"error": f"Unknown tool {name}"}

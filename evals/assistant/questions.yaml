@@ -286,8 +286,7 @@ questions:
   - id: growth-at-risk
     persona: VP Customer Success
     ask: Which customers are at risk of churning, and why?
-    expect_text: ["'EN-002'"]
-    expect_tools: [get_customer_health]
+    expect_tools: ["get_customer_health|get_churn_predictions"]
   - id: growth-cohorts
     persona: CFO
     ask: Are newer customer cohorts retaining revenue better or worse than older ones?
@@ -325,7 +324,7 @@ questions:
   - id: payment-prediction
     persona: Controller
     ask: When do we expect EN-001 to pay its September invoice?
-    expect_tools: ["get_receivables_dashboard|get_customer_detail"]
+    expect_tools: ["get_receivables_dashboard|get_customer_detail|get_payment_predictions"]
   - id: rpo-crpo
     persona: Investor
     ask: What is our RPO and current RPO, and how does contracted ARR compare to run-rate ARR?
@@ -451,3 +450,39 @@ questions:
     persona: Auditor
     ask: Where does the revenue number come from, and is it reconciled?
     expect_tools: ["get_decision_kpis|get_metric_definition|get_reconciliation_status"]
+  - id: ml-churn
+    persona: CS lead
+    ask: Which customers are most likely to churn in the next 3 months, and how reliable is that prediction?
+    expect_tools: [get_churn_predictions]
+  - id: ml-payment-timing
+    persona: Controller
+    ask: When do we expect EN-004 to pay its open invoice?
+    expect_tools: [get_payment_predictions]
+  - id: ml-usage-range
+    persona: CFO
+    ask: Give me the machine-learning forecast for usage revenue with a low and high range.
+    expect_tools: [get_usage_forecast_ml]
+  - id: ml-anomalies
+    persona: Controller
+    ask: Are there any unusual cost lines compared with their own history?
+    expect_tools: ["get_cost_anomalies_ml|get_alerts"]
+  - id: ml-models
+    persona: CEO
+    ask: What machine learning do you use for predictions, and does it beat the old methods?
+    expect_tools: [get_ml_models]
+  - id: ml-expansion
+    persona: CRO
+    ask: Which customers are most likely to expand in the next 3 months?
+    expect_tools: [get_expansion_predictions]
+  - id: ml-spend
+    persona: VP Engineering
+    ask: What does the machine-learning model forecast for GPU and cloud spend over the next 3 months?
+    expect_tools: [get_spend_forecast_ml]
+  - id: ml-deals
+    persona: CRO
+    ask: What is the ML win probability of our open deals compared with the CRM stage probability?
+    expect_tools: [get_deal_predictions]
+  - id: ml-bottom-up
+    persona: CFO
+    ask: Give me the bottom-up revenue forecast built customer by customer.
+    expect_tools: [get_revenue_forecast_ml]

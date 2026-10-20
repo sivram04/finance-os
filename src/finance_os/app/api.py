@@ -403,6 +403,12 @@ def create_app(state: AppState | None = None, wh: tools.Warehouse | None = None,
         finally:
             tools.FULL_ROWS.reset(token)
 
+    @app.post("/api/ml/retrain")
+    def ml_retrain():
+        """Retrain the four ML models on the current warehouse (seconds); the daily job also does this."""
+        from finance_os import ml
+        return {name: r["card"]["headline"] for name, r in ml.train_all(wh, log=lambda m: None).items()}
+
     @app.get("/api/workspace/overview")
     def overview():
         kpis = tools.get_kpis(wh)

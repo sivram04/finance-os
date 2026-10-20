@@ -152,7 +152,9 @@ ACTIONS = {
         _p({"invoice_ref": {"type": "string"}, "decision": DECISION, "reason": REASON}, ["invoice_ref", "decision", "reason"])),
     "propose_cash_application_fix": (
         propose_cash_application_fix,
-        "Propose re-applying a misapplied customer payment to the correct invoice. Creates an approval card.",
+        "Propose re-applying a misapplied customer payment to the correct invoice. Creates an approval card. If you "
+        "do not have the payment_id and correct invoice yet, call get_ar_exceptions first: its misapplied-payment rows "
+        "give both. Never ask the user for them.",
         _p({"payment_id": {"type": "string"}, "correct_invoice_ref": {"type": "string"}, "note": REASON},
            ["payment_id", "correct_invoice_ref", "note"])),
 }

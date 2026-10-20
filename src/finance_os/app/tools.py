@@ -956,7 +956,7 @@ def get_revenue_recognition(wh, month=None):
     m = _month(month, wh)
     roll = wh.query("""select strftime(month, '%Y-%m') as month, opening_net_deferred, billings, asc606_revenue,
                               closing_net_deferred, contract_asset, contract_liability, gl_revenue, revenue_adjustment
-                       from marts.fct_revenue_rollforward_monthly order by month desc limit 6""")
+                       from marts.fct_revenue_rollforward_monthly where month <= ?::date order by month desc limit 6""", [m])
     detail = wh.query("""select obligation, project_id, customer_id, billed, asc606_revenue, adjustment_needed,
                                 contract_asset, contract_liability
                          from marts.fct_revenue_schedule_monthly where month = ?::date and obligation <> 'usage'
@@ -3469,6 +3469,96 @@ METRIC_NAMES = ["revenue", "cogs", "opex", "gross_margin_pct", "gross_burn", "ne
 METRIC = {"type": "string", "enum": METRIC_NAMES}
 SCENARIO = {"type": "string", "enum": ["base", "upside", "downside"]}
 
+
+# ---- machine-learning predictions (finance_os.ml; trained daily, saved in data/ml) ----------------------------------
+
+def _ml(wh, name):
+    from finance_os import ml
+    return ml.load(name, wh)
+
+
+def _ml_result(r, source, rows, **extra):
+    return _result(rows, source, note=r["card"].get("caveat"), as_of=r.get("as_of"), trained_at=r.get("trained_at"),
+                   model_card=r["card"], **extra)
+
+
+def get_churn_predictions(wh, customer_id=None, min_probability=None):
+    """ML churn probability for the next 3 months per active customer, with ARR at risk and the signals behind it,
+    and the model card (how it did against the health rules on held-out months)."""
+    r = _ml(wh, "churn")
+    rows = [x for x in r["rows"] if (not customer_id or x["customer_id"] == customer_id)
+            and (min_probability is None or x["churn_probability_3m"] >= float(min_probability))]
+    return _ml_result(r, "finance_os.ml.churn (trained on marts.fct_customer_revenue_monthly, usage, invoices)", rows,
+                      expected_arr_lost_3m=r["expected_arr_lost_3m"])
+
+
+def get_usage_forecast_ml(wh, series="total"):
+    """ML (ETS) forecast of monthly usage revenue for the next 6 months with an 80% range, next to the driver
+    forecast, and the backtest of both against actuals."""
+    r = _ml(wh, "usage")
+    rows = [x for x in r["rows"] if x["series"] == series]
+    return _ml_result(r, "finance_os.ml.usage (ETS on intermediate.int_pnl_monthly; driver forecast from fct_forecast_monthly)",
+                      rows, series_available=sorted({x["series"] for x in r["rows"]}), history=r["history"][-12:])
+
+
+def get_payment_predictions(wh, customer_id=None):
+    """ML expected payment date for each open invoice (P50 with a P10-P90 range) next to the cash forecast's rule
+    (due date + average days late), expected collections by week, and the model's backtest."""
+    r = _ml(wh, "payment")
+    rows = [x for x in r["rows"] if not customer_id or x["customer_id"] == customer_id]
+    return _ml_result(r, "finance_os.ml.payment (quantile gradient boosting on marts.fct_ar_invoices)", rows,
+                      expected_collections_by_week=r["expected_collections_by_week"])
+
+
+def get_cost_anomalies_ml(wh):
+    """ML/statistical cost anomalies: ledger lines (account x department, last 6 closed months) and daily cloud
+    spend (last 30 days) out of line with their own history, with the expected range; and recall on planted anomalies."""
+    r = _ml(wh, "anomalies")
+    return _ml_result(r, "finance_os.ml.anomalies (robust z-score + isolation forest on marts.fct_gl_monthly, "
+                      "staging.stg_infra__cloud_costs_daily)", r["rows"], daily=r["daily"])
+
+
+def get_expansion_predictions(wh, customer_id=None):
+    """ML expansion propensity: probability each customer's revenue grows 20%+ over the next 3 months, with signals."""
+    r = _ml(wh, "expansion")
+    rows = [x for x in r["rows"] if not customer_id or x["customer_id"] == customer_id]
+    return _ml_result(r, "finance_os.ml.expansion (weekly snapshots: usage, API request log, revenue, invoices)", rows)
+
+
+def get_revenue_forecast_ml(wh, customer_id=None):
+    """ML bottom-up usage revenue forecast: next 3 months in total with an 80% range and per customer."""
+    r = _ml(wh, "revenue")
+    cust = [x for x in r["customers"] if not customer_id or x["customer_id"] == customer_id]
+    return _ml_result(r, "finance_os.ml.revenue (gradient boosting per customer on daily usage and the API log)", r["rows"],
+                      customers=cust[:MAX_ROWS] if not FULL_ROWS.get() else cust)
+
+
+def get_spend_forecast_ml(wh):
+    """ML GPU and cloud spend forecast for the next 3 months, by vendor and in total with an 80% range, next to the
+    growth method."""
+    r = _ml(wh, "spend")
+    return _ml_result(r, "finance_os.ml.spend (gradient boosting on marts.fct_tech_spend_daily with usage as the driver)", r["rows"])
+
+
+def get_deal_predictions(wh):
+    """ML win probability for each open deal next to the CRM stage probability, and the ML-weighted pipeline."""
+    r = _ml(wh, "deals")
+    return _ml_result(r, "finance_os.ml.deals (logistic regression on closed opportunities)", r["rows"], pipeline=r["pipeline"])
+
+
+def get_ml_models(wh):
+    """The four ML models: what each predicts, when it was trained, and how it compares with the method it would
+    replace on held-out data."""
+    from finance_os import ml
+    rows = []
+    for name in ml.MODELS:
+        r = ml.load(name, wh)
+        c = r["card"]
+        rows.append({"model": name, "method": c["model"], "predicts": c["target"], "trained_at": r.get("trained_at"),
+                     "result": c["headline"], "verdict": c.get("verdict"), "caveat": c.get("caveat")})
+    return _result(rows, "finance_os.ml (data/ml/*.json)")
+
+
 TOOLS = {
     "get_attention_items": (get_attention_items,
                             "Everything currently flagged across all modules (projects, billing, budget, margins, AR, AP, "
@@ -3495,7 +3585,8 @@ TOOLS = {
                          "EBITDA margin, Rule of 40, free cash flow and FCF margin.", _p({"months": {"type": "integer"}})),
     "get_cost_behavior": (get_cost_behavior, "Fixed vs variable costs, contribution margin, breakeven revenue, margin of "
                           "safety and operating leverage by month, with each account's classification. Use for cost-cut, "
-                          "breakeven and 'should we take this order' questions.", _p({"months": {"type": "integer"}})),
+                          "breakeven and 'should we take this order' questions. It has one (accounting) break-even only: for cash vs "
+                          "accounting vs financial break-even use get_corporate_finance.", _p({"months": {"type": "integer"}})),
     "get_revenue_pvm": (get_revenue_pvm, "Price / volume / mix bridge of usage revenue vs the prior month, by product.",
                         _p({"month": MONTH})),
     "get_long_range_plan": (get_long_range_plan, "Five-year long-range plan: revenue, margins, opex by function, EBITDA, "
@@ -3643,6 +3734,34 @@ TOOLS = {
                            "header, terms, lines, tax and currency, payments, disputes, journal entries, the Stripe invoice, "
                            "and checks that lines, ledger and Stripe agree; plus a link to its PDF.",
                            _p({"invoice_ref": {"type": "string"}}, ["invoice_ref"])),
+    "get_churn_predictions": (get_churn_predictions, "Machine-learning churn prediction: each active customer's probability of "
+                              "churning in the next 3 months, ARR at risk and the signals behind it, plus the model card "
+                              "(holdout results vs the health rules). Use for 'who will churn', 'churn probability', "
+                              "'predicted churn'. Say the probabilities are a ranking signal.",
+                              _p({"customer_id": {"type": "string"}, "min_probability": {"type": "number"}})),
+    "get_usage_forecast_ml": (get_usage_forecast_ml, "Machine-learning (ETS time-series) forecast of usage revenue, next 6 "
+                              "months with an 80% low-high range, next to the driver forecast, and the backtest of both. "
+                              "Use for 'ML forecast', 'forecast range', 'how confident is the forecast'. series: total, "
+                              "enterprise, mid_market, self_serve.", _p({"series": {"type": "string"}})),
+    "get_payment_predictions": (get_payment_predictions, "Machine-learning payment timing: when each open invoice is expected "
+                                "to be paid (with a range), versus due date + average lateness, and expected collections "
+                                "by week. Use for 'when will X pay', 'expected collections'.", _p({"customer_id": {"type": "string"}})),
+    "get_cost_anomalies_ml": (get_cost_anomalies_ml, "Statistical/ML cost anomaly detection: ledger lines and daily cloud spend "
+                              "out of line with their own history, with the expected range. Use for 'unusual costs', "
+                              "'anomalies'.", _p({})),
+    "get_ml_models": (get_ml_models, "The machine-learning models in Finance OS (churn, expansion, bottom-up revenue, usage "
+                      "ETS, GPU/cloud spend, payment timing, deal win, cost anomalies): method, when trained, and backtest "
+                      "results vs the current methods. Use for 'what ML do you use', 'how accurate are the predictions'.", _p({})),
+    "get_expansion_predictions": (get_expansion_predictions, "Machine-learning expansion / upsell propensity: probability each "
+                                  "customer's revenue grows 20%+ in the next 3 months, with signals. Use for 'who will "
+                                  "expand', 'upsell targets'.", _p({"customer_id": {"type": "string"}})),
+    "get_revenue_forecast_ml": (get_revenue_forecast_ml, "Machine-learning bottom-up revenue forecast (each customer's next 3 "
+                                "months from daily usage and API behaviour), total with an 80% range and per customer. Use "
+                                "for 'forecast for customer X', 'bottom-up forecast'.", _p({"customer_id": {"type": "string"}})),
+    "get_spend_forecast_ml": (get_spend_forecast_ml, "Machine-learning GPU and cloud spend forecast, next 3 months by vendor, "
+                              "next to the growth method, with its backtest.", _p({})),
+    "get_deal_predictions": (get_deal_predictions, "Machine-learning deal win probability for open opportunities next to the "
+                             "CRM stage probability, with how reliable it is.", _p({})),
     "get_month_to_date": (get_month_to_date, "The open month so far (not closed): estimated usage revenue, posted services, "
                           "audio hours, GPU and cloud spend, cash collected and cash today, each projected to month end on "
                           "the daily run rate and compared with last month and the budget; active, new and quiet customers.",
