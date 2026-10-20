@@ -50,6 +50,11 @@ def snapshot(log=print):
             copied += 1
         except duckdb.Error as e:  # a view over a relation left out
             skipped.append(f"{schema}.{name}: {str(e).splitlines()[0][:80]}")
+    # the counts behind the numbers (the request log is left out of the snapshot, so count it here)
+    from finance_os.app import tools
+    scale = tools.compute_data_scale(tools.Warehouse(WAREHOUSE))
+    con.execute("create schema if not exists meta")
+    con.execute("create table meta.data_scale as select ? as payload", [json.dumps(scale)])
     con.execute("detach finance_os")
     con.execute("checkpoint")
     con.close()

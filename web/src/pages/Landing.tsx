@@ -68,9 +68,11 @@ const LAST_CLOSE = {
   queue: 34,
 }
 
+const millions = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)} million` : n.toLocaleString())
+
 export function Landing({ theme, onTheme }: { theme: 'light' | 'dark'; onTheme: () => void }) {
   const { go, ask } = useWorkspace()
-  const [data, setData] = useState<{ head?: Row; kpis?: Row; queue?: number; caseFile?: Row }>({})
+  const [data, setData] = useState<{ head?: Row; kpis?: Row; queue?: number; caseFile?: Row; scale?: Row }>({})
   const [section, setSection] = useState(0)
   const [hover, setHover] = useState<number | null>(null)
   useReveal()
@@ -79,6 +81,7 @@ export function Landing({ theme, onTheme }: { theme: 'light' | 'dark'; onTheme: 
     api.data('get_decision_kpis').then((r) => setData((d) => ({ ...d, kpis: r.counts as Row }))).catch(() => {})
     fetch('/api/control-queue').then((r) => r.json()).then((q) => setData((d) => ({ ...d, queue: q.rows.filter((x: Row) => x.status === 'open').length }))).catch(() => {})
     api.data('get_variance_case', { alert_id: 'BVA-202609-NONE-4000' }).then((r) => setData((d) => ({ ...d, caseFile: r as unknown as Row }))).catch(() => {})
+    api.data('get_data_scale').then((r) => setData((d) => ({ ...d, scale: r as unknown as Row }))).catch(() => {})
   }, [])
   const live = !!data.head
   const h = data.head ?? LAST_CLOSE.head
@@ -127,7 +130,9 @@ export function Landing({ theme, onTheme }: { theme: 'light' | 'dark'; onTheme: 
             <LiveStat label="KPIs needing a decision" value={kpis} tone="warn" onClick={() => go('kpis')} />
             <LiveStat label="Open control items" value={queue} tone="warn" onClick={() => go('kpis')} />
           </div>
-          <div className="live-foot">Click a tile to open it</div>
+          <div className="live-foot">{data.scale
+            ? `Built from ${millions(Number((data.scale.totals as Row).warehouse_rows))} warehouse rows, including ${millions(Number((data.scale.totals as Row).api_requests))} API requests · click a tile to open it`
+            : 'Click a tile to open it'}</div>
         </div>
       </header>
 
@@ -148,7 +153,7 @@ export function Landing({ theme, onTheme }: { theme: 'light' | 'dark'; onTheme: 
       <section id="walkthrough" className="band alt">
         <div className="section-head reveal"><h2>See it work: one variance, from data to the CFO's decision</h2>
           <p>Usage revenue for {data.caseFile ? String((data.caseFile.case as Row)?.month) : 'the latest month'}, straight from the warehouse. Press play or click a step.</p></div>
-        <Walkthrough c={data.caseFile} onOpen={() => { location.hash = 'budget?alert=BVA-202609-NONE-4000' }} />
+        <Walkthrough c={data.caseFile} scale={data.scale} onOpen={() => { location.hash = 'budget?alert=BVA-202609-NONE-4000' }} />
       </section>
 
       <section id="navigate" className="band">
@@ -200,7 +205,7 @@ function LiveStat({ label, value, money, suffix = '', decimals = 0, tone, onClic
 
 const STEPS = ['What happened', 'Source data', 'Reconciliation', 'Root cause', 'Owner and AI recommendation', 'CFO decision']
 
-function Walkthrough({ c, onOpen }: { c?: Row; onOpen: () => void }) {
+function Walkthrough({ c, scale, onOpen }: { c?: Row; scale?: Row; onOpen: () => void }) {
   const [step, setStep] = useState(0)
   const [playing, setPlaying] = useState(false)
   const timer = useRef<number | undefined>(undefined)
@@ -218,7 +223,10 @@ function Walkthrough({ c, onOpen }: { c?: Row; onOpen: () => void }) {
     switch (step) {
       case 0: return <><p className="big-num bad"><CountUp value={Number(k.variance_favorable)} format={(n) => `${n < 0 ? '−' : '+'}${usd(Math.abs(n))}`} /></p>
         <p>{String(k.message)}. Year to date {usd(Number(k.ytd_actual) - Number(k.ytd_budget))}; the full year lands {usd(k.fy_forecast_variance)} vs budget.</p></>
-      case 1: return <><p><b>{String(c.source_line_count)}</b> journal lines, one usage invoice per customer, total <b>{usd(c.source_lines_total)}</b>. Largest:</p>
+      case 1: return <>{scale && <div className="scale-chain">{(scale.chain as Row[]).map((x) => (
+          <div key={String(x.step)} title={String(x.detail)}><b>{Number(x.rows).toLocaleString()}</b><span>{String(x.step)}</span></div>))}
+          <div className="end"><b>{usd(c.source_lines_total)}</b><span>usage revenue</span></div></div>}
+        <p>Usage revenue is built bottom-up: every API request is logged, deduplicated into daily usage, rated into one invoice per customer and posted to the ledger as <b>{String(c.source_line_count)}</b> journal lines. Largest invoices:</p>
         <ul>{((c.rows ?? []) as Row[]).slice(0, 4).map((r) => <li key={String(r.entry_id)}>{String(r.source_ref)} · {String(r.customer_id)} · {usd(r.amount)}</li>)}</ul></>
       case 2: return <div className="mini-chain">{chain.map((s) => <div key={String(s.step)} className={`mini-node ${String(s.status)}`}><span>{String(s.step)}</span><b>{s.amount != null ? usd(s.amount) : '—'}</b><i>{String(s.status)}</i></div>)}</div>
       case 3: return <><p><b>{String(root.classification)}.</b> {String(root.summary)}</p>

@@ -595,3 +595,11 @@ tbody tr { transition: background 0.12s ease; }
   .error code { white-space: normal; }
   .tour-pop p { font-size: 13px; }
 }
+
+/* landing walkthrough: the request-to-ledger chain with real row counts */
+.scale-chain { display: flex; flex-wrap: wrap; align-items: stretch; gap: 6px; margin: 4px 0 14px; }
+.scale-chain > div { flex: 1 1 110px; display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 8px; background: var(--chip); position: relative; }
+.scale-chain > div b { font-size: 17px; font-variant-numeric: tabular-nums; }
+.scale-chain > div span { font-size: 12px; color: var(--muted); }
+.scale-chain > div.end { background: var(--accent-soft); }
+.scale-chain > div:not(.end)::after { content: "→"; position: absolute; right: -9px; top: 50%; transform: translateY(-50%); color: var(--faint); font-size: 12px; z-index: 1; }

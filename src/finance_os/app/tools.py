@@ -6,6 +6,7 @@ note, so the model is told it is seeing part of the data rather than guessing.
 """
 import contextvars
 import datetime as dt
+import json
 import os
 from decimal import Decimal
 from pathlib import Path
@@ -3547,6 +3548,43 @@ def get_deal_predictions(wh):
     return _ml_result(r, "finance_os.ml.deals (logistic regression on closed opportunities)", r["rows"], pipeline=r["pipeline"])
 
 
+def compute_data_scale(wh, month=None):
+    """How much data stands behind the numbers: the usage-revenue chain for a closed month (API requests -> daily
+    usage -> invoices -> journal lines) and the warehouse's total size. Needs the full warehouse (the request log)."""
+    m = _month(month, wh)
+    one = lambda sql, p=(): int(wh.query(sql, list(p))[0]["n"] or 0)  # noqa: E731
+    chain = [
+        {"step": "API requests", "rows": one("""select count(*) as n from raw_usage.api_requests
+                                                where received_at >= ?::timestamp and received_at < ?::timestamp + interval 1 month""", (m, m)),
+         "detail": "every transcription call logged, including retries, duplicates and failures"},
+        {"step": "Daily usage rows", "rows": one("select count(*) as n from staging.stg_synthetic__usage_daily where usage_month = ?::date", (m,)),
+         "detail": "requests deduplicated and rolled up per customer, product and day"},
+        {"step": "Usage invoices", "rows": one("""select count(*) as n from marts.fct_ar_invoices
+                                                  where invoice_type = 'usage' and date_trunc('month', invoice_date) = ?::date""", (m,)),
+         "detail": "one invoice per customer, rated at contract prices"},
+        {"step": "Journal lines", "rows": one("""select count(*) as n from staging.stg_erp__journal_lines l
+                                                 join staging.stg_erp__journal_entries e using (entry_id)
+                                                 where e.entry_month = ?::date and l.account_id = '4000'""", (m,)),
+         "detail": "posted to usage revenue in the general ledger"},
+    ]
+    totals = {"api_requests": one("select count(*) as n from raw_usage.api_requests"),
+              "warehouse_rows": one("select sum(estimated_size) as n from duckdb_tables()"),
+              "warehouse_tables": one("select count(*) as n from duckdb_tables()")}
+    return {"month": m[:7], "chain": chain, "totals": totals}
+
+
+def get_data_scale(wh, month=None):
+    """How much data stands behind the numbers (see compute_data_scale). The deployed app reads the counts the daily
+    job stored with the snapshot, since its slim copy leaves out the raw request log."""
+    try:
+        r = wh.query("select payload from meta.data_scale")
+        if r:
+            return {"source": "meta.data_scale (stored by the daily job)", **json.loads(r[0]["payload"])}
+    except duckdb.Error:
+        pass
+    return {"source": "raw_usage.api_requests, staging, marts", **compute_data_scale(wh, month)}
+
+
 def get_entity_names(wh):
     """What each short id means (customers, projects, contracts, deals, reps), for hover labels in the app."""
     seg = {'enterprise': 'enterprise customer', 'mid_market': 'mid-market customer', 'self_serve': 'self-serve customer', 'federal': 'federal customer'}
@@ -3764,6 +3802,8 @@ TOOLS = {
     "get_cost_anomalies_ml": (get_cost_anomalies_ml, "Statistical/ML cost anomaly detection: ledger lines and daily cloud spend "
                               "out of line with their own history, with the expected range. Use for 'unusual costs', "
                               "'anomalies'.", _p({})),
+    "get_data_scale": (get_data_scale, "How much data stands behind the numbers: the usage-revenue chain for the "
+                       "closed month (API requests -> daily usage -> invoices -> journal lines) and the warehouse's size.", _p({})),
     "get_entity_names": (get_entity_names, "What short ids mean: each customer, project, contract and deal id with its "
                          "name and type.", _p({})),
     "get_ml_models": (get_ml_models, "The machine-learning models in Finance OS (churn, expansion, bottom-up revenue, usage "
