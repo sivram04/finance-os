@@ -1,4 +1,4 @@
--- Ramp-adjusted sales capacity by month, 12 months back and 12 ahead: what the account executives on payroll (and the
+-- Ramp-adjusted sales capacity by month, from the first month of the books to 12 months ahead: what the account executives on payroll (and the
 -- planned AE hires, base scenario) can close, against what was booked (new logos) and credited to sales (new + expansion). seeds/sales_capacity_policy.csv:
 --   capacity = quota per ramped AE / 12 × ramp × expected attainment; ramp = months since start / ramp months, max 1
 -- A hire contributes from the month after they start (month 1 at 1/ramp_months).
@@ -18,9 +18,11 @@ aes as (
     from {{ ref('int_planned_hires') }} where scenario = 'base' and title = 'Account Executive'
 ),
 
-months as (
-    select {{ add_months(closed_through(), "n - 12") }} as month
-    from {{ int_series('s', 0, 24) }}
+months as (  -- from the first month of the books to 12 months past the last close
+    select {{ add_months("f.first_month", "n") }} as month
+    from {{ int_series('s', 0, 60) }}
+    cross join (select min(entry_month) as first_month from {{ ref('stg_erp__journal_entries') }}) f
+    where {{ add_months("f.first_month", "n") }} <= {{ add_months(closed_through(), 12) }}
 ),
 
 ae_month as (

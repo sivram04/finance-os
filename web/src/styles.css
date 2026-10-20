@@ -241,10 +241,10 @@ button.link { background: none; border: 0; padding: 0; font: inherit; color: var
 table.sheet { border-collapse: separate; border-spacing: 0; width: max-content; min-width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
 table.sheet th, table.sheet td { border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 4px 10px; white-space: nowrap; }
 table.sheet thead th { position: sticky; background: var(--card); z-index: 2; font-weight: 600; }
-table.sheet thead tr:first-child th { top: 0; height: 22px; color: var(--faint); font-weight: 400; font-size: 11px; text-align: center; }
-table.sheet thead tr:nth-child(2) th { top: 31px; }
-table.sheet .rownum { color: var(--faint); font-size: 11px; text-align: center; width: 36px; min-width: 36px; background: var(--card); position: sticky; left: 0; z-index: 1; }
-table.sheet .line { position: sticky; left: 57px; background: var(--card); z-index: 1; min-width: 260px; text-align: left; cursor: cell; }
+table.sheet thead tr:first-child th { top: 0; height: 24px; box-sizing: border-box; padding-top: 2px; padding-bottom: 2px; color: var(--faint); font-weight: 400; font-size: 11px; text-align: center; }
+table.sheet thead tr:nth-child(2) th { top: 24px; }  /* exactly under the letter row: no see-through gap */
+table.sheet .rownum { color: var(--faint); font-size: 11px; text-align: center; width: 36px; min-width: 36px; max-width: 36px; box-sizing: border-box; padding-left: 0; padding-right: 0; background: var(--card); position: sticky; left: 0; z-index: 1; }
+table.sheet .line { position: sticky; left: 36px;  /* flush against the 36px row numbers */ background: var(--card); z-index: 1; min-width: 260px; text-align: left; cursor: cell; }
 table.sheet thead .corner { position: sticky; left: 0; z-index: 3; }
 table.sheet thead .rownum, table.sheet thead .line { z-index: 3; }
 table.sheet td.num { text-align: right; min-width: 104px; cursor: cell; }
@@ -643,3 +643,11 @@ tbody tr { transition: background 0.12s ease; }
 .infotip-src { color: var(--text); }
 .infotip-tables { font-family: ui-monospace, Consolas, monospace; font-size: 10.5px; color: var(--faint); word-break: break-word; }
 .kpi .label { display: flex; align-items: center; }
+
+table.sheet tbody td.line, table.sheet tbody td.rownum { background: var(--card); }
+table.sheet tbody tr.s-header td.line, table.sheet tbody tr.s-header td.rownum { background: color-mix(in srgb, var(--card) 88%, #808080); }
+
+td.nowrap { white-space: nowrap; }                  /* dates never break across lines */
+@media (min-width: 801px) { .shell.chat-closed .page { max-width: 1760px; } }  /* use the room the closed chat frees */
+
+.seg-key { font-size: 11.5px; color: var(--faint); margin-top: 4px; }

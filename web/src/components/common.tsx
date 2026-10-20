@@ -91,7 +91,8 @@ const WARN = new Set(['open', 'ready', 'sent', 'pending', 'medium', '61-90', '31
 export function Chip({ value, kind }: { value: ReactNode; kind?: 'good' | 'warn' | 'bad' | 'info' }) {
   const v = String(value)
   const k = kind ?? (GOOD.has(v) ? 'good' : BAD.has(v) ? 'bad' : WARN.has(v) ? 'warn' : undefined)
-  return <span className={`chip ${k ?? ''}`}>{isCode(v) ? display(v) : v.replace(/_/g, ' ')}</span>
+  const text = isCode(v) ? display(v) : /^[a-z]+$/.test(v) ? v.charAt(0).toUpperCase() + v.slice(1) : v.replace(/_/g, ' ')
+  return <span className={`chip ${k ?? ''}`}>{text}</span>
 }
 
 export interface Column {
@@ -188,7 +189,7 @@ export function DataTable({ rows, columns, onRow, empty = 'Nothing here.', title
             {shown.slice(page * pageSize, page * pageSize + pageSize).map((r, i) => (
               <tr key={i} className={onRow ? 'clickable' : ''} onClick={onRow ? () => onRow(r) : undefined}>
                 {columns.map((c) => (
-                  <td key={c.key} className={numeric(c) ? 'num' : ''}>
+                  <td key={c.key} className={`${numeric(c) ? 'num' : ''}${/(^|_)(date|month|week_of)$/.test(c.key) ? ' nowrap' : ''}`}>
                     {c.render ? c.render(r)
                       : ENTITY_KEYS[c.key] && r[c.key] ? (
                         <button className="link" title={`${describe(r[c.key]) ?? String(r[c.key])} · click for details`} onClick={(e) => { e.stopPropagation(); inspect({ kind: ENTITY_KEYS[c.key], id: String(r[c.key]) }) }}>

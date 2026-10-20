@@ -52,7 +52,7 @@ function RevenueBody() {
       ]} />
       <div className="grid cols-3">
         <Card title="Where the profit comes from" sub="Cumulative share of gross margin, customers sorted best to worst">
-          <Trend rows={whale} x="pct" unit="ratio" format={(v) => `${Math.round(v * 100)}%`} xTicks={[0, 20, 40, 60, 80, 100]} xFormat={(v) => `${Math.round(v)}%`} series={[{ key: 'cum', label: 'Cumulative gross margin', color: '#2f9e6b' }]} refs={[{ y: 1, label: '100%' }]} />
+          <Trend rows={whale} x="pct" unit="ratio" format={(v) => `${Math.round(v * 100)}%`} xTicks={[0, 20, 40, 60, 80, 100]} xFormat={(v) => `${Math.round(v)}%`} xLabel="Customers, most profitable first" yLabel="Share of gross margin" series={[{ key: 'cum', label: 'Cumulative gross margin', color: '#2f9e6b' }]} refs={[{ y: 1, label: '100%' }]} />
         </Card>
         <Card title="Revenue by segment" sub="Click to filter"><Donut rows={all} dim="segment" measure="revenue" /></Card>
         <Card title="Contribution by customer" sub="Largest gains and losses · click to filter">

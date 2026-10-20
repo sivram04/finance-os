@@ -198,6 +198,7 @@ export function Bars({ top = 8, stack, signed, refX, valueFormat, ...props }: Br
   const show = (v: unknown) => (valueFormat ? valueFormat(v as number) : props.measure ? fmt(props.measure, v as number, props.unit ?? 'usd') : String(v))
   const opacity = (name: unknown) => (!selected || selected === name ? 1 : 0.25)
   return (
+    <>
     <div style={{ height: props.height ?? Math.max(160, data.length * 30 + 30) }}>
       <ResponsiveContainer>
         <BarChart data={data} layout="vertical" margin={{ left: 8, right: 16, top: 4, bottom: 4 }} style={{ cursor: 'pointer' }}>
@@ -222,15 +223,18 @@ export function Bars({ top = 8, stack, signed, refX, valueFormat, ...props }: Br
         </BarChart>
       </ResponsiveContainer>
     </div>
+    {props.dim === 'customer_id' && <div className="seg-key">EN = enterprise · MM = mid-market · SS = self-serve customer · hover a name for details</div>}
+    </>
   )
 }
 
 /** A trend by month (or week): lines, with optional target / reference lines. Not a filter source. */
-export function Trend({ rows, x, series, unit = 'usd', refs = [], height = 220, format, xTicks, xFormat }: {
+export function Trend({ rows, x, series, unit = 'usd', refs = [], height = 220, format, xTicks, xFormat, xLabel, yLabel }: {
   rows: Row[]; x: string; series: { key: string; label: string; color?: string; dashed?: boolean }[]; unit?: string
   refs?: { y: number; label: string; color?: string }[]; height?: number; format?: (v: number) => string
   // a numeric x axis with fixed ticks (e.g. 0-100% of customers) instead of one label per row; no zoom slider
   xTicks?: number[]; xFormat?: (v: number) => string
+  xLabel?: string; yLabel?: string  // axis titles, for charts whose axes are not self-explanatory
 }) {
   const show = format ?? ((v: number) => fmt(series[0]?.key ?? 'value', v, unit))
   const { period } = usePeriod()
@@ -241,16 +245,18 @@ export function Trend({ rows, x, series, unit = 'usd', refs = [], height = 220, 
   return (
     <div style={{ height: height + (zoom ? 30 : 0) }}>
       <ResponsiveContainer>
-        <LineChart data={rows} margin={{ left: 8, right: 16, top: 8 }} onClick={drill ? (st) => drill((st as { activeLabel?: string })?.activeLabel) : undefined} style={drill ? { cursor: 'pointer' } : undefined}>
+        <LineChart data={rows} margin={{ left: 8, right: 16, top: 8, bottom: xLabel ? 14 : 0 }} onClick={drill ? (st) => drill((st as { activeLabel?: string })?.activeLabel) : undefined} style={drill ? { cursor: 'pointer' } : undefined}>
           <CartesianGrid stroke="var(--border)" vertical={false} />
           {xTicks
-            ? <XAxis dataKey={x} type="number" domain={[xTicks[0], xTicks[xTicks.length - 1]]} ticks={xTicks} tickFormatter={(v) => (xFormat ? xFormat(v as number) : String(v))} {...AXIS} />
-            : <XAxis dataKey={x} {...AXIS} />}
-          <YAxis tickFormatter={(v) => show(v as number)} width={64} {...AXIS} />
+            ? <XAxis dataKey={x} type="number" domain={[xTicks[0], xTicks[xTicks.length - 1]]} ticks={xTicks} tickFormatter={(v) => (xFormat ? xFormat(v as number) : String(v))} {...AXIS}
+                label={xLabel ? { value: xLabel, position: 'insideBottom', offset: -2, fontSize: 11, fill: 'var(--muted)' } : undefined} />
+            : <XAxis dataKey={x} {...AXIS} label={xLabel ? { value: xLabel, position: 'insideBottom', offset: -2, fontSize: 11, fill: 'var(--muted)' } : undefined} />}
+          <YAxis tickFormatter={(v) => show(v as number)} width={yLabel ? 78 : 64} {...AXIS}
+            label={yLabel ? { value: yLabel, angle: -90, position: 'insideLeft', offset: 4, fontSize: 11, fill: 'var(--muted)', style: { textAnchor: 'middle' } } : undefined} />
           <Tooltip formatter={(v) => show(v as number)} labelFormatter={(l) => (xFormat ? xFormat(Number(l)) : String(l))} {...TIP} />
           {series.length > 1 && <Legend wrapperStyle={{ fontSize: 12 }} />}
           {refs.map((r) => <ReferenceLine key={r.label} y={r.y} stroke={r.color ?? 'var(--faint)'} strokeDasharray="4 4" label={{ value: r.label, fontSize: 11, fill: 'var(--faint)', position: 'insideTopRight' }} />)}
-          {series.map((s, i) => <Line key={s.key} dataKey={s.key} name={s.label} stroke={s.color ?? PALETTE[i]} strokeWidth={2} strokeDasharray={s.dashed ? '5 4' : undefined} dot={false} activeDot={{ r: 5 }} isAnimationActive animationDuration={700} />)}
+          {series.map((s, i) => <Line key={s.key} dataKey={s.key} name={isCode(s.label) ? display(s.label) : s.label} stroke={s.color ?? PALETTE[i]} strokeWidth={2} strokeDasharray={s.dashed ? '5 4' : undefined} dot={false} activeDot={{ r: 5 }} isAnimationActive animationDuration={700} />)}
           {f?.filters[x] && <ReferenceLine x={f.filters[x]} stroke="var(--accent)" strokeWidth={2} />}
           {zoom && <Brush dataKey={x} height={22} stroke="var(--accent)" fill="var(--panel)" travellerWidth={8} />}
         </LineChart>

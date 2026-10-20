@@ -100,12 +100,12 @@ function Ledger() {
             { label: `Largest ${GROUPS.find(([v]) => v === run.group_by)?.[1].toLowerCase() ?? ''}`, value: top ? String(top[groupKey]) : '—', note: top ? usd(Number(top.amount)) : '' },
           ]} />
           <div className="grid cols-2">
-            <Card title="By month" sub="The selection's monthly total · drag the slider to zoom"><Columns rows={(r.data.trend ?? []) as Row[]} x="month" y="amount" /></Card>
+            <Card title="By month" sub="The selection's monthly total"><Columns rows={(r.data.trend ?? []) as Row[]} x="month" y="amount" /></Card>
             <Card title={`By ${GROUPS.find(([v]) => v === run.group_by)?.[1].toLowerCase()}`} sub="Click a customer or vendor to open its details">
               <DataTable title="explore" rows={r.data.rows} columns={[{ key: groupKey, label: GROUPS.find(([v]) => v === run.group_by)?.[1] }, { key: 'amount', unit: 'usd' }, { key: 'lines', unit: 'count' }]} />
             </Card>
           </div>
-          <Card title="Largest journal lines" sub="The entries behind the total, biggest first">
+          <Card title="Largest journal lines" sub="The 25 largest entries behind the total, biggest first; download the CSV or narrow the filters for others">
             <DataTable title="journal_lines" rows={(r.data.top_lines ?? []) as Row[]} columns={[{ key: 'entry_date' }, { key: 'entry_id' }, { key: 'entry_type', chip: true }, { key: 'memo' }, { key: 'account_id', label: 'Acct' }, { key: 'account_name' },
               { key: 'department_id', label: 'Dept' }, { key: 'entity_id', label: 'Entity' }, { key: 'customer_id' }, { key: 'vendor_id' }, { key: 'amount', unit: 'usd' }]} />
             <Source data={r.data} />

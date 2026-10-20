@@ -1,6 +1,7 @@
 // Executive views: the scorecard with context (vs last month, budget, last year, benchmark, trend), the monthly
 // "what changed and why", growth (ARR waterfall, cohorts, customer health, unit economics) and the sales pipeline.
 // Every number comes from the same read-only tools the assistant uses.
+import { display } from '../components/sources'
 import { useState } from 'react'
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { fmt, type Row } from '../api'
@@ -282,7 +283,7 @@ export function Growth() {
                   <YAxis tickFormatter={(v) => pct(v)} width={52} {...AXIS} />
                   <Tooltip formatter={(v) => pct(v)} {...TIP} />
                   <Legend wrapperStyle={{ fontSize: 12 }} />
-                  {products.map((p, i) => <Line key={p} dataKey={`${p}_margin`} name={p} stroke={COLORS[i % 4]} strokeWidth={2} dot={false} />)}
+                  {products.map((p, i) => <Line key={p} dataKey={`${p}_margin`} name={display(p)} stroke={COLORS[i % 4]} strokeWidth={2} dot={false} />)}
                 </LineChart>
               </ResponsiveContainer>
             </div>
@@ -298,7 +299,7 @@ export function Growth() {
                   <YAxis tickFormatter={(v) => `$${(v as number).toFixed(3)}`} width={60} {...AXIS} />
                   <Tooltip formatter={(v) => `$${(v as number).toFixed(4)}`} {...TIP} />
                   <Legend wrapperStyle={{ fontSize: 12 }} />
-                  {products.map((p, i) => <Line key={p} dataKey={`${p}_cost`} name={p} stroke={COLORS[i % 4]} strokeWidth={2} dot={false} />)}
+                  {products.map((p, i) => <Line key={p} dataKey={`${p}_cost`} name={display(p)} stroke={COLORS[i % 4]} strokeWidth={2} dot={false} />)}
                 </LineChart>
               </ResponsiveContainer>
             </div>

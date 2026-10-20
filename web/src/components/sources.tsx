@@ -25,6 +25,8 @@ const NAMES: Record<string, string> = {
   series_a: 'Series A', series_b: 'Series B', seed: 'Seed', self_serve: 'Self-serve', mid_market: 'Mid-market', one_off: 'One-off',
   po_not_found: 'PO not found', fav_variance: 'Favorable variance', tm: 'Time and materials', fixed_fee: 'Fixed fee',
   cost_minus_cash: 'Cost minus cash', cumulative_cost_minus_cash: 'Cumulative cost minus cash',
+  rep_id: 'Rep', customer_id: 'Customer', vendor_id: 'Vendor', opportunity_id: 'Deal', project_id: 'Project',
+  contract_id: 'Contract', account_id: 'Account', department_id: 'Department', entity_id: 'Entity', invoice_ref: 'Invoice',
 }
 
 /** A readable name for a code like batch_pro, duplicate_invoice or gl_revenue_vs_rated_usage. */
