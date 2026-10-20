@@ -26,6 +26,7 @@ those files. They are not dbt models, so they are not part of the BigQuery parit
     python -m finance_os.ml            # train all four, write data/ml
 """
 import json
+import os
 from datetime import datetime, timezone
 
 from finance_os.paths import ROOT
@@ -47,6 +48,8 @@ def load(name, wh=None):
     if not path.exists():
         if wh is None:
             return None
+        if os.environ.get("FINANCE_OS_NO_TRAIN"):  # the deployed app only serves what the daily job trained
+            raise FileNotFoundError(f"model output {name}.json has not been uploaded yet")
         return train(name, wh)
     return json.loads(path.read_text(encoding="utf-8"))
 

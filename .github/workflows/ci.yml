@@ -50,3 +50,42 @@ jobs:
       - run: npm ci
       - run: npx tsc -b
       - run: npm run build
+
+  deploy:
+    name: Deploy to Cloud Run (master only, after the tests pass)
+    needs: [warehouse-and-tests, web]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write   # keyless sign-in to Google Cloud (Workload Identity Federation); no key files
+    env:
+      PROJECT: finance-os-app-sivaram
+      REGION: us-central1
+      IMAGE: us-central1-docker.pkg.dev/finance-os-app-sivaram/finance-os/app:${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/905768726552/locations/global/workloadIdentityPools/github/providers/github-repo
+          service_account: github-deployer@finance-os-app-sivaram.iam.gserviceaccount.com
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Build and push the image
+        run: |
+          gcloud auth configure-docker $REGION-docker.pkg.dev --quiet
+          docker build -t $IMAGE .
+          docker push $IMAGE
+      - name: Deploy (data comes from the daily snapshot in Cloud Storage, not the image)
+        run: |
+          gcloud run deploy finance-os --image $IMAGE --project $PROJECT --region $REGION --quiet \
+            --service-account finance-os-run@$PROJECT.iam.gserviceaccount.com \
+            --memory 2Gi --cpu 1 --min-instances 0 --max-instances 1 --timeout 300 --no-invoker-iam-check \
+            --set-env-vars "FINANCE_OS_DATA_BUCKET=$PROJECT-data,FINANCE_OS_GCP_PROJECT=$PROJECT,VERTEX_LOCATION=global,ASSISTANT_PROVIDER=vertex,DEMO_DAILY_QUESTIONS=50"
+      - name: Smoke test
+        run: |
+          URL=$(gcloud run services describe finance-os --project $PROJECT --region $REGION --format 'value(status.url)')
+          CODE=$(curl -s -m 180 -o /dev/null -w "%{http_code}" "$URL/api/health")
+          echo "health: $CODE"
+          if [ "$CODE" = "401" ] || [ "$CODE" = "403" ]; then echo "::warning::service is not public yet (org policy); deploy done"; exit 0; fi
+          test "$CODE" = "200"

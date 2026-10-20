@@ -562,3 +562,5 @@ tbody tr { transition: background 0.12s ease; }
 .ml-verdict { margin: 4px 0 12px; padding: 8px 12px; border-radius: 8px; font-size: 13px; background: var(--panel-2, rgba(127,127,127,.08)); color: var(--text); }
 .ml-verdict.good { background: var(--good-soft, rgba(47,158,107,.12)); }
 .ml-verdict.warn { background: var(--warn-soft); }
+
+.demo-banner { margin: 12px 24px 0; padding: 8px 12px; border-radius: 8px; background: var(--accent-soft, rgba(59,111,216,.1)); color: var(--text); font-size: 13px; }

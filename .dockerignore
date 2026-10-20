@@ -1,0 +1,16 @@
+.git
+.github
+.venv
+data
+reports
+evals/assistant/results
+warehouse/target
+warehouse/logs
+warehouse/dbt_packages
+web/node_modules
+web/dist
+**/__pycache__
+.pytest_cache
+.env
+*.duckdb
+*.duckdb.wal

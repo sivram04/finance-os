@@ -6,6 +6,7 @@ note, so the model is told it is seeing part of the data rather than guessing.
 """
 import contextvars
 import datetime as dt
+import os
 from decimal import Decimal
 from pathlib import Path
 
@@ -13,7 +14,7 @@ import duckdb
 
 from finance_os.paths import ROOT
 
-WAREHOUSE = ROOT / "data" / "finance_os.duckdb"
+WAREHOUSE = Path(os.environ.get("FINANCE_OS_WAREHOUSE") or ROOT / "data" / "finance_os.duckdb")
 MAX_ROWS = 40
 
 

@@ -54,6 +54,9 @@ export default function App() {
   }, [asOf])
 
   useEffect(() => { api.health().then((h) => { setAsOf(h.data_through); setLiveThrough(h.live_through) }).catch(() => setDown(true)) }, [])
+  // the deployed demo (finance_os.app.cloud) answers /api/demo; locally it 404s and no banner shows
+  const [demo, setDemo] = useState<{ questions_left_today: number; daily_question_limit: number } | null>(null)
+  useEffect(() => { fetch('/api/demo').then((r) => (r.ok ? r.json() : null)).then(setDemo).catch(() => setDemo(null)) }, [refreshKey])
   useEffect(() => {  // links and the Back button change the hash; follow it
     const onHash = () => setPage((location.hash.slice(1).split('?')[0] as Page) || 'welcome')
     window.addEventListener('hashchange', onHash)
@@ -92,6 +95,9 @@ export default function App() {
             <div className="page"><div className="error">Can't reach the Finance OS API. Start it with <code>python -m finance_os.app</code> and reload.</div></div>
           ) : (
             <>
+              {demo && (
+                <div className="demo-banner">Demo: Echo Labs is a simulated company, refreshed daily. Approvals and uploads only change this demo. Assistant questions left today: {demo.questions_left_today} of {demo.daily_question_limit}.</div>
+              )}
               {period === 'mtd' && page !== 'home' && page !== 'kpis' && (
                 <div className="mtd-banner">{openLabel} is open (not closed): its figures are on Home and Decision KPIs. This page shows the last closed month and daily data where it has it.</div>
               )}

@@ -91,6 +91,9 @@ def main():
             log(f"[forecast] snapshot: {tools.save_forecast_snapshot(tools.Warehouse())} row(s)")
             from finance_os import ml
             ml.train_all(tools.Warehouse(), log=lambda m: log(f"[ml] {m}"))  # also refreshes the request-log features
+            from finance_os import deploy
+            deploy.snapshot(log=lambda m: log(f"[deploy] {m}"))
+            deploy.upload(log=lambda m: log(f"[deploy] {m}"))  # the deployed app picks it up within 10 minutes
         if not a.no_bigquery and not a.skip_dbt:
             sh(log, "bigquery copy", [PY, "-m", "finance_os.ingestion.duckdb_to_bigquery", "--prefix", "s_"])
             sh(log, "bigquery build", [dbt, "build", "--target", "cloud", "--vars", "dataset_prefix: s_",
