@@ -34,11 +34,18 @@ odc_drafts as (
     group by all
 ),
 
-milestone_drafts as (
-    select m.project_id, 'milestone', m.milestone_id || ' ' || m.milestone_name, m.accepted_date, null, null, m.amount
+milestone_billed as (
+    select milestone_id, sum(amount) as billed from {{ ref('stg_projects__project_invoice_lines') }}
+    where milestone_id is not null group by 1
+),
+
+milestone_drafts as (  -- accepted milestones not fully invoiced (a milestone may be billed in parts): what is left
+    select m.project_id, 'milestone', m.milestone_id || ' ' || m.milestone_name
+               || case when coalesce(b.billed, 0) > 0 then ' (remainder)' else '' end,
+           m.accepted_date, null, null, m.amount - coalesce(b.billed, 0)
     from {{ ref('stg_projects__milestones') }} m
-    where m.accepted_date is not null
-      and not exists (select 1 from {{ ref('stg_projects__project_invoice_lines') }} l where l.milestone_id = m.milestone_id)
+    left join milestone_billed b using (milestone_id)
+    where m.accepted_date is not null and m.amount - coalesce(b.billed, 0) > 0.005
 ),
 
 drafts as (

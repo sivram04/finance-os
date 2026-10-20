@@ -10,4 +10,4 @@ select
     renewal_of,
     status,
     terminated_date
-from {{ source('crm', 'contracts') }}
+from {{ source('crm', 'customer_contracts') }}

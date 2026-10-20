@@ -85,9 +85,23 @@ class Day:
             self.log("refunds", invoice_ref=e["invoice_ref"], customer_id=p["customer_id"], refund_date=self.today,
                      amount=str(amount), reason=e["reason"], stripe_refund_id=refund_id)
         elif t == "project_milestone":
+            from finance_os.simulator import project_billing as pb
             k = w.contracts[e["contract_id"]]
             remaining = Decimal(k["funded"]) - Decimal(k["invoiced"])
-            amount = (remaining * Decimal(str(e["pct"]))).quantize(CENT, ROUND_HALF_UP)
+            if (k.get("type") or pb.contract_type(e["contract_id"])) in pb.FIXED:
+                # fixed fee: bill the next accepted milestone (all of what is left of it); nothing accepted, no invoice
+                billed = pb.milestone_lines(k.get("project_id"), self.today)
+                if not billed:
+                    return
+                lines, amount, name = billed
+                amount = min(amount, remaining) if remaining > 0 else amount
+                e = {**e, "milestone_name": name}
+            else:
+                # time and materials: hours at contract rates for the agent's share of remaining funding
+                amount = (remaining * Decimal(str(e["pct"]))).quantize(CENT, ROUND_HALF_UP)
+                lines = pb.tm_lines(e["contract_id"], amount)
+            if amount <= 0:
+                return
             k["invoiced"] = str(Decimal(k["invoiced"]) + amount)
             ref = w.next_id("project_invoice", "PINV")
             w.open_invoices[ref] = {"customer_id": k["customer_id"], "amount": str(amount), "kind": "project",
@@ -95,7 +109,8 @@ class Day:
             self.log("project_invoices", invoice_id=ref, project_id=k.get("project_id"), contract_id=e["contract_id"],
                      customer_id=k["customer_id"], invoice_date=self.today, service_month=None, amount=str(amount),
                      milestone_name=e["milestone_name"])
-            self.log("project_invoice_lines", invoice_id=ref, line_no=1, line_type="milestone", amount=str(amount))
+            for line in lines:
+                self.log("project_invoice_lines", invoice_id=ref, **{k2: v for k2, v in line.items() if k2 != "description"})
             dims = {"customer_id": k["customer_id"]}
             self.books.post(self.today, "project_invoice", f"Services invoice {k.get('project_id')}",
                             [("1200", amount, 0, dims), ("4100", 0, amount, dims)], ref)

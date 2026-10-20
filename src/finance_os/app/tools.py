@@ -3213,7 +3213,13 @@ def get_invoice_detail(wh, invoice_ref):
             header.update({"project_name": pi[0]["project_name"], "contract_id": pi[0]["contract_id"], "service_month": pi[0]["service_month_s"]})
             k = wh.query("select * from staging.stg_projects__contracts where contract_id = ?", [pi[0]["contract_id"]])
             contract = k[0] if k else None
-        lines = wh.query("""select l.line_no, l.line_type, coalesce(m.milestone_name, l.labor_category, cl.description, l.line_type) as description,
+        lines = wh.query("""select l.line_no, l.line_type,
+                                   case when m.milestone_name is not null then m.milestone_name
+                                            || case when l.amount < m.amount then ' (' || cast(round(100 * l.amount / m.amount) as int) || '% of the milestone)' else '' end
+                                            || coalesce(', accepted ' || strftime(m.accepted_date, '%Y-%m-%d'), '')
+                                        when l.labor_category is not null then l.labor_category || ' (time and materials)'
+                                        when l.line_type = 'odc' then 'Other direct costs (travel, tools)'
+                                        else coalesce(cl.description, l.line_type) end as description,
                                    l.milestone_id, l.clin_id, l.hours, l.rate, l.amount
                             from staging.stg_projects__project_invoice_lines l
                             left join staging.stg_projects__milestones m using (milestone_id)

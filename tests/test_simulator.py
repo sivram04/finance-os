@@ -20,7 +20,7 @@ def _world():
         "SS-001": Customer("SS-001", "Small", "self_serve", "active", {"batch_base": "10.0000"}, "0.0000"),
         "MM-001": Customer("MM-001", "Mid", "mid_market", "active", {"stream": "500.0000"}, "0.0000"),
     }
-    w.contracts = {"C-1": {"customer_id": "MM-001", "type": "fixed_fee", "funded": "1000.00", "invoiced": "900.00",
+    w.contracts = {"C-1": {"customer_id": "MM-001", "type": "tm", "funded": "1000.00", "invoiced": "900.00",
                            "terms_days": 30, "end": "2027-01-01", "is_federal": False, "project_id": "P-1"}}
     w.ops = {"cash": "100000.00", "employees": [{"employee_id": "E001", "department_id": "ENG", "annual_salary": "120000",
                                                  "title": "Engineer"}],
@@ -231,3 +231,25 @@ def test_payroll_register_posts_liabilities_and_remits_them_on_the_15th(tmp_path
     assert liab == 0 and w.ops["payroll_owed"] == {}                     # owed at month end, remitted Nov 15
     types = [e["entry_type"] for e in read(tmp_path, "journal_entries")]
     assert "payroll" in types and "payroll_remittance" in types
+
+
+def test_fixed_fee_bills_only_accepted_milestones(tmp_path, monkeypatch):
+    """A fixed-fee project bills the oldest accepted, not-yet-invoiced milestone at what is left of it; with no
+    accepted milestone there is no invoice. T&M bills hours (tested above)."""
+    from finance_os.simulator import project_billing as pb
+    milestones = [{"milestone_id": "MS-1", "project_id": "P-9", "milestone_name": "Pilot", "amount": "40.00", "accepted_date": "2026-09-15"},
+                  {"milestone_id": "MS-2", "project_id": "P-9", "milestone_name": "Rollout", "amount": "60.00", "accepted_date": ""}]
+    monkeypatch.setattr(pb, "_csv", lambda name: milestones if name == "milestones" else [])
+    monkeypatch.setattr(pb, "_jsonl", lambda name: [])
+    w = _world()
+    w.contracts["C-1"].update(type="fixed_fee", project_id="P-9")
+    out = _run(w, date(2026, 9, 30), [ev(type="project_milestone", contract_id="C-1", milestone_name="anything", pct=0.5)], tmp_path)
+    inv = out["project_invoices"][0]
+    assert inv["amount"] == "40.00" and inv["milestone_name"] == "Pilot"
+    line = out["project_invoice_lines"][0]
+    assert line["milestone_id"] == "MS-1" and line["amount"] == "40.00"
+    milestones[0]["accepted_date"] = ""  # nothing accepted: no invoice
+    w2 = _world()
+    w2.contracts["C-1"].update(type="fixed_fee", project_id="P-9")
+    out2 = _run(w2, date(2026, 9, 30), [ev(type="project_milestone", contract_id="C-1", milestone_name="x", pct=0.5)], tmp_path / "b")
+    assert not out2.get("project_invoices")

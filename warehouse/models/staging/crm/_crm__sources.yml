@@ -7,7 +7,7 @@ sources:
     loaded_at_field: _loaded_at
     tables:
       - name: opportunities
-      - name: contracts
+      - name: customer_contracts
         description: Committed-use customer contracts (order forms) from the contract-management export (generator/events/contracts.py).
-      - name: contract_schedule
+      - name: customer_contract_schedule
         description: Commitment by contract year (ramps step up each year).

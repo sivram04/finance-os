@@ -106,8 +106,8 @@ def generate(seed=None, scale="S"):
         **projects,
         "anomaly_manifest": build_manifest(cfg),
         "opportunities": opportunities,
-        "contracts": contracts,
-        "contract_schedule": contract_schedule,
+        "customer_contracts": contracts,  # not "contracts": that name is the project contracts
+        "customer_contract_schedule": contract_schedule,
         "ap_document_truth": ap_docs,
         "ap_document_truth_lines": ap_doc_lines,
     }

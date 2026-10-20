@@ -1,7 +1,7 @@
 -- Exceptions queue for project accounting (procure-to-pay and billing discipline).
 --   bill_without_po        subcontractor bill with no purchase order
 --   po_overbilled          invoiced against a PO more than the PO amount (FR-6.9-style control)
---   unbilled_milestone     milestone accepted more than 30 days ago with no invoice line (feeds M7 FR-7.6)
+--   unbilled_milestone     milestone accepted more than 30 days ago and not fully invoiced (feeds M7 FR-7.6)
 --   timesheet_without_rate T&M hours in a labor category with no contract bill rate
 with last_day_of_data as (
     select max(entry_date) as as_of from {{ ref('stg_erp__journal_entries') }}
@@ -23,15 +23,17 @@ having sum(b.amount) > po.amount
 
 union all
 
-select 'unbilled_milestone', m.project_id, m.milestone_id, m.accepted_date, m.amount,
-       'Milestone "' || m.milestone_name || '" accepted ' || m.accepted_date || ' and not invoiced'
+select 'unbilled_milestone', m.project_id, m.milestone_id, m.accepted_date, m.amount - coalesce(b.billed, 0),
+       'Milestone "' || m.milestone_name || '" accepted ' || m.accepted_date
+           || case when coalesce(b.billed, 0) > 0 then ' and only partly invoiced (' || cast(b.billed as {{ dbt.type_string() }}) || ' of ' || cast(m.amount as {{ dbt.type_string() }}) || ')'
+                   else ' and not invoiced' end
 from {{ ref('stg_projects__milestones') }} m
 cross join last_day_of_data d
+left join (select milestone_id, sum(amount) as billed from {{ ref('stg_projects__project_invoice_lines') }}
+           where milestone_id is not null group by 1) b using (milestone_id)
 where m.accepted_date is not null
   and m.accepted_date <= {{ add_days("d.as_of", -30) }}
-  and not exists (
-      select 1 from {{ ref('stg_projects__project_invoice_lines') }} l where l.milestone_id = m.milestone_id
-  )
+  and m.amount - coalesce(b.billed, 0) > 0.005
 
 union all
 
