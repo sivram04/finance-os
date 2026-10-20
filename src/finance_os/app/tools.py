@@ -3630,10 +3630,12 @@ TOOLS = {
                           "for 'which numbers need a decision', 'what is red', 'is this number trustworthy'.", _p({"month": MONTH})),
     "get_contribution_bridge": (get_contribution_bridge, "Contribution-margin variance bridge vs last month: volume, product mix, "
                                 "price per hour and each cost-to-serve component per hour (GPU, shared pool, unused commitment, "
-                                "cloud, payment fees, support, success), plus the customers and workloads that moved it.",
+                                "cloud, payment fees, support, success), plus the customers and workloads that moved it. Quote each "
+                                "step as given; do not net or add steps together.",
                                 _p({"month": MONTH})),
-    "get_margin_sensitivity": (get_margin_sensitivity, "Contribution margin % for price change x cost-to-serve change, and "
-                               "contribution by volume change, on the latest month's run rate.", _p({})),
+    "get_margin_sensitivity": (get_margin_sensitivity, "Contribution margin % grid for a fixed set of price changes x cost-to-serve changes, and "
+                               "contribution by volume change, on the latest month's run rate. Ignores customer volume response "
+                               "and is not per product: for 'what if we raise <product> prices by N%' use get_pricing_analysis.", _p({})),
     "get_control_queue": (get_control_queue, "The unresolved queue: budget variances to explain, reconciliation breaks, open "
                           "close tasks, AP bills to review, cash-application and billing exceptions, overdue receivables, cost "
                           "anomalies, renewals at risk and KPIs at red, each with owner, amount, age, threshold and action.", _p({})),
@@ -3730,7 +3732,8 @@ TOOLS = {
     "get_close_status": (get_close_status, "Month-end close checklist status, accruals and prepaid amortization for a month. Use for "
                          "'what is blocking the close / sign-off?': open checklist tasks are the blockers.",
                          _p({"month": MONTH})),
-    "get_pricing_analysis": (get_pricing_analysis, "Price-change simulations (revenue and margin impact) and discount leakage.", _p({})),
+    "get_pricing_analysis": (get_pricing_analysis, "Price-change simulations by product (e.g. streaming +8%): annual revenue and gross-margin impact after "
+                             "the expected volume loss, and discount leakage. Use for any 'what if we raise/cut prices' question.", _p({})),
     "get_cap_table_and_fundraise": (get_cap_table_and_fundraise, "Cap table and fundraise scenarios: price, dilution, "
                                     "option-pool top-up, and whether cash lasts until the round closes.", _p({})),
     "get_commissions": (get_commissions, "Sales commission statements for a month: credited new/expansion ARR (after "
