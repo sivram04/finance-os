@@ -787,6 +787,7 @@ export function Financials() {
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <div className="segmented">{(['month', 'quarter', 'year'] as const).map((p) => <button key={p} className={period === p ? 'on' : ''} onClick={() => { setPeriod(p); setSel(null) }}>{p === 'month' ? 'Monthly' : p === 'quarter' ? 'Quarterly' : 'Annual'}</button>)}</div>
             <a className="btn small primary" href={`/api/financials.xlsx?period=${period}&periods=${count}`}>Download Excel</a>
+            <a className="btn small" href="/api/operating-model.xlsx" title="Three-statement model linked with Excel formulas: scenario switch, runway, CAC payback and integrity checks">Operating model (Excel)</a>
             <a className="btn small" href="/api/dataroom.zip" title="Workbook, board pack and every table behind them as CSV, for investors, lenders or auditors">Data room</a>
           </div>}>
         <div className="formula-bar">

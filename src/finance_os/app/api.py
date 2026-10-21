@@ -368,6 +368,15 @@ def create_app(state: AppState | None = None, wh: tools.Warehouse | None = None,
         return Response(data, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         headers={"Content-Disposition": f'attachment; filename="echo_labs_financials_{period}.xlsx"'})
 
+    @app.get("/api/operating-model.xlsx")
+    def operating_model_xlsx():
+        """The three-statement operating model: linked Excel formulas, a scenario switch and integrity checks."""
+        from fastapi.responses import Response
+        from finance_os.reports import operating_model
+        data, _ = operating_model.build(wh)
+        return Response(data, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        headers={"Content-Disposition": 'attachment; filename="echo_labs_operating_model.xlsx"'})
+
     @app.get("/api/dataroom.zip")
     def dataroom():
         from fastapi.responses import Response
