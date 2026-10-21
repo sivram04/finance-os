@@ -17,10 +17,13 @@ def model():
 def test_forecast_cells_are_formulas(model):
     data, meta = model
     wb = load_workbook(io.BytesIO(data))
-    for name in ("P&L", "Balance sheet", "Cash flow", "KPIs", "Checks"):
+    for name in ("P&L", "Balance sheet", "Cash flow", "KPIs", "Checks", "Annual summary"):
         ws = wb[name]
-        forecast_cols = [c for c in range(3, ws.max_column + 1) if ws.cell(6, c).value == "Forecast"]
-        assert len(forecast_cols) == operating_model.FORECAST_MONTHS
+        if name == "Annual summary":
+            forecast_cols = [c for c in range(3, ws.max_column + 1) if ws.cell(5, c).value]
+        else:
+            forecast_cols = [c for c in range(3, ws.max_column + 1) if ws.cell(6, c).value == "Forecast"]
+            assert len(forecast_cols) == operating_model.FORECAST_MONTHS
         for row in range(7, ws.max_row + 1):
             label = ws.cell(row, 1).value or ""
             for c in forecast_cols:
@@ -35,9 +38,8 @@ def test_every_check_passes_in_every_scenario(model, scenario, tmp_path):
     formulas = pytest.importorskip("formulas")
     data, meta = model
     wb = load_workbook(io.BytesIO(data))
-    wb["Assumptions"]["C4"] = scenario
     path = tmp_path / "model.xlsx"
-    wb.save(path)
+    operating_model.engine_copy(wb, path, scenario)
     sol = formulas.ExcelModel().loads(str(path)).finish().calculate()
     sheet, cell = meta["status_cell"].split("!")
     status = next(v.value[0][0] for k, v in sol.items() if k.upper().endswith(f"{sheet.upper()}'!{cell}"))
@@ -52,3 +54,23 @@ def test_web_grid_shows_formulas_and_calculated_values():
     assert cells and all(isinstance(c["v"], (int, float)) or c["v"] in (None, True, False) or isinstance(c["v"], str) for c in cells)
     linked = [c for c in cells if "Assumptions!" in c["f"]]
     assert linked and all(c["role"] == "link" for c in linked)
+
+
+def test_cac_payback_matches_the_app():
+    """The model's CAC payback (same definition as Finance OS) ties to the app's metric in the last actual month."""
+    g = operating_model.grid(tools.Warehouse(), "Base")
+    ws = {s["name"]: s for s in g["sheets"]}
+    asm = {c["ref"]: c for r in ws["Assumptions"]["rows"] for c in r["cells"]}
+    label = next(c for c in asm.values() if c["v"] == "CAC payback, last actual month (months)")
+    value = asm[f"C{label['ref'][1:]}"]["v"]
+    app = tools.Warehouse().query("""select cac_payback_months from marts.fct_saas_metrics_monthly
+                                     where month = ?::date""", [g["meta"]["actual_to"] + "-01"])[0]["cac_payback_months"]
+    assert round(value, 1) == pytest.approx(float(app), abs=0.15)
+
+
+def test_sensitivity_grid_moves_with_growth():
+    g = operating_model.grid(tools.Warehouse(), "Base")
+    se = next(s for s in g["sheets"] if s["name"] == "Sensitivity")
+    cells = {c["ref"]: c["v"] for r in se["rows"] for c in r["cells"]}
+    assert cells["C14"] > cells["C10"]   # more usage growth -> more cash
+    assert cells["C10"] > cells["F10"]   # more opex growth -> less cash

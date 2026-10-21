@@ -57,6 +57,27 @@ Finance OS puts the whole picture in one place, and is built around three habits
 
 Every card has an **ⓘ**: hover it to see what the card shows and which tables its data comes from.
 
+### The operating model (Excel)
+
+**[models/echo_labs_operating_model.xlsx](models/echo_labs_operating_model.xlsx)** is a linked three-statement SaaS model of
+Echo Labs (simulated data): 12 months of actuals from the ledger, then an 18-month forecast in which every cell is an Excel
+formula.
+
+- **Assumptions:** one scenario switch (Base / Upside / Downside, cell C4) drives every forecast cell.
+- **P&L → Cash flow → Balance sheet:** net income starts the cash flow statement, closing cash is the balance sheet's
+  cash, retained earnings roll forward with net income, and receivables and payables come from DSO and DPO.
+- **KPIs:** runway, CAC, CAC payback, LTV and LTV:CAC, on the same definitions as the app. CAC payback ties to the app's
+  4.2 months in the last actual month.
+- **Annual summary** (FY2026, FY2027) and a **Sensitivity** sheet: an Excel Data Table of ending cash by usage growth ×
+  opex growth.
+- **Checks:** the balance sheet balances, cash ties, net income ties to the ledger, retained earnings roll forward, and
+  CAC payback ties to the app. All pass in every month of every scenario, verified by recalculating the workbook in a
+  formula engine on every build.
+
+Colour code: blue = input, black = formula, green = link to another sheet. In the app, Financials → *Operating model
+(linked)* shows the same workbook: click a cell to see its formula and jump to the cells it uses. Regenerate with
+`python -m finance_os.reports.operating_model --out models/echo_labs_operating_model.xlsx`.
+
 ## 3. How it helps: three examples
 
 **"Why is revenue 29% under budget?"** One click on the variance opens its case file. The number traces down through

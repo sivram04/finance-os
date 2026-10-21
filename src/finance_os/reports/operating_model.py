@@ -10,7 +10,7 @@ and integrity checks are formulas too. Nothing in a forecast column is a typed n
 Colour code (banking convention): blue = input (a ledger actual or an assumption), black = formula on the same
 sheet, green = formula that links to another sheet.
 
-Sheets: Guide, Assumptions, P&L, Balance sheet, Cash flow, KPIs, Checks.
+Sheets: Guide, Assumptions, P&L, Balance sheet, Cash flow, KPIs, Checks, Annual summary, Sensitivity.
 """
 import argparse
 import io
@@ -152,6 +152,12 @@ def _drivers(wh, fs):
     dso = ar / rev_last * 30
     dpo = ap / (cogs_last + nonpay_last) * 30
     r4 = lambda x: round(float(x), 4)
+    kpi = wh.query("""select max(case when metric_name = 'new_customers' then value end) as new_c,
+                             max(case when metric_name = 'logo_churn_rate' then value end) as churn
+                      from marts.fct_kpi_monthly where month >= ?::date and month <= ?::date group by month""",
+                   [p[-3] + "-01", p[-1] + "-01"])
+    new3 = sum(float(r["new_c"] or 0) for r in kpi) / max(len(kpi), 1)
+    churn3 = sum(float(r["churn"] or 0) for r in kpi) / max(len(kpi), 1)
     # (key, label, unit, base, upside, downside, source)
     return [
         ("usage_growth", "Usage revenue growth per month", "%", r4(growth12), r4(growth12 + 0.01), r4(growth6 - 0.01),
@@ -174,6 +180,9 @@ def _drivers(wh, fs):
         ("tax_rate", "Cash tax rate on positive pre-tax income", "%", 0.0, 0.0, 0.0,
          "US losses carried forward shelter profits in the forecast window (Controller page, ASC 740)"),
         ("min_cash", "Minimum cash (treasury policy)", "USD", 3000000, 3000000, 3000000, "seeds.treasury_policy MIN-CASH"),
+        ("new_customers", "New customers per month", "count", round(new3, 2), round(new3 * 1.5, 2), round(new3 * 0.5, 2),
+         "Last 3 months' average; drives CAC and active customers"),
+        ("logo_churn", "Logo churn per month", "%", r4(churn3), r4(churn3 * 0.75), r4(churn3 * 1.25), "Last 3 months' average"),
     ]
 
 
@@ -221,7 +230,9 @@ def build(wh=None):
         for j, val in ((3, base), (4, up), (5, down)):
             c = asm.cell(r, j, val)
             c.font, c.number_format = _font(BLUE), fmt
-        live = asm.cell(r, 6, f"=INDEX(C{r}:E{r},MATCH($C$4,$C$6:$E$6,0))")
+        pick = f"INDEX(C{r}:E{r},MATCH($C$4,$C$6:$E$6,0))"
+        override = {"usage_growth": "Sensitivity!$C$5", "nonpay_growth": "Sensitivity!$C$6"}.get(key)
+        live = asm.cell(r, 6, f'=IF({override}="",{pick},{override})' if override else f"={pick}")
         live.font, live.number_format = _font(bold=True), fmt
         asm.cell(r, 7, src).font = _font(MUTED, italic=True)
         D[key] = f"Assumptions!$F${r}"
@@ -372,14 +383,36 @@ def build(wh=None):
     kp.line("runway", "Runway (months) at the 3-month burn rate",
             lambda i: f'=IF({col(i)}{kp.rows["burn3"]}<=0,"cash generative",{col(i)}{kp.rows["cash"]}/{col(i)}{kp.rows["burn3"]})' if i >= 3 else None, fmt=NUM1)
     kp.line("headroom", "Cash above the minimum cash policy", lambda i: f"={col(i)}{kp.rows['cash']}-{D['min_cash']}")
-    kp.section("Growth and unit economics")
+    kp.section("Customers and unit economics (same definitions as Finance OS)")
+    sm_act = {str(r["m"]): r for r in wh.query("""select strftime(s.month, '%Y-%m') as m, s.cac_payback_months,
+                                                         k.active_customers, k.new_customers, k.logo_churn_rate,
+                                                         (select sum(natural_amount) from marts.fct_gl_monthly g
+                                                          where g.month = s.month and g.account_type = 'opex' and g.department_id = 'SAL') as sm_spend
+                                                  from marts.fct_saas_metrics_monthly s
+                                                  join (select month,
+                                                               max(case when metric_name = 'active_customers' then value end) as active_customers,
+                                                               max(case when metric_name = 'new_customers' then value end) as new_customers,
+                                                               max(case when metric_name = 'logo_churn_rate' then value end) as logo_churn_rate
+                                                        from marts.fct_kpi_monthly group by 1) k on k.month = s.month""")}
+    ua = lambda key: (lambda i: float(sm_act.get(periods[i], {}).get(key) or 0))
     kp.line("arr", "ARR (usage revenue x 12)", lambda i: f"={P('usage', i)}*12" if i else None)
-    kp.line("new_mrr", "Net new revenue in the month", lambda i: f"={P('revenue', i)}-{P('revenue', i - 1)}" if i >= 2 else None)
-    kp.line("sm", "Sales and marketing spend", lambda i: f"={P('opex', i)}*{D['sm_share']}" if i else None)
-    kp.line("cac_payback", "CAC payback (months), trailing 3 months",
-            lambda i: (f'=IF(SUM({col(i - 2)}{kp.rows["new_mrr"]}:{col(i)}{kp.rows["new_mrr"]})<=0,"no net growth",'
-                       f'SUM({col(i - 2)}{kp.rows["sm"]}:{col(i)}{kp.rows["sm"]})/'
-                       f'(SUM({col(i - 2)}{kp.rows["new_mrr"]}:{col(i)}{kp.rows["new_mrr"]})*{P("gm", i)}))') if i >= 4 else None, fmt=NUM1)
+    kp.line("sm", "Sales and marketing spend (Sales department)", lambda i: ua("sm_spend")(i) if A(i) else
+            f"={P('opex', i)}*{D['sm_share']}" if F(i) else None)
+    kp.line("new_c", "New customers", lambda i: ua("new_customers")(i) if A(i) else f"={D['new_customers']}" if F(i) else None, fmt=NUM1)
+    kp.line("churn", "Logo churn rate", lambda i: ua("logo_churn_rate")(i) if A(i) else f"={D['logo_churn']}" if F(i) else None, fmt=PCT)
+    kp.line("active", "Active customers (month end)", lambda i: ua("active_customers")(i) if A(i) else
+            f"={prev(i)}{kp.r}*(1-{col(i)}{kp.rows['churn']})+{col(i)}{kp.rows['new_c']}" if F(i) else None, fmt=NUM1)
+    kp.line("arpa", "ARPA (revenue per active customer, monthly)", lambda i: f"=IF({col(i)}{kp.rows['active']}=0,0,{P('revenue', i)}/{col(i)}{kp.rows['active']})" if i else None)
+    t3 = lambda name, i: f"SUM({col(i - 2)}{kp.rows[name]}:{col(i)}{kp.rows[name]})"
+    kp.line("cac", "CAC (S&M spend / new customers, trailing 3 months)",
+            lambda i: f"=IF({t3('new_c', i)}=0,0,{t3('sm', i)}/{t3('new_c', i)})" if i >= 3 else None)
+    kp.line("cac_payback", "CAC payback (months) = CAC / (ARPA x gross margin)",
+            lambda i: f"=IF({col(i)}{kp.rows['arpa']}*{P('gm', i)}=0,0,{col(i)}{kp.rows['cac']}/({col(i)}{kp.rows['arpa']}*{P('gm', i)}))" if i >= 3 else None, fmt=NUM1)
+    kp.line("ltv", "LTV (ARPA x gross margin / churn, trailing 3 months)",
+            lambda i: f"=IF(AVERAGE({col(i - 2)}{kp.rows['churn']}:{col(i)}{kp.rows['churn']})=0,0,{col(i)}{kp.rows['arpa']}*{P('gm', i)}/AVERAGE({col(i - 2)}{kp.rows['churn']}:{col(i)}{kp.rows['churn']}))" if i >= 3 else None)
+    kp.line("ltv_cac", "LTV : CAC", lambda i: f"=IF({col(i)}{kp.rows['cac']}=0,0,{col(i)}{kp.rows['ltv']}/{col(i)}{kp.rows['cac']})" if i >= 3 else None, fmt='0.00"x"')
+    kp.line("app_payback", "CAC payback per Finance OS (actual months, for the tie-out)",
+            lambda i: ua("cac_payback_months")(i) if A(i) and i >= 3 else None, fmt=NUM1)
     kp.line("gm", "Gross margin", lambda i: f"={P('gm', i)}" if i else None, fmt=PCT)
     kp.line("ebitda_margin", "EBITDA margin", lambda i: f"=IF({P('revenue', i)}=0,0,{P('ebitda', i)}/{P('revenue', i)})" if i else None, fmt=PCT)
 
@@ -390,6 +423,8 @@ def build(wh=None):
     ck.line("cash", "Cash flow closing cash = balance sheet cash", lambda i: f"=ABS('{CF}'!{col(i)}{cf.rows['close']}-{B('cash', i)})<0.01" if i else None, fmt="General")
     ck.line("ni", "Cash flow starts from P&L net income", lambda i: f"=ABS('{CF}'!{col(i)}{cf.rows['ni']}-{P('net_income', i)})<0.01" if i else None, fmt="General")
     ck.line("ledger", "P&L net income ties to the ledger (actual months)", lambda i: f"=ABS({P('net_income', i)}-{P('ledger_ni', i)})<0.01" if A(i) else None, fmt="General")
+    ck.line("cac", "CAC payback ties to Finance OS (actual months)",
+            lambda i: f"=ABS(ROUND(KPIs!{col(i)}{kp.rows['cac_payback']},1)-KPIs!{col(i)}{kp.rows['app_payback']})<0.15" if A(i) and i >= 3 else None, fmt="General")
     ck.line("re", "Retained earnings roll forward by net income", lambda i: f"=ABS({B('re', i)}-{B('re', i - 1)}-{P('net_income', i)})<0.01" if i else None, fmt="General")
     ck.line("month_ok", "All checks pass this month", lambda i: f"=AND({col(i)}{ck.rows['bs']}:{col(i)}{ck.r - 1})" if i else f"={col(i)}{ck.rows['bs']}", fmt="General", total=True)
     ck.blank()
@@ -401,10 +436,112 @@ def build(wh=None):
     ck.ws.cell(r + 1, 1, "Months failing a check")
     ck.ws.cell(r + 1, FIRST, f'=COUNTIF({col(0)}{ck.rows["month_ok"]}:{last}{ck.rows["month_ok"]},FALSE)')
     ck.rows["status"], ck.rows["failing"] = r, r + 1
-    for name in ("bs", "cash", "ni", "ledger", "re", "month_ok"):
+    for name in ("bs", "cash", "ni", "ledger", "cac", "re", "month_ok"):
         rng = f"{col(0)}{ck.rows[name]}:{last}{ck.rows[name]}"
         ck.ws.conditional_formatting.add(rng, FormulaRule(formula=[f"{col(0)}{ck.rows[name]}=FALSE"], fill=PatternFill("solid", fgColor="F8D7DA")))
         ck.ws.conditional_formatting.add(rng, FormulaRule(formula=[f"{col(0)}{ck.rows[name]}=TRUE"], fill=PatternFill("solid", fgColor="D4EDDA")))
+
+    # ---------------- Annual summary ----------------
+    an = wb.create_sheet("Annual summary")
+    an.sheet_view.showGridLines = False
+    an["A1"], an["A2"] = COMPANY, "Annual summary"
+    an["A1"].font, an["A2"].font = _font(bold=True, size=13), _font(bold=True, size=11)
+    an["A3"] = "Full calendar years in the model; each figure sums or picks the monthly columns, so it follows the scenario."
+    an["A3"].font = _font(MUTED, italic=True)
+    years = sorted({periods[i][:4] for i in range(1, n) if sum(1 for j in range(1, n) if periods[j][:4] == periods[i][:4]) == 12})
+    an.column_dimensions["A"].width = 44
+    for k, y in enumerate(years):
+        ycols = [i for i in range(1, n) if periods[i][:4] == y]
+        nact = sum(1 for i in ycols if A(i))
+        c = an.cell(5, 3 + k, f"FY{y}")
+        c.font, c.fill, c.alignment = _font("FFFFFF", bold=True), HEAD, Alignment(horizontal="center")
+        an.cell(6, 3 + k, f"{nact} actual + {12 - nact} forecast" if nact else "forecast").font = _font(MUTED, italic=True)
+        an.column_dimensions[get_column_letter(3 + k)].width = 18
+    an.cell(5, 1, "USD").font = _font("FFFFFF", bold=True)
+    an.cell(5, 1).fill = HEAD
+    an.cell(5, 2).fill = HEAD
+
+    def ysum(sheet, row, y):
+        ycols = [i for i in range(1, n) if periods[i][:4] == y]
+        return f"=SUM('{sheet}'!{col(ycols[0])}{row}:{col(ycols[-1])}{row})"
+
+    def yend(sheet, row, y):
+        return f"='{sheet}'!{col(max(i for i in range(1, n) if periods[i][:4] == y))}{row}"
+
+    lines = [("Revenue", lambda y: ysum(PL, pl.rows["revenue"], y), USD, True),
+             ("Gross profit", lambda y: ysum(PL, pl.rows["gross_profit"], y), USD, False),
+             ("Gross margin", None, PCT, False),
+             ("Operating expenses", lambda y: ysum(PL, pl.rows["opex"], y), USD, False),
+             ("EBITDA", lambda y: ysum(PL, pl.rows["ebitda"], y), USD, True),
+             ("EBITDA margin", None, PCT, False),
+             ("Net income", lambda y: ysum(PL, pl.rows["net_income"], y), USD, True),
+             ("Cash from operations", lambda y: ysum(CF, cf.rows["cfo"], y), USD, False),
+             ("Capital expenditure", lambda y: ysum(CF, cf.rows["capex"], y), USD, False),
+             ("Free cash flow", lambda y: ysum(CF, cf.rows["fcf"], y), USD, True),
+             ("Cash at year end", lambda y: yend(BS, bs.rows["cash"], y), USD, True),
+             ("ARR at year end", lambda y: yend("KPIs", kp.rows["arr"], y), USD, False),
+             ("Active customers at year end", lambda y: yend("KPIs", kp.rows["active"], y), NUM1, False),
+             ("Headcount at year end", lambda y: yend(PL, pl.rows["headcount"], y), NUM1, False),
+             ("CAC payback at year end (months)", lambda y: yend("KPIs", kp.rows["cac_payback"], y), NUM1, False)]
+    arow = {}
+    for k, (label, fn, fmt, bold) in enumerate(lines):
+        r = 7 + k
+        arow[label] = r
+        an.cell(r, 1, label).font = _font(bold=bold)
+        for j, y in enumerate(years):
+            cl = get_column_letter(3 + j)
+            if label == "Gross margin":
+                f = f"=IF({cl}{arow['Revenue']}=0,0,{cl}{arow['Gross profit']}/{cl}{arow['Revenue']})"
+            elif label == "EBITDA margin":
+                f = f"=IF({cl}{arow['Revenue']}=0,0,{cl}{arow['EBITDA']}/{cl}{arow['Revenue']})"
+            else:
+                f = fn(y)
+            c = an.cell(r, 3 + j, f)
+            c.number_format, c.font = fmt, _font(GREEN if "!" in f else BLACK, bold=bold)
+    an.freeze_panes = "C7"
+
+    # ---------------- Sensitivity (an Excel Data Table) ----------------
+    from openpyxl.worksheet.formula import DataTableFormula
+    se = wb.create_sheet("Sensitivity")
+    se.sheet_view.showGridLines = False
+    se["A1"], se["A2"] = COMPANY, "Sensitivity: cash at the end of the forecast"
+    se["A1"].font, se["A2"].font = _font(bold=True, size=13), _font(bold=True, size=11)
+    se["A3"] = ("An Excel Data Table (Data > What-If Analysis > Data Table): Excel reruns the whole model for each pair of "
+                "usage growth (down) and non-payroll opex growth (across), with the selected scenario's other drivers. "
+                "Leave C5 and C6 blank: they are the table's input cells.")
+    se["A3"].font, se["A3"].alignment = _font(MUTED, italic=True), Alignment(wrap_text=True)
+    se.merge_cells("A3:H3")
+    se.row_dimensions[3].height = 44
+    se["A5"] = "Usage growth override (the table's column input cell)"
+    se["A6"] = "Non-payroll opex growth override (the table's row input cell)"
+    for c in ("C5", "C6"):
+        se[c].fill, se[c].font, se[c].number_format = INPUT_FILL, _font(BLUE), PCT2
+    end_cash = f"='{BS}'!{col(n - 1)}{bs.rows['cash']}"
+    se["A8"] = "Cash at the end of the forecast (down: usage growth per month; across: non-payroll opex growth per month)"
+    se["A8"].font = _font(bold=True)
+    se["B9"] = end_cash
+    se["B9"].font, se["B9"].number_format = _font(GREEN), USD
+    g_vals = [0.0, 0.01, 0.02, 0.03, 0.04]
+    o_vals = [0.0, 0.01, 0.02, 0.03]
+    for j, o in enumerate(o_vals):
+        c = se.cell(9, 3 + j, o)
+        c.font, c.number_format, c.fill = _font(BLUE, bold=True), PCT, SECTION
+    for k, g in enumerate(g_vals):
+        c = se.cell(10 + k, 2, g)
+        c.font, c.number_format, c.fill = _font(BLUE, bold=True), PCT, SECTION
+    table_ref = f"C10:{get_column_letter(2 + len(o_vals))}{9 + len(g_vals)}"
+    se["C10"] = DataTableFormula(ref=table_ref, dt2D=True, r1="C6", r2="C5")
+    for k in range(len(g_vals)):
+        for j in range(len(o_vals)):
+            se.cell(10 + k, 3 + j).number_format = USD
+    se.column_dimensions["A"].width = 64
+    se.column_dimensions["B"].width = 16
+    for j in range(len(o_vals)):
+        se.column_dimensions[get_column_letter(3 + j)].width = 15
+    se["A16"] = ("Google Sheets does not support data tables, so there the grid stays empty; the Finance OS web view fills "
+                 "it by recalculating the model for each pair.")
+    se["A16"].font = _font(MUTED, italic=True)
+    sens = {"table": table_ref, "growth": g_vals, "opex": o_vals, "row_input": "C6", "col_input": "C5", "output": end_cash[1:]}
 
     # ---------------- summary on Assumptions (live scenario outputs) ----------------
     sr = hr + 5
@@ -416,6 +553,7 @@ def build(wh=None):
             ("Runway at the end of the forecast (months)", f"=KPIs!{end}{kp.rows['runway']}", NUM1),
             ("CAC payback at the end of the forecast (months)", f"=KPIs!{end}{kp.rows['cac_payback']}", NUM1),
             ("EBITDA margin, last forecast month", f"=KPIs!{end}{kp.rows['ebitda_margin']}", PCT),
+            ("CAC payback, last actual month (months)", f"=KPIs!{col(n_act)}{kp.rows['cac_payback']}", NUM1),
             ("Model checks", f"=Checks!{col(0)}{ck.rows['status']}", "General")]
     for k, (label, f, fmt) in enumerate(outs):
         asm.cell(sr + 1 + k, 1, label)
@@ -423,15 +561,43 @@ def build(wh=None):
         c.font, c.number_format = _font(GREEN, bold=True), fmt
 
     _guide(guide, actual, fc)
+    wb.calculation.fullCalcOnLoad = True  # Excel recalculates everything, including the data table, on open
     wb.active = wb.sheetnames.index("Assumptions")
     buf = io.BytesIO()
     wb.save(buf)
     meta = {"actual_from": actual[1], "actual_to": actual[-1], "forecast_from": fc[0], "forecast_to": fc[-1],
-            "status_cell": f"Checks!{col(0)}{ck.rows['status']}", "outputs_row": sr + 1, "scenario_cell": "Assumptions!C4"}
+            "status_cell": f"Checks!{col(0)}{ck.rows['status']}", "outputs_row": sr + 1, "outputs": len(outs),
+            "scenario_cell": "Assumptions!C4", "sensitivity": sens}
     return buf.getvalue(), meta
 
 
 _GRID_CACHE = {}
+
+
+def engine_copy(wb, path, scenario="Base"):
+    """Save a copy of the workbook the formula engine can load: the scenario set, the Excel data table removed
+    (Excel computes it on open; the engine can't read data tables, so sensitivity() reruns the model instead)."""
+    wb["Assumptions"]["C4"] = scenario
+    if "Sensitivity" in wb.sheetnames:
+        wb["Sensitivity"]["C10"] = None
+    wb.save(path)
+
+
+def sensitivity(xl, meta):
+    """The data table's values, by recalculating the model for each pair of overrides (what Excel's data table does)."""
+    sens = meta["sensitivity"]
+    key = lambda cell: next(k for k in xl.dsp.data_nodes if k.upper().endswith(f"SENSITIVITY'!{cell}"))
+    sheet, cell = sens["output"].split("!")
+    out = next(k for k in xl.dsp.data_nodes if k.upper().endswith(f"{sheet.strip(chr(39)).upper()}'!{cell}"))
+    grid = []
+    for g in sens["growth"]:
+        row = []
+        for o in sens["opex"]:
+            sol = xl.calculate(inputs={key(sens["col_input"]): g, key(sens["row_input"]): o}, outputs=[out])
+            v = sol[out].value[0][0]
+            row.append(float(v.item() if hasattr(v, "item") else v))
+        grid.append(row)
+    return grid
 
 
 def grid(wh, scenario="Base"):
@@ -448,11 +614,14 @@ def grid(wh, scenario="Base"):
         return _GRID_CACHE[key]
     data, meta = build(wh)
     wb = load_workbook(io.BytesIO(data))
-    wb["Assumptions"]["C4"] = scenario
     with tempfile.TemporaryDirectory() as d:
         path = f"{d}/model.xlsx"
-        wb.save(path)
-        sol = formulas.ExcelModel().loads(path).finish().calculate()
+        engine_copy(wb, path, scenario)
+        xl = formulas.ExcelModel().loads(path).finish()
+        sol = xl.calculate()
+        sens_grid = sensitivity(xl, meta)
+    wb = load_workbook(io.BytesIO(data))
+    wb["Assumptions"]["C4"] = scenario
     values = {}
     for k, v in sol.items():
         if "!" not in k or ":" in k.split("!")[1]:
@@ -465,6 +634,14 @@ def grid(wh, scenario="Base"):
             continue
         val = val.item() if hasattr(val, "item") else val
         values[(sheet, cell.replace("$", ""))] = None if str(val) in ("empty", "") else val
+    from openpyxl.utils.cell import coordinate_from_string, column_index_from_string
+    first_col, first_row = coordinate_from_string(meta["sensitivity"]["table"].split(":")[0])
+    table_f = f'{{=TABLE({meta["sensitivity"]["row_input"]},{meta["sensitivity"]["col_input"]})}}'
+    for k, row in enumerate(sens_grid):
+        for j, val in enumerate(row):
+            ref = f"{get_column_letter(column_index_from_string(first_col) + j)}{first_row + k}"
+            values[("SENSITIVITY", ref)] = val
+            wb["Sensitivity"][ref] = "=TABLE"
     sheets = []
     for ws in wb.worksheets:
         rows = []
@@ -474,6 +651,8 @@ def grid(wh, scenario="Base"):
                 if c.value is None:
                     continue
                 f = c.value if isinstance(c.value, str) and c.value.startswith("=") else None
+                if f == "=TABLE" or (ws.title == "Sensitivity" and not isinstance(c.value, (str, int, float))):
+                    f = table_f
                 val = values.get((ws.title.upper(), c.coordinate), c.value) if f else c.value
                 if isinstance(val, float) and val != val:  # NaN
                     val = None
