@@ -25,6 +25,8 @@ jobs:
         run: python -m finance_os.generator.high_volume --engine duckdb
       - name: Read the vendor bill PDFs (AP intake, rules backend)
         run: python -m finance_os.ingestion.ap_intake --backend text
+      - name: Load the bank statement feed
+        run: python -m finance_os.ingestion.bank_feed --db data/finance_os.duckdb
       - name: dbt build (models, tests, reconciliations)
         working-directory: warehouse
         run: |

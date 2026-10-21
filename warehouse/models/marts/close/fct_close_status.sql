@@ -35,6 +35,7 @@ tasks as (
             when t.evidence = 'signoff' then null
             when t.evidence = 'bva' then case when coalesce(b.alerts, 0) = 0 then 'complete' else 'review' end
             when t.evidence = 'prepaids' then case when p.month is not null then 'complete' else 'not_applicable' end
+            when t.evidence = 'bank_statement_vs_gl_cash' and r.checks is null then 'not_applicable'  -- before the bank feed
             when r.checks is null then 'no_data'
             when r.exceptions = 0 then 'complete'
             else 'exceptions'

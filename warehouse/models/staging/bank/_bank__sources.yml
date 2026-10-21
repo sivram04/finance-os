@@ -1,0 +1,12 @@
+version: 2
+
+sources:
+  - name: bank
+    schema: "{{ var('dataset_prefix', '') }}raw_bank"
+    description: >
+      Bank statement feed for each operating account (one per legal entity), as the bank reports it: posted date,
+      signed amount, description and the bank's reference. Independent of the ledger, so GL cash can be
+      reconciled to it.
+    tables:
+      - name: accounts
+      - name: statement_lines

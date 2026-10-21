@@ -9,7 +9,7 @@ const usd = (v: unknown) => fmt('amount', Number(v ?? 0), 'usd')
 
 const HELPS = [
   { pain: 'Month-end takes days of spreadsheet stitching', gain: 'Books close on a checklist with evidence; every number reconciles to source automatically',
-    proof: 'Close and Trust pages · 19 reconciliation checks a month', page: 'close' as Page },
+    proof: 'Close, Bookkeeping and Trust pages · 22 reconciliation checks a month', page: 'close' as Page },
   { pain: '"Why are we off budget?" takes a week to answer', gain: 'Click any variance: source lines, reconciliation, root cause and owner in one place, plus an AI recommendation on current data',
     proof: 'Budget → open a variance case', page: 'budget' as Page },
   { pain: 'Nobody agrees on what ARR or runway means', gain: 'One governed metric catalog: definition, owner, version, source, threshold and reconciliation for every number',

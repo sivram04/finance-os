@@ -20,6 +20,7 @@ import base64
 from fastapi.responses import FileResponse
 
 from finance_os.app.agent import Agent
+from finance_os.app.bookkeeping import Bookkeeping
 from finance_os.app.documents import Documents
 from finance_os.app.history import replay
 from finance_os.app.state import AppState
@@ -120,6 +121,7 @@ def create_app(state: AppState | None = None, wh: tools.Warehouse | None = None,
                 "unverified_numbers": answer.get("unverified_numbers", []), "steps": steps}
 
     docs = Documents(state, wh)
+    books = Bookkeeping(state, wh)
 
     @app.post("/api/documents")
     def upload(body: UploadIn):
@@ -389,6 +391,45 @@ def create_app(state: AppState | None = None, wh: tools.Warehouse | None = None,
         if not alert_log.acknowledge(body.alert_key, body.who or "finance"):
             raise HTTPException(409, "alert is not open (already acknowledged or resolved)")
         return {"acknowledged": body.alert_key}
+
+    class JournalLine(BaseModel):
+        account_id: str
+        entity_id: str
+        debit: float | str | None = None
+        credit: float | str | None = None
+        memo: str | None = None
+
+    class JournalEntryIn(BaseModel):
+        entry_date: str
+        memo: str
+        lines: list[JournalLine]
+        source_items: list[str] = []
+
+    @app.get("/api/bookkeeping")
+    def bookkeeping(month: str | None = None):
+        """Everything the Bookkeeping page needs: chart of accounts, open periods, journal entries, the trial balance
+        including posted manual entries, and the bank reconciliation with each item's booking status."""
+        first, last = books.periods()
+        return {"accounts": books.chart(), "open_periods": {"from": first, "to": last}, "entries": books.entries(),
+                "trial_balance": books.trial_balance(month), "bank": books.bank_reconciliation(month)}
+
+    @app.post("/api/journal-entries")
+    def post_journal_entry(body: JournalEntryIn):
+        """Submit a journal entry: validated, then an approval card. Approving the card posts it."""
+        out = books.create(body.model_dump())
+        if out.get("errors"):
+            raise HTTPException(422, {"errors": out["errors"]})
+        return out
+
+    @app.get("/api/journal-entries")
+    def list_journal_entries():
+        return books.entries()
+
+    @app.get("/api/journal-entries.csv")
+    def journal_entries_csv():
+        from fastapi.responses import Response
+        return Response(books.export_csv(), media_type="text/csv",
+                        headers={"Content-Disposition": 'attachment; filename="journal-entries.csv"'})
 
     @app.post("/api/data/{tool}")
     def data(tool: str, args: dict | None = None):

@@ -1,0 +1,23 @@
+version: 2
+
+models:
+  - name: stg_bank__accounts
+    description: "Grain: one row per operating bank account."
+    columns:
+      - name: bank_account_id
+        data_tests: [unique, not_null]
+      - name: entity_id
+        data_tests: [unique, not_null]
+
+  - name: stg_bank__statement_lines
+    description: "Grain: one row per bank statement line."
+    columns:
+      - name: statement_line_id
+        data_tests: [unique, not_null]
+      - name: bank_account_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: {to: ref('stg_bank__accounts'), field: bank_account_id}
+      - name: amount
+        data_tests: [not_null]

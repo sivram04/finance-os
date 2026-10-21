@@ -80,6 +80,7 @@ def main():
         sh(log, "load live", [PY, "-m", "finance_os.ingestion.live_loader", "--db", str(DB)])
         sh(log, "usage events", [PY, "-m", "finance_os.generator.high_volume", "--engine", "duckdb"])
         sh(log, "ap intake", [PY, "-m", "finance_os.ingestion.ap_intake", "--backend", "text"])
+        sh(log, "bank feed", [PY, "-m", "finance_os.ingestion.bank_feed", "--db", str(DB)])
         if not a.skip_dbt:
             dbt = str(Path(PY).with_name("dbt.exe" if os.name == "nt" else "dbt"))
             sh(log, "dbt build", [dbt, "build", "--target", "local"], cwd=WAREHOUSE)

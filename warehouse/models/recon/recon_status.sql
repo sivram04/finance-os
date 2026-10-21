@@ -1,7 +1,7 @@
 -- FR-12.6: one table of every reconciliation check × period, standard columns. The "Trust" page reads this.
 {% set checks = ['recon_vendor_invoices', 'recon_vendor_bills_gl', 'recon_gl_revenue', 'recon_payroll_gl',
                  'recon_project_billing_gl', 'recon_project_labor', 'recon_usage_events',
-                 'recon_stripe_revenue_gl', 'recon_stripe_cash_gl', 'recon_gcp_export_bill'] %}
+                 'recon_stripe_revenue_gl', 'recon_stripe_cash_gl', 'recon_gcp_export_bill', 'recon_bank_statement_gl'] %}
 {% for c in checks %}
 select
     check_name,

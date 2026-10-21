@@ -41,3 +41,6 @@ models:
         data_tests:
           - accepted_values:
               arguments: {values: [pass]}
+
+  - name: recon_bank_statement_gl
+    description: "Grain: month × entity. Adjusted bank statement balance vs adjusted GL cash (bank reconciliation)."

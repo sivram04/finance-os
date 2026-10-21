@@ -10,3 +10,20 @@ models:
       - name: status
         tests:
           - accepted_values: {values: [complete, exceptions, review, no_data, not_applicable, ready, blocked]}
+  - name: int_bank_cash_matches
+    description: "Grain: one ledger cash item (entity × date × source reference), matched to the bank line that cleared it."
+  - name: fct_bank_reconciling_items
+    description: "Grain: month × entity × reconciling item. Timing items on the bank side, unrecorded items and ledger errors on the book side."
+    columns:
+      - name: item_type
+        data_tests:
+          - accepted_values:
+              arguments: {values: [deposit_in_transit, outstanding_payment, bank_fee, interest, unrecorded_bank_item, ledger_error]}
+  - name: fct_bank_reconciliation
+    description: "Grain: month × entity. Statement and ledger cash, each adjusted by its reconciling items; they must agree."
+    columns:
+      - name: unexplained_difference
+        data_tests:
+          - accepted_values:
+              arguments: {values: [0]}
+              config: {quote: false}

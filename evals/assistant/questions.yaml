@@ -502,6 +502,18 @@ questions:
     persona: Auditor
     ask: Which journal entries look risky and should be sampled for review?
     expect_tools: [get_journal_entry_tests]
+  - id: bookkeeping-bank-rec
+    persona: Staff accountant
+    ask: Does the bank statement reconcile to the ledger this month? What still needs to be booked?
+    expect_tools: [get_bank_reconciliation]
+  - id: bookkeeping-book-fees
+    persona: Staff accountant
+    ask: Draft the journal entry to book last month's bank service fee on the US account.
+    expect_tools: [get_bank_reconciliation]
+  - id: bookkeeping-trial-balance
+    persona: Controller
+    ask: Show me the trial balance at the end of the last closed month. Do debits equal credits?
+    expect_tools: [get_trial_balance]
   - id: treasury-debt
     persona: CFO
     ask: Should we draw the venture debt? What would it cost and how would it change runway?

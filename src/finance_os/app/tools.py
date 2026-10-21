@@ -1736,7 +1736,7 @@ def get_trust_dashboard(wh):
 # its support, and why did each line move (flux)? Materiality for flux: |change| >= $25K and >= 10% of the prior month.
 FLUX_ABS, FLUX_PCT = 25000, 0.10
 RECON_FOR_ACCOUNT = {  # balance sheet account -> the independent check that proves it, and what it is compared to
-    "1000": ("stripe_balance_vs_gl_cash", "Stripe balance and payouts"),
+    "1000": ("bank_statement_vs_gl_cash", "Bank statements (all accounts)"),
     "1200": (None, "AR subledger (open invoices)"),
     "1500": (None, "Fixed asset register"),
     "1510": (None, "Depreciation schedule"),
@@ -1788,6 +1788,21 @@ def get_close_review(wh, month=None):
                 row["status"] = "reconciled"
             elif misapplied["a"] and abs(row["difference"] + float(misapplied["a"])) < 1:
                 row["status"], row["explanation"] = "explained", f"Cash applied to the wrong invoice: {misapplied['d']}. Reclass in the subledger; GL is right."
+            else:
+                row["status"] = "difference"
+        elif acct == "1000" and (bank := wh.query("""select sum(bank_balance) as bank, sum(unexplained_difference) as unexplained,
+                                                             sum(deposits_in_transit_count) as dit, sum(outstanding_payments_count) as op,
+                                                             sum(items_to_book) as to_book
+                                                      from marts.fct_bank_reconciliation where month = ?::date""", [m])[0])["bank"] is not None:
+            row["support_balance"] = float(bank["bank"])
+            row["difference"] = round(bal - row["support_balance"], 2)
+            row["check"] = check
+            if abs(row["difference"]) < 0.005:
+                row["status"] = "reconciled"
+            elif float(bank["unexplained"] or 0) == 0:
+                row["status"] = "explained"
+                row["explanation"] = (f"Timing and bank-only items: {int(bank['dit'])} deposit(s) in transit, {int(bank['op'])} outstanding "
+                                      f"payment(s), {int(bank['to_book'])} bank item(s) to book on the Bookkeeping page.")
             else:
                 row["status"] = "difference"
         elif check:
@@ -3196,6 +3211,28 @@ def get_approval_evidence(wh, kind, target_id, payload=None, document=None):
                    "detail": f"{refs[0]} balance ${float(a['balance'] or 0):,.2f}" if a else None}]
         facts = [{"label": "Payment", "value": f"{target_id} · ${amt:,.2f}"}, {"label": "Remittance says", "value": str(payload.get("remittance_ref"))}]
         approver = "Controller"
+    elif kind == "journal_entry":
+        from decimal import Decimal
+        lines = payload.get("lines") or []
+        chart = {a["account_id"] for a in get_chart_of_accounts(wh)["rows"]}
+        per = {}
+        for l in lines:
+            per[l["entity_id"]] = per.get(l["entity_id"], Decimal(0)) + Decimal(l["debit"] or 0) - Decimal(l["credit"] or 0)
+        closing = str(wh.query("select max(entry_month) as m from staging.stg_erp__journal_entries where entry_type = 'revenue'")[0]["m"])[:7]
+        checks = [{"check": "Debits equal credits for each entity", "passed": all(v == 0 for v in per.values()),
+                   "detail": None if all(v == 0 for v in per.values()) else ", ".join(f"{k} off by ${abs(v):,.2f}" for k, v in per.items() if v)},
+                  {"check": "Every account is in the chart of accounts", "passed": all(l["account_id"] in chart for l in lines), "detail": None},
+                  {"check": "Dated in an open period", "passed": str(payload.get("entry_date", ""))[:7] >= closing,
+                   "detail": f"books open from {closing}"}]
+        facts = [{"label": "Entry", "value": f"{target_id} · {payload.get('entry_date')}"}, {"label": "Memo", "value": payload.get("memo")},
+                 {"label": "Amount", "value": f"${float(payload.get('total') or 0):,.2f}"},
+                 {"label": "Lines", "value": "; ".join(f"{'Dr' if float(l['debit'] or 0) else 'Cr'} {l['account_id']} {l['entity_id']} "
+                                                        f"${max(float(l['debit'] or 0), float(l['credit'] or 0)):,.2f}" for l in lines)},
+                 {"label": "Prepared by", "value": payload.get("prepared_by", "you")}]
+        if payload.get("source_items"):
+            facts.append({"label": "Books bank item", "value": ", ".join(payload["source_items"])})
+        approver = "Controller"
+        links = [{"label": "Bookkeeping", "page": "bookkeeping"}]
     elif kind == "commission_dispute":
         facts = [{"label": "Claim", "value": payload.get("claim")}, {"label": "Statement credit (ARR)", "value": f"${float(payload.get('credited_arr') or 0):,.2f}"},
                  {"label": "Amount claimed", "value": f"${float(payload.get('claimed_amount') or 0):,.2f}" if payload.get("claimed_amount") else "not stated"}]
@@ -3204,7 +3241,7 @@ def get_approval_evidence(wh, kind, target_id, payload=None, document=None):
     links = [l for l in links if l]
     failed = [c for c in checks if not c["passed"]]
     verdict = "no checks" if not checks else ("all checks pass" if not failed else f"{len(failed)} of {len(checks)} checks failed")
-    proposes_yes = kind in ("ap_approve", "reminder_approve", "cash_application_fix", "deal_approval")
+    proposes_yes = kind in ("ap_approve", "reminder_approve", "cash_application_fix", "deal_approval", "journal_entry")
     agrees = None if not checks else (not failed) == proposes_yes
     return {"source": "fct_ap_documents, deal desk evaluation, fct_ar_invoices", "row_count": len(checks), "rows": checks,
             "kind": kind, "target_id": target_id, "verdict": verdict, "failed": len(failed), "facts": facts, "required_approver": approver,
@@ -3213,7 +3250,8 @@ def get_approval_evidence(wh, kind, target_id, payload=None, document=None):
                               "deal_approval": "The quote is approved (overriding any failed guardrail) and recorded in the audit log.",
                               "reminder_approve": "The reminder is sent to the customer.", "reminder_reject": "The reminder is discarded.",
                               "cash_application_fix": "The payment is re-applied to the target invoice.",
-                              "commission_dispute": "The dispute is upheld and the statement is to be adjusted."}.get(kind, "")}
+                              "commission_dispute": "The dispute is upheld and the statement is to be adjusted.",
+                              "journal_entry": "The entry posts to the books; undo reverses it."}.get(kind, "")}
 
 
 def get_invoice_detail(wh, invoice_ref):
@@ -3705,6 +3743,85 @@ def get_journal_entry_tests(wh, min_score=2):
                         "outlier (over 10x the median for the entry type) applies to all.")
 
 
+# Accounts a bookkeeper can post to by hand that the ERP chart does not have yet (added with the bank feed).
+EXTRA_ACCOUNTS = [
+    {"account_id": "6700", "account_name": "Bank charges", "account_type": "opex", "statement": "income_statement",
+     "rollup": "Bank charges"},
+    {"account_id": "7000", "account_name": "Interest income", "account_type": "other_income", "statement": "income_statement",
+     "rollup": "Other income"},
+]
+
+
+def get_chart_of_accounts(wh):
+    """The chart of accounts a journal entry can post to: the ERP accounts plus bank charges and interest income, and
+    the legal entities."""
+    rows = wh.query("""select account_id, account_name, account_type, statement, rollup
+                       from marts.dim_gl_account order by account_id""")
+    have = {r["account_id"] for r in rows}
+    rows = sorted(rows + [a for a in EXTRA_ACCOUNTS if a["account_id"] not in have], key=lambda r: r["account_id"])
+    entities = [r["entity_id"] for r in wh.query("select distinct entity_id from staging.stg_erp__journal_lines order by 1")]
+    return {"source": "marts.dim_gl_account", "row_count": len(rows), "rows": rows, "entities": entities}
+
+
+def get_bank_reconciliation(wh, month=None, entity_id=None):
+    """Bank reconciliation for a closed month: each operating account's statement balance and GL cash, adjusted by
+    deposits in transit and outstanding payments (bank side) and by bank fees, interest and ledger errors not yet
+    booked (book side); reconciled when the adjusted balances agree. Lists every reconciling item with the action,
+    and the history by month."""
+    months = [str(r["month"])[:7] for r in wh.query("select distinct month from marts.fct_bank_reconciliation order by 1")]
+    if not months:
+        return {"source": "marts.fct_bank_reconciliation", "row_count": 0, "rows": [], "items": [], "history": [],
+                "note": "No bank statements loaded yet."}
+    m = str(month)[:7] if month and str(month)[:7] in months else months[-1]
+    where, params = "month = ?::date", [m + "-01"]
+    if entity_id:
+        where += " and entity_id = ?"; params.append(entity_id)
+    rows = wh.query(f"select * from marts.fct_bank_reconciliation where {where} order by entity_id", params)
+    items = wh.query(f"""select entity_id, item_type, side, item_date, reference, entry_id, statement_line_id, description, amount,
+                                days_outstanding, action, needs_journal_entry
+                         from marts.fct_bank_reconciling_items where {where}
+                         order by needs_journal_entry desc, entity_id, item_date""", params)
+    history = wh.query("""select strftime(month, '%Y-%m') as month, sum(bank_balance) as bank_balance, sum(gl_balance) as gl_balance,
+                                 sum(deposits_in_transit) as deposits_in_transit, sum(outstanding_payments) as outstanding_payments,
+                                 sum(unrecorded_bank_items) as unrecorded_bank_items, sum(ledger_errors) as ledger_errors,
+                                 sum(unexplained_difference) as unexplained_difference, sum(items_to_book) as items_to_book
+                          from marts.fct_bank_reconciliation group by 1 order by 1""")
+    return _result(rows, "marts.fct_bank_reconciliation, marts.fct_bank_reconciling_items", month=m, months=months,
+                   items=items, history=history,
+                   note="Adjusted bank = statement + deposits in transit - outstanding payments; adjusted book = GL cash + "
+                        "bank items not yet booked + ledger errors. Book-side items need a journal entry.")
+
+
+def get_trial_balance(wh, month=None):
+    """Trial balance at a month end: every account's debit or credit balance (balance sheet cumulative, income
+    statement for the fiscal year to date) and the month's activity, from the posted ledger. Debits equal credits."""
+    closed = str(wh.query("select max(entry_month) as m from staging.stg_erp__journal_entries where entry_type = 'revenue'")[0]["m"])[:7]
+    m = str(month)[:7] if month else closed
+    rows = wh.query("""select l.account_id, a.account_name, a.account_type, a.statement,
+                              sum(case when a.statement = 'balance_sheet' or e.entry_month >= date_trunc('year', ?::date)
+                                       then l.amount else 0 end) as balance,
+                              sum(case when e.entry_month = ?::date then l.amount else 0 end) as month_activity
+                       from staging.stg_erp__journal_lines l
+                       join staging.stg_erp__journal_entries e using (entry_id)
+                       left join marts.dim_gl_account a using (account_id)
+                       where e.entry_month <= ?::date
+                       group by all order by l.account_id""", [m + "-01"] * 3)
+    # prior years' results, closed to retained earnings (the ledger has no closing entry)
+    prior = wh.query("""select coalesce(sum(l.amount), 0) as amount from staging.stg_erp__journal_lines l
+                        join staging.stg_erp__journal_entries e using (entry_id)
+                        join marts.dim_gl_account a using (account_id)
+                        where a.statement = 'income_statement' and e.entry_month < date_trunc('year', ?::date)""", [m + "-01"])[0]["amount"]
+    if prior:
+        rows.append({"account_id": "3900", "account_name": "Retained earnings (prior years' results)", "account_type": "equity",
+                     "statement": "balance_sheet", "balance": prior, "month_activity": 0})
+        rows.sort(key=lambda r: r["account_id"])
+    for r in rows:
+        b = float(r["balance"] or 0)
+        r["debit"], r["credit"] = (round(b, 2), 0.0) if b >= 0 else (0.0, round(-b, 2))
+    return _result(rows, "staging.stg_erp__journal_lines", month=m,
+                   totals={"debit": round(sum(r["debit"] for r in rows), 2), "credit": round(sum(r["credit"] for r in rows), 2)})
+
+
 def get_debt_facilities(wh):
     """Debt facilities (venture term loan and bank revolver; illustrative terms): what is available and undrawn,
     the commitment fees, a pro-forma schedule if the term loan were drawn, its effect on runway, and the covenant
@@ -3983,6 +4100,14 @@ TOOLS = {
     "get_journal_entry_tests": (get_journal_entry_tests, "Audit-style journal-entry testing: manual, weekend, round-amount, "
                                 "period-end and outlier entries with a risk score; the sample to review.",
                                 _p({"min_score": {"type": "integer"}})),
+    "get_bank_reconciliation": (get_bank_reconciliation, "Bank reconciliation for a closed month: statement vs GL cash per "
+                                "bank account, deposits in transit, outstanding payments, bank fees and interest not yet "
+                                "booked, ledger errors, and whether it reconciles. Items needing a journal entry are flagged.",
+                                _p({"month": {"type": "string", "description": "YYYY-MM"}, "entity_id": {"type": "string"}})),
+    "get_trial_balance": (get_trial_balance, "Trial balance at a month end from the posted ledger: each account's debit or "
+                          "credit balance and the month's activity; debits equal credits.",
+                          _p({"month": {"type": "string", "description": "YYYY-MM"}})),
+    "get_chart_of_accounts": (get_chart_of_accounts, "The accounts and legal entities a journal entry can post to.", _p({})),
     "get_debt_facilities": (get_debt_facilities, "Debt facilities (venture term loan, revolver): commitment, drawn, fees, "
                             "pro-forma schedule and interest if drawn, runway effect, and covenant tests.", _p({})),
     "get_fx_hedging": (get_fx_hedging, "FX exposure from the UK and India subsidiaries, forward hedges, hedge ratio and "

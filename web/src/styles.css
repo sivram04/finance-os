@@ -651,3 +651,21 @@ td.nowrap { white-space: nowrap; }                  /* dates never break across 
 @media (min-width: 801px) { .shell.chat-closed .page { max-width: 1760px; } }  /* use the room the closed chat frees */
 
 .seg-key { font-size: 11.5px; color: var(--faint); margin-top: 4px; }
+
+/* bookkeeping: bank reconciliation statements and the journal entry form */
+.rec-statement { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; font-size: 13px; }
+.rec-head { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
+.rec-line { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; font-variant-numeric: tabular-nums; }
+.rec-line.strong { border-top: 1px solid var(--border-strong); font-weight: 600; margin-top: 2px; padding-top: 5px; }
+.rec-gap { height: 10px; }
+.rec-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+.je-lines { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
+.je-lines th { text-align: left; font-size: 11px; color: var(--faint); font-weight: 500; padding: 4px 6px; }
+.je-lines td { padding: 4px 6px; }
+.je-lines select, .je-lines input { width: 100%; min-width: 90px; }
+.je-lines td:first-child select { min-width: 220px; }
+.je-lines .num, .je-lines input.num { text-align: right; font-variant-numeric: tabular-nums; }
+.je-errors { color: var(--bad, #d1495b); font-size: 13px; margin: 10px 0 0; padding-left: 18px; }
+.je-saved { color: var(--good, #2f9e6b); font-size: 13px; margin-top: 10px; }
+.je-legs { display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
+.tb-total { display: flex; gap: 18px; align-items: center; justify-content: flex-end; flex-wrap: wrap; margin-top: 10px; font-size: 13px; }

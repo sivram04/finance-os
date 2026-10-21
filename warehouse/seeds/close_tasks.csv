@@ -11,4 +11,5 @@ C09,3,Accounting,Book prepaid amortization,prepaids
 C10,4,FP&A,Review budget vs actuals variances,bva
 C11,4,Controller,Review metered usage vs billed usage,usage_events_vs_drivers
 C12,3,AP,Reconcile the Google Cloud billing export to the invoice,gcp_export_vs_bill
+C14,2,Accounting,Reconcile bank statements to GL cash,bank_statement_vs_gl_cash
 C13,5,Controller,Sign off and lock the period,signoff

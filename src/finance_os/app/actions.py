@@ -115,6 +115,17 @@ def propose_commission_dispute(wh: Warehouse, state: AppState, cid, rep_id, mont
                       "credited_arr": credit["credited_arr"], "comp_credit": credit["comp_credit"]}, preview)
 
 
+def propose_journal_entry(wh: Warehouse, state: AppState, cid, entry_date, memo, lines, source_items=None):
+    """Draft a manual journal entry for approval (e.g. to book a bank fee, interest or a correction found by the bank
+    reconciliation). Validated like an entry keyed on the Bookkeeping page; posting happens only on approval."""
+    from finance_os.app.bookkeeping import Bookkeeping
+    out = Bookkeeping(state, wh).create({"entry_date": entry_date, "memo": memo, "lines": lines,
+                                         "source_items": source_items or []}, cid=cid, prepared_by="assistant")
+    if out.get("errors"):
+        return {"error": "The entry was not created: " + " ".join(out["errors"])}
+    return {**out, "kind": "journal_entry", "target_id": out["entry_id"]}
+
+
 DECISION = {"type": "string", "enum": ["approve", "reject"]}
 REASON = {"type": "string", "description": "One sentence the user will see on the approval card."}
 
@@ -129,7 +140,21 @@ DEAL_PROPS = {"customer": {"type": "string"}, "lines": DEAL_LINES,
                        "unlimited_usage": {"type": "boolean"}, "prepaid_credits": {"type": "boolean"}, "free_months": {"type": "integer"},
                        "custom_terms": {"type": "string"}}
 
+JOURNAL_LINES = {"type": "array", "items": {"type": "object", "additionalProperties": False,
+                                            "properties": {"account_id": {"type": "string"}, "entity_id": {"type": "string"},
+                                                           "debit": {"type": "number"}, "credit": {"type": "number"},
+                                                           "memo": {"type": "string"}},
+                                            "required": ["account_id", "entity_id"]}}
+
 ACTIONS = {
+    "propose_journal_entry": (
+        propose_journal_entry,
+        "Draft a balanced manual journal entry (date YYYY-MM-DD in an open period, memo, lines with account_id, "
+        "entity_id and a debit or a credit) as an approval card; approving posts it. To book a bank reconciliation "
+        "item, call get_bank_reconciliation first and pass the item's statement_line_id in source_items; bank fees go "
+        "to 6700 Bank charges, interest to 7000 Interest income, cash is 1000.",
+        _p({"entry_date": {"type": "string"}, "memo": REASON, "lines": JOURNAL_LINES,
+            "source_items": {"type": "array", "items": {"type": "string"}}}, ["entry_date", "memo", "lines"])),
     "propose_commission_dispute": (
         propose_commission_dispute,
         "Log a rep's dispute of a commission statement line (rep, month YYYY-MM, customer, what they claim) as an "
