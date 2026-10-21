@@ -377,6 +377,12 @@ def create_app(state: AppState | None = None, wh: tools.Warehouse | None = None,
         return Response(data, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         headers={"Content-Disposition": 'attachment; filename="echo_labs_operating_model.xlsx"'})
 
+    @app.get("/api/operating-model")
+    def operating_model_grid(scenario: str = "Base"):
+        """The operating model for the web view: every cell's formula and calculated value for a scenario."""
+        from finance_os.reports import operating_model
+        return operating_model.grid(wh, scenario)
+
     @app.get("/api/dataroom.zip")
     def dataroom():
         from fastapi.responses import Response

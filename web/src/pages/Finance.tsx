@@ -1,3 +1,4 @@
+import { OperatingModel } from './OperatingModel'
 // FP&A, treasury, close, pricing, capital and tax pages. Like the module pages, each reads the same read-only
 // tools the assistant uses, so a number on a page and in an answer always agree.
 import { useEffect, useMemo, useState } from 'react'
@@ -820,6 +821,7 @@ export function Financials() {
         ) : <Loading state={d} />}
         <Source data={d.data} />
       </Card>
+      <OperatingModel />
     </div>
   )
 }

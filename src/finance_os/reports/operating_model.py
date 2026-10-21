@@ -431,6 +431,69 @@ def build(wh=None):
     return buf.getvalue(), meta
 
 
+_GRID_CACHE = {}
+
+
+def grid(wh, scenario="Base"):
+    """The model as the app shows it: for every sheet and cell, the formula (or the input), the value Excel would
+    calculate for the chosen scenario, its number format and its role (input / formula / link). Calculated with a
+    formula engine from the same workbook the Excel download contains."""
+    import tempfile
+    import formulas
+    from openpyxl import load_workbook
+    scenario = scenario if scenario in ("Base", "Upside", "Downside") else "Base"
+    stamp = str(wh.query("select max(entry_date) as d from staging.stg_erp__journal_entries")[0]["d"])
+    key = (scenario, stamp)
+    if key in _GRID_CACHE:
+        return _GRID_CACHE[key]
+    data, meta = build(wh)
+    wb = load_workbook(io.BytesIO(data))
+    wb["Assumptions"]["C4"] = scenario
+    with tempfile.TemporaryDirectory() as d:
+        path = f"{d}/model.xlsx"
+        wb.save(path)
+        sol = formulas.ExcelModel().loads(path).finish().calculate()
+    values = {}
+    for k, v in sol.items():
+        if "!" not in k or ":" in k.split("!")[1]:
+            continue
+        sheet, cell = k.split("!")
+        sheet = sheet.split("]")[-1].strip("'").upper()
+        try:
+            val = v.value[0][0]
+        except Exception:  # noqa: BLE001
+            continue
+        val = val.item() if hasattr(val, "item") else val
+        values[(sheet, cell.replace("$", ""))] = None if str(val) in ("empty", "") else val
+    sheets = []
+    for ws in wb.worksheets:
+        rows = []
+        for row in ws.iter_rows():
+            cells = []
+            for c in row:
+                if c.value is None:
+                    continue
+                f = c.value if isinstance(c.value, str) and c.value.startswith("=") else None
+                val = values.get((ws.title.upper(), c.coordinate), c.value) if f else c.value
+                if isinstance(val, float) and val != val:  # NaN
+                    val = None
+                color = (c.font.color.rgb if c.font and c.font.color and isinstance(c.font.color.rgb, str) else "")[-6:]
+                role = "input" if color == BLUE else "link" if color == GREEN else "formula" if f else "label"
+                cells.append({"c": c.column, "ref": c.coordinate, "v": val if not isinstance(val, (date,)) else str(val), "f": f,
+                              "fmt": c.number_format, "role": role, "bold": bool(c.font and c.font.bold),
+                              "fill": (c.fill.fgColor.rgb[-6:] if c.fill and c.fill.fill_type == "solid" else None)})
+            if cells:
+                rows.append({"r": row[0].row, "cells": cells})
+        sheets.append({"name": ws.title, "max_col": ws.max_column, "rows": rows,
+                       "widths": {k: v.width for k, v in ws.column_dimensions.items() if v.width}})
+    out = {"scenario": scenario, "meta": meta, "sheets": sheets,
+           "status": values.get(tuple(x.upper() if i == 0 else x for i, x in enumerate(meta["status_cell"].split("!"))))}
+    for k in [k for k in _GRID_CACHE if k[1] != stamp]:  # a new day's data replaces yesterday's three scenarios
+        del _GRID_CACHE[k]
+    _GRID_CACHE[key] = out
+    return out
+
+
 def _headcount(wh, months):
     out = []
     for m in months:

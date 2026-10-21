@@ -42,3 +42,13 @@ def test_every_check_passes_in_every_scenario(model, scenario, tmp_path):
     sheet, cell = meta["status_cell"].split("!")
     status = next(v.value[0][0] for k, v in sol.items() if k.upper().endswith(f"{sheet.upper()}'!{cell}"))
     assert status == "ALL CHECKS PASS"
+
+
+def test_web_grid_shows_formulas_and_calculated_values():
+    g = operating_model.grid(tools.Warehouse(), "Upside")
+    assert g["status"] == "ALL CHECKS PASS"
+    pl = next(s for s in g["sheets"] if s["name"] == "P&L")
+    cells = [c for r in pl["rows"] for c in r["cells"] if c["f"]]
+    assert cells and all(isinstance(c["v"], (int, float)) or c["v"] in (None, True, False) or isinstance(c["v"], str) for c in cells)
+    linked = [c for c in cells if "Assumptions!" in c["f"]]
+    assert linked and all(c["role"] == "link" for c in linked)
