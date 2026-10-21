@@ -18,6 +18,7 @@ type Books = {
   entries: Row[]
   trial_balance: { month: string; rows: Row[]; totals: { debit: number; credit: number }; balanced: boolean }
   bank: { month: string; months: string[]; rows: Row[]; items: Row[]; note?: string }
+  recurring: { key: string; title: string; amount: number; entry: Draft; booking: Row | null }[]
 }
 
 const ITEM_LABEL: Record<string, string> = {
@@ -94,6 +95,23 @@ function Body() {
             return <button className="btn small primary" onClick={() => startDraft(r.suggested_entry as Draft)}>Draft entry</button>
           } },
         ]} />
+      </Card>
+
+      <Card title="Entries the ledger is missing every month" sub="Drafted from the schedules on the Controller page: stock-based compensation and the income tax provision">
+        <div className="grid cols-2">
+          {(data.recurring ?? []).map((r) => (
+            <div key={r.key} className="rec-statement">
+              <div className="rec-head"><b>{r.title}</b><span className="muted">{r.entry.memo}</span></div>
+              {r.entry.lines.map((l, i) => (
+                <div key={i} className="rec-line"><span>{Number(l.debit) ? 'Dr' : 'Cr'} {l.account_id} · {l.entity_id}</span><span>{cents(Number(l.debit) || Number(l.credit))}</span></div>
+              ))}
+              <div className="rec-foot">
+                {r.booking ? <Chip value={`${String(r.booking.entry_id)} · ${String(r.booking.status)}`} kind={STATUS_KIND[String(r.booking.status)]} />
+                  : <button className="btn small primary" onClick={() => startDraft(r.entry)}>Draft entry</button>}
+              </div>
+            </div>
+          ))}
+        </div>
       </Card>
 
       <div ref={formRef}>

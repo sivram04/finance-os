@@ -49,11 +49,11 @@ Finance OS puts the whole picture in one place, and is built around three habits
 | Area | What you get |
 |---|---|
 | **Overview** | Home scorecard with context (vs last month, budget, last year, benchmark), CEO one-pager, Decision KPIs with status and owners, an Explore tool for any slice of the ledger, three-statement financials in a spreadsheet view with Excel export |
-| **Plan & cash** | Driver-based 18-month forecast (base / upside / downside), five-year plan, scenarios and stress tests, **8 ML models** (Predictions page), corporate finance (ratios, DuPont, WACC, project NPV/IRR, **company valuation**: DCF, peers, football field), 13-week cash forecast, **treasury** (debt facilities, covenants, FX hedging), cap table and fundraising, pricing |
+| **Plan & cash** | Driver-based 18-month forecast (base / upside / downside), five-year plan, scenarios and stress tests, **8 ML models** (Predictions page), corporate finance (ratios, DuPont, WACC, project NPV/IRR, **company valuation**: DCF, peers, football field), 13-week cash forecast, **treasury** (debt facilities, covenants, FX hedging, receivables financing: credit-line borrowing base and invoice factoring), cap table and fundraising, pricing |
 | **Revenue** | Unit economics by product and customer, ARR/NRR/churn and cohorts, pipeline and sales capacity, contracts and remaining performance obligations, a **deal desk** that prices from real unit costs and routes only non-standard deals, **sales commissions** (statements, accelerators, clawbacks, disputes), billing, receivables and collections |
 | **Spend** | GPU and cloud spend with tag attribution, idle capacity and commitments, AP inbox that reads vendor-bill PDFs and checks them against POs and the ledger, department budgets vs actuals, project accounting |
-| **Close & control** | Month-end close checklist with evidence, **bookkeeping** (bank statements reconciled to GL cash, manual journal entries that post only after approval, trial balance, ERP import export), **controller** tools (fixed-asset register reconciled to the GL, ASC 842 leases, journal-entry testing), multi-entity consolidation, tax and FX, data trust |
-| **Assistant** | Ask anything in plain English. It calls 111 read-only warehouse tools, shows every step and its sources, and anything that would change data becomes an approval card for a person to approve or reject |
+| **Close & control** | Month-end close checklist with evidence, **bookkeeping** (bank statements reconciled to GL cash, manual journal entries that post only after approval, trial balance, ERP import export), **controller** tools (fixed-asset register reconciled to the GL, ASC 842 leases, ASC 718 stock-based compensation, ASC 740 income tax provision with deferred taxes and the rate reconciliation, journal-entry testing), multi-entity consolidation, tax and FX, data trust |
+| **Assistant** | Ask anything in plain English. It calls 114 read-only warehouse tools, shows every step and its sources, and anything that would change data becomes an approval card for a person to approve or reject |
 
 Every card has an **ⓘ**: hover it to see what the card shows and which tables its data comes from.
 
@@ -89,7 +89,7 @@ flowchart TB
   SRC --> LOAD["Python loaders"]
   LOAD --> DUCK[("DuckDB<br/>local warehouse")]
   LOAD --> BQ[("BigQuery<br/>cloud warehouse")]
-  DUCK --> DBT["dbt: 237 models + seeds<br/>staging → intermediate → marts<br/>+ 22 reconciliation checks"]
+  DUCK --> DBT["dbt: 238 models + seeds<br/>staging → intermediate → marts<br/>+ 22 reconciliation checks"]
   BQ --> DBT
   DBT --> ML["ML: 8 models<br/>(scikit-learn, statsmodels)"]
   DBT --> TOOLS["108 read-only tools<br/>(FastAPI)"]
@@ -184,7 +184,7 @@ sequenceDiagram
   S->>S: decide the day's events (signups, churn, payments, bills…)
   S->>L: write journal entries, usage, invoices, PDFs
   L->>W: load raw tables (DuckDB) + copy to BigQuery
-  W->>W: build 237 models, run tests and 22 reconciliations
+  W->>W: build 238 models, run tests and 22 reconciliations
   W->>M: refresh features from the request log, retrain 8 models
   M->>C: upload a slim snapshot (~70 MB) + model outputs
   C->>C: picks up the new day within 10 minutes

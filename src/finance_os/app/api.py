@@ -411,7 +411,8 @@ def create_app(state: AppState | None = None, wh: tools.Warehouse | None = None,
         including posted manual entries, and the bank reconciliation with each item's booking status."""
         first, last = books.periods()
         return {"accounts": books.chart(), "open_periods": {"from": first, "to": last}, "entries": books.entries(),
-                "trial_balance": books.trial_balance(month), "bank": books.bank_reconciliation(month)}
+                "trial_balance": books.trial_balance(month), "bank": books.bank_reconciliation(month),
+                "recurring": books.recurring()}
 
     @app.post("/api/journal-entries")
     def post_journal_entry(body: JournalEntryIn):

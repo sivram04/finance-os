@@ -81,6 +81,12 @@ seeds:
       +column_types: {useful_life_months: integer}
     leases:
       +column_types: {commencement_month: date, term_months: integer, monthly_payment: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,2)' }}", annual_escalation: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,6)' }}", incremental_borrowing_rate: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,6)' }}"}
+    equity_award_policy:
+      +column_types: {shares: integer}
+    stock_option_valuations:
+      +column_types: {effective_date: date, fmv_per_share: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,4)' }}", volatility: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}", risk_free_rate: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}", expected_term_years: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,2)' }}", fair_value_per_option: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,4)' }}"}
+    receivables_financing:
+      +column_types: {advance_rate: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}", fee_rate: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,6)' }}", fee_period_days: integer, annual_rate: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,6)' }}", max_days_past_due: integer, concentration_limit: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,4)' }}", commitment: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,2)' }}"}
     debt_facilities:
       +column_types: {commitment: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,2)' }}", drawn: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(18,2)' }}", annual_rate: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,6)' }}", undrawn_fee: "{{ 'numeric' if target.type == 'bigquery' else 'decimal(9,6)' }}", interest_only_months: integer, amortization_months: integer, available_from: date, expires: date}
     fx_hedges:

@@ -25,3 +25,8 @@ models:
     columns:
       - name: entry_id
         tests: [unique, not_null]
+  - name: fct_stock_comp_monthly
+    description: "Grain: employee option grant × month. ASC 718 vesting and straight-line expense with forfeitures as they occur."
+    data_tests:
+      - dbt_utils_free_unique_combination:
+          arguments: {columns: [employee_id, month]}

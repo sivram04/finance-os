@@ -52,3 +52,46 @@ def test_valuation_falls_as_the_discount_rate_rises(wh):
 def test_journal_entry_sample_is_flagged(wh):
     je = tools.get_journal_entry_tests(wh)
     assert je["rows"] and all(int(r["risk_score"]) >= 2 for r in je["rows"])
+
+
+def test_stock_comp_schedule_is_consistent(wh):
+    rows = wh.query("""select employee_id, sum(expense) as expense, max(cumulative_expense) as cum, max(shares) as shares,
+                              max(vested_shares) as vested, max(grant_fair_value) as fv
+                       from marts.fct_stock_comp_monthly group by 1""")
+    assert rows
+    for r in rows:
+        assert float(r["expense"]) == pytest.approx(float(r["cum"]), abs=0.02), r   # monthly expense adds up to the cumulative
+        assert r["vested"] <= r["shares"] and float(r["cum"]) <= float(r["fv"]) + 0.01, r
+
+
+def test_option_fair_values_match_black_scholes(wh):
+    from math import erf, exp, log, sqrt
+    n = lambda x: 0.5 * (1 + erf(x / sqrt(2)))
+    for v in wh.query("select * from seeds.stock_option_valuations"):
+        s, t, r, vol = float(v["fmv_per_share"]), float(v["expected_term_years"]), float(v["risk_free_rate"]), float(v["volatility"])
+        d1 = (r + vol * vol / 2) * t / (vol * sqrt(t))  # at the money: ln(S/K) = 0
+        price = s * n(d1) - s * exp(-r * t) * n(d1 - vol * sqrt(t))
+        assert float(v["fair_value_per_option"]) == pytest.approx(price, abs=0.0005)
+
+
+def test_tax_provision_reconciles(wh):
+    tx = tools.get_income_tax_provision(wh)
+    for r in tx["all_years"]:
+        taxable_after_nol = r["taxable_income"] - r["loss_carryforward_used"]
+        assert r["current_tax"] == pytest.approx(max(0.0, taxable_after_nol) * r["statutory_rate"], abs=0.02), r
+    for rec in tx["rate_reconciliation"]:
+        assert sum(i["amount"] for i in rec["items"]) == pytest.approx(rec["total_provision"], abs=0.05)
+    for d in tx["deferred"]:
+        gross = d["gross_deferred_tax_assets"] - d["gross_deferred_tax_liabilities"]
+        assert d["net_deferred_tax"] == pytest.approx(gross + d["valuation_allowance"], abs=0.02)
+
+
+def test_receivables_borrowing_base(wh):
+    rf = tools.get_receivables_financing(wh)
+    b = rf["borrowing_base"]
+    assert b["eligible_receivables"] <= b["total_receivables"] + 0.01
+    assert b["borrowing_base"] == pytest.approx(b["eligible_receivables"] - b["concentration_excess"], abs=0.02)
+    assert b["availability"] <= b["borrowing_base"] * b["advance_rate"] + 0.01
+    for r in rf["rows"]:
+        if r["eligible"]:
+            assert r["factoring_fee"] > 0 and r["factoring_advance"] == pytest.approx(r["balance"] * 0.85, abs=0.01)

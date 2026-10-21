@@ -1,0 +1,4 @@
+effective_date,fmv_per_share,volatility,risk_free_rate,expected_term_years,fair_value_per_option,note
+2023-09-15,0.2500,0.6500,0.0430,6.25,0.1595,409A after the seed round; Black-Scholes at-the-money; simplified-method term; peer volatility
+2025-01-02,0.9500,0.6500,0.0440,6.25,0.6074,409A after the Series A at $4.50 preferred
+2026-01-15,1.3500,0.6500,0.0400,6.25,0.8565,Annual 409A refresh

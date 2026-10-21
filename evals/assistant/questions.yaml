@@ -514,6 +514,18 @@ questions:
     persona: Controller
     ask: Show me the trial balance at the end of the last closed month. Do debits equal credits?
     expect_tools: [get_trial_balance]
+  - id: controller-stock-comp
+    persona: Controller
+    ask: How much stock-based compensation should we book this month, and how much unrecognised cost is left?
+    expect_tools: [get_stock_comp]
+  - id: controller-tax-provision
+    persona: Controller
+    ask: What is our income tax provision this year and why is the effective rate so different from 21%?
+    expect_tools: [get_income_tax_provision]
+  - id: treasury-receivables-financing
+    persona: Treasurer
+    ask: If we needed cash, how much could we raise against our receivables and what would factoring cost?
+    expect_tools: [get_receivables_financing]
   - id: treasury-debt
     persona: CFO
     ask: Should we draw the venture debt? What would it cost and how would it change runway?

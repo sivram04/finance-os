@@ -227,6 +227,21 @@ class Bookkeeping:
                  {"account_id": other, "entity_id": ent, "debit": "" if cash_dr else a, "credit": a if cash_dr else "", "memo": ""}]
         return {"entry_date": d, "memo": memo, "lines": lines, "source_items": [item["statement_line_id"]]}
 
+    def recurring(self):
+        """Entries the ledger is missing every month: stock-based compensation (ASC 718) and the income tax provision
+        (ASC 740), each drafted from its schedule, with whether it is already booked."""
+        booked = self._booked()
+        out = []
+        for key, title, fn in (("stock_comp", "Stock-based compensation (ASC 718)", tools.get_stock_comp),
+                               ("income_tax", "Income tax provision (ASC 740)", tools.get_income_tax_provision)):
+            entry = fn(self.wh).get("entry_to_book")
+            if not entry:
+                continue
+            e = booked.get(entry["source_items"][0])
+            out.append({"key": key, "title": title, "entry": entry, "amount": float(sum(_d(l["debit"]) for l in entry["lines"])),
+                        "booking": {"entry_id": e["entry_id"], "status": e["status"]} if e else None})
+        return out
+
     def export_csv(self):
         """Posted entries in the ERP's journal import layout (one row per line)."""
         buf = io.StringIO()

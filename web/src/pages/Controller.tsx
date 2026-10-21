@@ -1,6 +1,6 @@
-// Controller: fixed-asset register reconciled to the GL, ASC 842 lease accounting, and audit-style journal-entry
-// testing.
-import { Bars, Dash, KpiRow, Trend } from '../components/Dash'
+// Controller: fixed-asset register reconciled to the GL, ASC 842 lease accounting, audit-style journal-entry
+// testing, stock-based compensation (ASC 718) and the income tax provision (ASC 740).
+import { Bars, Columns, Dash, KpiRow, Trend } from '../components/Dash'
 import { fmt, type Row } from '../api'
 import { AskButton, Card, Chip, DataTable, Loading, useTool } from '../components/common'
 
@@ -77,6 +77,96 @@ function Body() {
           ]} />
         </Card>
       </div>
+      <StockComp />
+      <IncomeTax />
     </div>
+  )
+}
+
+const pct = (v: unknown) => (v == null ? '—' : `${(Number(v) * 100).toFixed(1)}%`)
+const n = (v: unknown) => Number(v ?? 0).toLocaleString()
+
+function StockComp() {
+  const sc = useTool('get_stock_comp')
+  if (!sc.data) return <Card title="Stock-based compensation"><Loading state={sc} /></Card>
+  const t = sc.data.totals as Row
+  return (
+    <>
+      <KpiRow items={[
+        { label: 'Stock comp this month', value: usd(t.month_expense), note: `${usd(t.ytd_expense)} year to date · not yet in the ledger`, tone: 'ok' },
+        { label: 'Options granted', value: n(t.options_granted), note: `${n(t.vested)} vested · ${n(t.unvested)} unvested · ${n(t.forfeited)} forfeited` },
+        { label: 'Option pool left', value: n(t.pool_remaining), note: `of ${n(t.pool_size)} in the pool (cap table)` },
+        { label: 'Unrecognised cost', value: usd(t.unrecognised_cost), note: `recognised over about ${String(t.weighted_years_to_recognise)} years` },
+      ]} />
+      <div className="grid cols-2">
+        <Card title="Stock-based compensation expense (ASC 718)" sub={String(sc.data.note)}>
+          <Columns rows={(sc.data.by_month ?? []) as Row[]} x="month" y="expense" />
+        </Card>
+        <Card title="409A valuations and Black-Scholes fair value" sub="At-the-money grants; simplified-method expected term">
+          <DataTable title="option-valuations" rows={(sc.data.valuations ?? []) as Row[]} columns={[
+            { key: 'effective_date', label: 'Effective' }, { key: 'fmv_per_share', label: 'Common FMV', unit: 'usd' },
+            { key: 'volatility', render: (r) => pct(r.volatility) }, { key: 'risk_free_rate', label: 'Risk-free', render: (r) => pct(r.risk_free_rate) },
+            { key: 'expected_term_years', label: 'Term (yrs)' }, { key: 'fair_value_per_option', label: 'Fair value / option', unit: 'usd' },
+          ]} />
+        </Card>
+      </div>
+      <Card title="Option grants" sub={`At ${String(sc.data.month)}: four-year vesting with a one-year cliff`}>
+        <DataTable title="option-grants" rows={(sc.data.rows ?? []) as Row[]} columns={[
+          { key: 'employee_id', label: 'Employee' }, { key: 'department_id', label: 'Dept' }, { key: 'grant_date', label: 'Granted' },
+          { key: 'shares', render: (r) => n(r.shares) }, { key: 'strike_price', label: 'Strike', unit: 'usd' },
+          { key: 'grant_fair_value', label: 'Grant fair value', unit: 'usd' }, { key: 'vested_shares', label: 'Vested', render: (r) => n(r.vested_shares) },
+          { key: 'status', chip: true }, { key: 'cumulative_expense', label: 'Expensed to date', unit: 'usd' }, { key: 'expense', label: 'This month', unit: 'usd' },
+        ]} />
+      </Card>
+    </>
+  )
+}
+
+function IncomeTax() {
+  const tx = useTool('get_income_tax_provision')
+  if (!tx.data) return <Card title="Income tax provision"><Loading state={tx} /></Card>
+  const d = tx.data
+  const rows = (d.rows ?? []) as Row[]
+  const rec = ((d.rate_reconciliation ?? []) as Row[]).find((r) => r.year === d.year) as Row | undefined
+  const def = ((d.deferred ?? []) as Row[]).find((r) => r.year === d.year) as Row | undefined
+  const total = rows.reduce((a, r) => a + Number(r.total_provision), 0)
+  const defLines = def ? Object.entries(def).filter(([k]) => !['year', 'loss_carryforward'].includes(k)) : []
+  return (
+    <>
+      <KpiRow items={[
+        { label: `Income tax provision ${String(tx.data.year)}`, value: usd(total), note: String(tx.data.note ?? ''), tone: 'ok' },
+        { label: 'Effective tax rate', value: pct(rec?.effective_rate), note: `on pre-tax income of ${usd(rec?.pretax_income)}` },
+        { label: 'US loss carryforward', value: usd(def?.loss_carryforward), note: 'no expiry; offsets up to 80% of future taxable income' },
+        { label: 'Valuation allowance', value: usd(def?.valuation_allowance), note: 'full allowance on US net deferred tax assets (cumulative losses)' },
+      ]} />
+      <Card title="Income tax provision by entity (ASC 740)" sub="Book income, book-to-tax differences, taxable income, and current and deferred tax">
+        <DataTable title="tax-provision" rows={rows} columns={[
+          { key: 'entity_id', label: 'Entity' }, { key: 'pretax_income', label: 'Pre-tax income', unit: 'usd' },
+          { key: 'stock_comp_addback', label: 'Stock comp (not deductible yet)', unit: 'usd' },
+          { key: 'commissions_capitalised', label: 'Commissions (deducted when paid)', unit: 'usd' },
+          { key: 'rent_straight_line_vs_cash', label: 'Rent (cash vs straight line)', unit: 'usd' },
+          { key: 'taxable_income', label: 'Taxable income', unit: 'usd' }, { key: 'statutory_rate', label: 'Rate', render: (r) => pct(r.statutory_rate) },
+          { key: 'current_tax', label: 'Current tax', unit: 'usd' }, { key: 'deferred_tax', label: 'Deferred tax', unit: 'usd' },
+          { key: 'total_provision', label: 'Provision', unit: 'usd' },
+        ]} />
+      </Card>
+      <div className="grid cols-2">
+        <Card title="Rate reconciliation" sub="From the 21% US federal rate to the effective rate. Tax on a pre-tax loss gives a negative rate: UK and India pay tax while the US losses get no benefit.">
+          <div className="rec-statement">
+            {((rec?.items ?? []) as Row[]).map((i) => (
+              <div key={String(i.item)} className="rec-line"><span>{String(i.item)}</span><span>{usd(i.amount)} · {pct(i.rate)}</span></div>
+            ))}
+            <div className="rec-line strong"><span>Income tax provision</span><span>{usd(rec?.total_provision)} · {pct(rec?.effective_rate)}</span></div>
+          </div>
+        </Card>
+        <Card title="Deferred taxes (US)" sub="Temporary differences at the combined federal and state rate">
+          <div className="rec-statement">
+            {defLines.map(([k, v]) => (
+              <div key={k} className={`rec-line${['net_deferred_tax'].includes(k) ? ' strong' : ''}`}><span>{k.includes('_') ? k.replaceAll('_', ' ').replace(/^./, (c) => c.toUpperCase()) : k}</span><span>{usd(v)}</span></div>
+            ))}
+          </div>
+        </Card>
+      </div>
+    </>
   )
 }

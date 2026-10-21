@@ -3745,11 +3745,259 @@ def get_journal_entry_tests(wh, min_score=2):
 
 # Accounts a bookkeeper can post to by hand that the ERP chart does not have yet (added with the bank feed).
 EXTRA_ACCOUNTS = [
+    {"account_id": "2400", "account_name": "Income taxes payable", "account_type": "liability", "statement": "balance_sheet",
+     "rollup": "Income taxes"},
+    {"account_id": "3100", "account_name": "Additional paid-in capital", "account_type": "equity", "statement": "balance_sheet",
+     "rollup": "Equity"},
     {"account_id": "6700", "account_name": "Bank charges", "account_type": "opex", "statement": "income_statement",
      "rollup": "Bank charges"},
+    {"account_id": "6800", "account_name": "Stock-based compensation", "account_type": "opex", "statement": "income_statement",
+     "rollup": "Stock-based compensation"},
     {"account_id": "7000", "account_name": "Interest income", "account_type": "other_income", "statement": "income_statement",
      "rollup": "Other income"},
+    {"account_id": "8000", "account_name": "Income tax expense", "account_type": "income_tax", "statement": "income_statement",
+     "rollup": "Income taxes"},
 ]
+
+
+def _closed_month(wh):
+    return str(wh.query("select max(entry_month) as m from staging.stg_erp__journal_entries where entry_type = 'revenue'")[0]["m"])[:7]
+
+
+def get_stock_comp(wh, month=None):
+    """Stock-based compensation (ASC 718) at a closed month: every option grant (shares, strike, Black-Scholes fair
+    value, vested and unvested), the month's and year-to-date expense by department, the option pool, unrecognised
+    compensation cost and how long it takes to recognise, the 409A valuations behind the fair values, and the journal
+    entry to book (the ledger has no stock comp yet)."""
+    closed = _closed_month(wh)
+    m = str(month)[:7] if month and str(month)[:7] <= closed else closed
+    d = m + "-01"
+    grants = wh.query("""select employee_id, department_id, function, grant_date, shares, strike_price, fair_value_per_option,
+                                grant_fair_value, vested_shares, unvested_shares, forfeited_shares, status, cumulative_expense, expense
+                         from marts.fct_stock_comp_monthly where month = ?::date order by grant_date, employee_id""", [d])
+    by_month = wh.query("""select strftime(month, '%Y-%m') as month, sum(expense) as expense, sum(cumulative_expense) as cumulative_expense
+                           from marts.fct_stock_comp_monthly where month <= ?::date group by 1 order by 1""", [d])
+    by_dept = wh.query("""select department_id, sum(case when month = ?::date then expense else 0 end) as month_expense,
+                                 sum(case when extract(year from month) = extract(year from ?::date) then expense else 0 end) as ytd_expense
+                          from marts.fct_stock_comp_monthly where month <= ?::date group by 1 order by 3 desc""", [d, d, d])
+    pool = {r["security_class"]: int(r["shares"]) for r in wh.query(
+        "select security_class, shares from seeds.cap_table where security_class like 'options%'")}
+    pool_size = sum(pool.values())
+    active = [g for g in grants if g["status"] != "forfeited unvested"]
+    granted = sum(int(g["shares"]) for g in active)
+    unrecognised = sum(float(g["grant_fair_value"]) - float(g["cumulative_expense"]) for g in active)
+    # months of service left, weighted by the cost still to recognise
+    rem = [(48 - min(48, (int(m[:4]) - int(str(g["grant_date"])[:4])) * 12 + int(m[5:7]) - int(str(g["grant_date"])[5:7]) + 1),
+            float(g["grant_fair_value"]) - float(g["cumulative_expense"])) for g in active]
+    w_months = sum(a * b for a, b in rem) / unrecognised if unrecognised else 0.0
+    month_expense = sum(float(g["expense"]) for g in grants)
+    totals = {"month": m, "grants": len(grants), "options_granted": granted, "vested": sum(int(g["vested_shares"]) for g in grants),
+              "unvested": sum(int(g["unvested_shares"]) for g in grants), "forfeited": sum(int(g["forfeited_shares"]) for g in grants),
+              "pool_size": pool_size, "pool_remaining": pool_size - granted,
+              "month_expense": round(month_expense, 2), "ytd_expense": round(sum(float(r["ytd_expense"]) for r in by_dept), 2),
+              "expense_to_date": round(sum(float(g["cumulative_expense"]) for g in grants), 2),
+              "unrecognised_cost": round(unrecognised, 2), "weighted_years_to_recognise": round(w_months / 12, 2)}
+    valuations = wh.query("select * from seeds.stock_option_valuations order by effective_date")
+    entry = {"entry_date": _month_end(m), "memo": f"Stock-based compensation {m} (ASC 718)",
+             "lines": [{"account_id": "6800", "entity_id": "US01", "debit": f"{month_expense:.2f}", "credit": ""},
+                       {"account_id": "3100", "entity_id": "US01", "debit": "", "credit": f"{month_expense:.2f}"}],
+             "source_items": [f"SBC-{m}"]} if month_expense > 0 else None
+    return _result(grants, "marts.fct_stock_comp_monthly, seeds.stock_option_valuations, seeds.cap_table", month=m,
+                   totals=totals, by_month=by_month, by_department=by_dept, valuations=valuations, entry_to_book=entry,
+                   note="New-hire grants at the 409A value; Black-Scholes fair value; 4-year vesting with a 1-year cliff; "
+                        "straight-line expense; forfeitures as they occur. The ledger has no stock comp: book the entry monthly.")
+
+
+def _month_end(m):
+    import calendar
+    return f"{m}-{calendar.monthrange(int(m[:4]), int(m[5:7]))[1]:02d}"
+
+
+def get_income_tax_provision(wh, year=None):
+    """Income tax provision (ASC 740) by legal entity and year: pre-tax book income (with stock comp), book-to-tax
+    differences, taxable income, US loss carryforward (indefinite, 80% limit), current tax (UK bands, India flat,
+    US federal plus state), deferred tax assets and liabilities, the valuation allowance, the rate reconciliation from
+    the 21% statutory rate to the effective rate, and the entry to book the year-to-date provision. The current year
+    is year to date through the last closed month."""
+    closed = _closed_month(wh)
+    rates = _tax_rates(wh)
+    us_rate = _us_combined(rates)
+    fed = next(x["rate"] for x in rates["US01"] if "federal" in x["jurisdiction"])
+    pre = wh.query("""select entity_id, cast(extract(year from month) as integer) as year,
+                             -sum(amount_usd) as pretax
+                      from marts.fct_gl_entity_monthly
+                      where account_type in ('revenue', 'cogs', 'opex') and month <= ?::date
+                      group by 1, 2 order by 2, 1""", [closed + "-01"])
+    years = sorted({r["year"] for r in pre})
+    sbc = {r["year"]: float(r["e"]) for r in wh.query("""select cast(extract(year from month) as integer) as year, sum(expense) as e
+                                                          from marts.fct_stock_comp_monthly where month <= ?::date group by 1""", [closed + "-01"])}
+
+    def at_year_end(sql, y):
+        end = f"{y}-12-01" if f"{y}-12" <= closed else closed + "-01"
+        return float(wh.query(sql, [end])[0]["v"] or 0)
+
+    gbp = {r["y"]: float(r["r"]) for r in wh.query("""select cast(extract(year from month) as integer) as y, avg(usd_per_unit) as r
+                                                      from seeds.fx_rates where currency = 'GBP' group by 1""")}
+    out, nol, prev_net, prev_va = [], 0.0, 0.0, 0.0
+    deferred_rows, recon = [], []
+    for y in years:
+        p = {r["entity_id"]: float(r["pretax"]) for r in pre if r["year"] == y}
+        p["US01"] = p.get("US01", 0.0) - sbc.get(y, 0.0)  # stock comp is a US parent expense not yet in the ledger
+        # US book-to-tax: stock comp is deductible only on exercise; commissions are deducted when paid (book
+        # capitalises them); rent is deducted as paid (book straight-lines it)
+        comm_end = at_year_end("select sum(deferred_commission_balance) as v from marts.fct_deferred_commissions_monthly where month = ?::date", y)
+        comm_start = at_year_end("select sum(deferred_commission_balance) as v from marts.fct_deferred_commissions_monthly where month = ?::date", y - 1) if y - 1 in years else 0.0
+        lease_diff = float(wh.query("""select coalesce(sum(cost_minus_cash), 0) as v from marts.fct_lease_schedule_monthly
+                                       where entity_id = 'US01' and not is_future and extract(year from month) = ? and month <= ?::date""",
+                                    [y, closed + "-01"])[0]["v"])
+        rou = at_year_end("select sum(closing_rou_asset) as v from marts.fct_lease_schedule_monthly where entity_id = 'US01' and month = ?::date", y)
+        liab = at_year_end("select sum(closing_liability) as v from marts.fct_lease_schedule_monthly where entity_id = 'US01' and month = ?::date", y)
+        sbc_cum = sum(v for k, v in sbc.items() if k <= y)
+        us_taxable = p["US01"] + sbc.get(y, 0.0) - (comm_end - comm_start) + lease_diff
+        used = min(nol, 0.8 * us_taxable) if us_taxable > 0 else 0.0
+        nol = nol - used + (-us_taxable if us_taxable < 0 else 0.0)
+        us_current = max(0.0, us_taxable - used) * us_rate
+        rows = [{"year": y, "entity_id": "US01", "pretax_income": round(p["US01"], 2),
+                 "stock_comp_addback": round(sbc.get(y, 0.0), 2), "commissions_capitalised": round(-(comm_end - comm_start), 2),
+                 "rent_straight_line_vs_cash": round(lease_diff, 2), "taxable_income": round(us_taxable, 2),
+                 "loss_carryforward_used": round(used, 2), "statutory_rate": round(us_rate, 4), "current_tax": round(us_current, 2)}]
+        for ent in ("UK01", "IN01"):
+            if ent not in p:
+                continue
+            ti = p[ent]
+            if ent == "UK01":
+                profit_gbp = ti / gbp.get(y, 1.27)
+                rate = 0.19 if profit_gbp <= 50000 else 0.25 if profit_gbp >= 250000 else 0.25 - 0.015 * (250000 - profit_gbp) / profit_gbp
+            else:
+                rate = next(x["rate"] for x in rates["IN01"])
+            rows.append({"year": y, "entity_id": ent, "pretax_income": round(ti, 2), "stock_comp_addback": 0.0,
+                         "commissions_capitalised": 0.0, "rent_straight_line_vs_cash": 0.0, "taxable_income": round(ti, 2),
+                         "loss_carryforward_used": 0.0, "statutory_rate": round(rate, 4), "current_tax": round(max(0.0, ti) * rate, 2)})
+        # US deferred taxes (UK and India have no material temporary differences)
+        dta = {"Net operating loss carryforward": nol * us_rate, "Stock-based compensation (unexercised options)": sbc_cum * us_rate,
+               "Lease liabilities": liab * us_rate}
+        dtl = {"Deferred commissions": comm_end * us_rate, "Right-of-use assets": rou * us_rate}
+        gross_dta, gross_dtl = sum(dta.values()), sum(dtl.values())
+        net = gross_dta - gross_dtl
+        # full valuation allowance while the US has a cumulative pre-tax loss (no positive evidence it will be used)
+        cum_loss = sum(r["pretax_income"] for r in out if r["entity_id"] == "US01") + p["US01"] < 0
+        va = max(net, 0.0) if cum_loss else 0.0
+        deferred_tax = -((net - va) - (prev_net - prev_va))
+        prev_net, prev_va = net, va
+        for r in rows:
+            r["deferred_tax"] = round(deferred_tax, 2) + 0.0 if r["entity_id"] == "US01" else 0.0
+            r["total_provision"] = round(r["current_tax"] + r["deferred_tax"], 2)
+            r["effective_rate"] = round(r["total_provision"] / r["pretax_income"], 4) if r["pretax_income"] else None
+        out += rows
+        deferred_rows.append({"year": y, **{k: round(v, 2) for k, v in {**dta, **{f"{k} (liability)": -v for k, v in dtl.items()}}.items()},
+                              "gross_deferred_tax_assets": round(gross_dta, 2), "gross_deferred_tax_liabilities": round(gross_dtl, 2),
+                              "valuation_allowance": round(-va, 2), "net_deferred_tax": round(net - va, 2),
+                              "loss_carryforward": round(nol, 2)})
+        total_pre = sum(r["pretax_income"] for r in rows)
+        total_prov = sum(r["total_provision"] for r in rows)
+        items = [("Tax at the 21% US federal rate", fed * total_pre),
+                 ("State tax, net of the federal benefit", (us_rate - fed) * p["US01"]),
+                 ("Foreign rate differential (UK, India)", sum((r["statutory_rate"] - fed) * r["pretax_income"] for r in rows if r["entity_id"] != "US01"))]
+        items.append(("US losses and temporary differences not benefited (valuation allowance)", total_prov - sum(v for _, v in items)))
+        recon.append({"year": y, "pretax_income": round(total_pre, 2), "total_provision": round(total_prov, 2),
+                      "effective_rate": round(total_prov / total_pre, 4) if total_pre else None,
+                      "items": [{"item": k, "amount": round(v, 2), "rate": round(v / total_pre, 4) if total_pre else None} for k, v in items]})
+    y = int(str(year)[:4]) if year else int(closed[:4])
+    cur = [r for r in out if r["year"] == y]
+    entry_lines = []
+    for r in cur:
+        if r["current_tax"] > 0:
+            entry_lines += [{"account_id": "8000", "entity_id": r["entity_id"], "debit": f"{r['current_tax']:.2f}", "credit": ""},
+                            {"account_id": "2400", "entity_id": r["entity_id"], "debit": "", "credit": f"{r['current_tax']:.2f}"}]
+    entry = {"entry_date": _month_end(closed), "memo": f"Income tax provision {y} year to date through {closed} (ASC 740)",
+             "lines": entry_lines, "source_items": [f"TAX-{closed}"]} if entry_lines and y == int(closed[:4]) else None
+    return _result(cur, "marts.fct_gl_entity_monthly, fct_stock_comp_monthly, fct_deferred_commissions_monthly, "
+                        "fct_lease_schedule_monthly, seeds.corporate_tax_rates", year=y, closed_through=closed,
+                   all_years=out, deferred=deferred_rows, rate_reconciliation=recon, entry_to_book=entry,
+                   note=f"{y} is year to date through {closed} at statutory rates." if y == int(closed[:4]) else None)
+
+
+def get_receivables_financing(wh):
+    """Receivables as a source of cash: the borrowing base of a receivables credit line (eligible = not over 90 days
+    past due and not disputed, one customer at most 25%), what it would lend and cost, and invoice-by-invoice
+    factoring economics using the payment model's expected pay dates (fee, cash now, effective annual rate), compared
+    with the revolver and term loan and with the cash the company needs (13-week low vs the minimum cash policy)."""
+    import math
+    terms = {r["facility_type"]: r for r in wh.query("select * from seeds.receivables_financing")}
+    line, factor = terms["ar_line"], terms["factoring"]
+    inv = wh.query("""select invoice_ref, customer_id, segment, invoice_type, invoice_date, due_date, balance, days_past_due, is_disputed
+                      from marts.fct_ar_invoices where balance > 0 order by balance desc""")
+    as_of = str(wh.query("select max(entry_date) as d from staging.stg_erp__journal_entries")[0]["d"])[:10]
+    try:
+        pay = {r["invoice_ref"]: r for r in _ml(wh, "payment")["rows"]}
+    except Exception:  # noqa: BLE001 - the model may not be trained yet; fall back to due dates
+        pay = {}
+    today = dt.date.fromisoformat(as_of)
+    rows = []
+    for r in inv:
+        bal = float(r["balance"])
+        dpd = int(r["days_past_due"] or 0)
+        reasons = []
+        if dpd > int(line["max_days_past_due"]):
+            reasons.append(f"over {int(line['max_days_past_due'])} days past due")
+        if r["is_disputed"]:
+            reasons.append("disputed")
+        expected = pay.get(r["invoice_ref"], {}).get("expected_pay_date") or str(r["due_date"])
+        days = max(1, (dt.date.fromisoformat(str(expected)[:10]) - today).days)
+        periods = math.ceil(days / int(factor["fee_period_days"]))
+        fee = bal * float(factor["fee_rate"]) * periods
+        advance = bal * float(factor["advance_rate"])
+        rows.append({**r, "balance": bal, "eligible": not reasons, "ineligible_reason": ", ".join(reasons) or None,
+                     "expected_pay_date": str(expected)[:10], "days_to_collect": days,
+                     "factoring_advance": round(advance, 2), "factoring_fee": round(fee, 2),
+                     "factoring_effective_annual_rate": round(fee / advance * 365 / days, 4) if advance else None})
+    eligible = sum(r["balance"] for r in rows if r["eligible"])
+    cap = float(line["concentration_limit"]) * eligible
+    by_cust = {}
+    for r in rows:
+        if r["eligible"]:
+            by_cust[r["customer_id"]] = by_cust.get(r["customer_id"], 0.0) + r["balance"]
+    concentration_excess = sum(max(0.0, v - cap) for v in by_cust.values())
+    base = eligible - concentration_excess
+    availability = min(float(line["commitment"]), base * float(line["advance_rate"]))
+    total_ar = sum(r["balance"] for r in rows)
+    borrowing_base = {"total_receivables": round(total_ar, 2),
+                      "ineligible_past_due": round(sum(r["balance"] for r in rows if r["ineligible_reason"] and "past due" in r["ineligible_reason"]), 2),
+                      "ineligible_disputed": round(sum(r["balance"] for r in rows if not r["eligible"] and r["is_disputed"]
+                                                       and "past due" not in (r["ineligible_reason"] or "")), 2),
+                      "eligible_receivables": round(eligible, 2), "concentration_excess": round(concentration_excess, 2),
+                      "borrowing_base": round(base, 2), "advance_rate": float(line["advance_rate"]),
+                      "availability": round(availability, 2), "annual_rate": float(line["annual_rate"]),
+                      "monthly_interest_if_drawn": round(availability * float(line["annual_rate"]) / 12, 2),
+                      "largest_customer_share": round(max(by_cust.values()) / eligible, 4) if eligible else None}
+    fac = [r for r in rows if r["eligible"]]
+    fac_adv = sum(r["factoring_advance"] for r in fac)
+    fac_fee = sum(r["factoring_fee"] for r in fac)
+    fac_days = sum(r["days_to_collect"] * r["balance"] for r in fac) / sum(r["balance"] for r in fac) if fac else 0
+    factoring = {"invoices": len(fac), "cash_now": round(fac_adv, 2), "fees": round(fac_fee, 2),
+                 "weighted_days_to_collect": round(fac_days, 1),
+                 "effective_annual_rate": round(fac_fee / fac_adv * 365 / fac_days, 4) if fac_adv and fac_days else None,
+                 "advance_rate": float(factor["advance_rate"]), "fee_per_period": float(factor["fee_rate"]),
+                 "fee_period_days": int(factor["fee_period_days"])}
+    debt = {r["facility_id"]: (float(r["annual_rate"]), float(r["commitment"]) - float(r["drawn"]))
+            for r in wh.query("select facility_id, annual_rate, commitment, drawn from seeds.debt_facilities")}
+    low = wh.query("select min(closing_cash) as low from marts.fct_cash_forecast_13w")[0]["low"]
+    min_cash = float(wh.query("select threshold from seeds.treasury_policy where rule_id = 'MIN-CASH'")[0]["threshold"])
+    options = sorted([{"source": "Receivables credit line", "annual_rate": float(line["annual_rate"]), "cash_available": round(availability, 2)},
+                      {"source": "Factoring (eligible invoices)", "annual_rate": factoring["effective_annual_rate"], "cash_available": round(fac_adv, 2)},
+                      {"source": "Bank revolver", "annual_rate": debt["RCF-01"][0], "cash_available": debt["RCF-01"][1]},
+                      {"source": "Venture term loan", "annual_rate": debt["VD-01"][0], "cash_available": debt["VD-01"][1]}],
+                     key=lambda o: o["annual_rate"] if o["annual_rate"] is not None else 9)
+    need = float(low) < min_cash if low is not None else False
+    rec = (f"Not needed now: the 13-week low is ${float(low):,.0f} against the ${min_cash:,.0f} minimum. If cash ran short, the "
+           f"cheapest source is the {options[0]['source'].lower()} at {options[0]['annual_rate']:.1%}; factoring costs about "
+           f"{(factoring['effective_annual_rate'] or 0):.0%} a year." if low is not None and not need else
+           f"Cash falls to ${float(low or 0):,.0f}, below the ${min_cash:,.0f} minimum: draw the {options[0]['source'].lower()} first.")
+    return _result(rows, "marts.fct_ar_invoices, finance_os.ml.payment, seeds.receivables_financing, seeds.debt_facilities, "
+                         "marts.fct_cash_forecast_13w", as_of=as_of, borrowing_base=borrowing_base, factoring=factoring,
+                   funding_options=options, cash_need={"thirteen_week_low": float(low) if low is not None else None,
+                                                       "minimum_cash": min_cash, "needed": need},
+                   recommendation=rec, note="Facility terms are illustrative.")
 
 
 def get_chart_of_accounts(wh):
@@ -4108,6 +4356,16 @@ TOOLS = {
                           "credit balance and the month's activity; debits equal credits.",
                           _p({"month": {"type": "string", "description": "YYYY-MM"}})),
     "get_chart_of_accounts": (get_chart_of_accounts, "The accounts and legal entities a journal entry can post to.", _p({})),
+    "get_stock_comp": (get_stock_comp, "Stock-based compensation (ASC 718): option grants, vesting, Black-Scholes fair "
+                       "values, monthly and year-to-date expense by department, option pool, unrecognised cost and the "
+                       "entry to book.", _p({"month": {"type": "string", "description": "YYYY-MM"}})),
+    "get_income_tax_provision": (get_income_tax_provision, "Income tax provision (ASC 740) by entity: pre-tax income, "
+                                 "book-to-tax differences, taxable income, loss carryforward, current and deferred tax, "
+                                 "valuation allowance, effective rate reconciliation and the entry to book.",
+                                 _p({"year": {"type": "integer"}})),
+    "get_receivables_financing": (get_receivables_financing, "Receivables as a cash lever: borrowing base of a "
+                                  "receivables credit line, invoice factoring cost per invoice (using expected pay dates), "
+                                  "comparison with the revolver and term loan, and whether the cash is needed.", _p({})),
     "get_debt_facilities": (get_debt_facilities, "Debt facilities (venture term loan, revolver): commitment, drawn, fees, "
                             "pro-forma schedule and interest if drawn, runway effect, and covenant tests.", _p({})),
     "get_fx_hedging": (get_fx_hedging, "FX exposure from the UK and India subsidiaries, forward hedges, hedge ratio and "
